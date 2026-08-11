@@ -1,0 +1,7 @@
+# תלויות הריצה בענן. הפיתוח המקומי משתמש ב-uv ובקובץ pyproject.toml;
+# הקובץ הזה קיים כי בונה ה-Python של Render מתקין דרך pip.
+ezdxf>=1.4.4
+fastapi>=0.141.1
+pydantic>=2.13.4
+python-multipart>=0.0.20
+uvicorn[standard]>=0.34.0

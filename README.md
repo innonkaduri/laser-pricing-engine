@@ -32,8 +32,23 @@
 
 ```bash
 uv sync
-uv run pytest          # 60 בדיקות
+uv run pytest                                    # 78 בדיקות
+uv run uvicorn main:app --reload --port 8000     # ממשק ב-http://localhost:8000
 ```
+
+## פריסה
+
+```bash
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port $PORT
+```
+
+| משתנה סביבה | תפקיד |
+|---|---|
+| `TARIFF_JSON` | טבלת התמחור כמחרוזת JSON. **זה מה ששורד פריסה מחדש** — כתיבה לדיסק בתוכנית חינמית נמחקת. |
+| `TARIFF_PATH` | נתיב חלופי לקובץ הטבלה. |
+| `APP_PASSWORD` | מדליק שער סיסמה. בלעדיו הכתובת פתוחה לכל אחד — כולל עריכת המחירים. |
+| `APP_USER` | שם המשתמש לשער. ברירת מחדל `ynon`. |
 
 ## טבלת התמחור
 
@@ -48,7 +63,9 @@ uv run pytest          # 60 בדיקות
 | `src/laser_pricing/cad/` | קריאת DXF (ובהמשך STEP) |
 | `src/laser_pricing/nesting/` | פלטה, אריזה, בזבוז ושאריות |
 | `src/laser_pricing/pricing/` | הטבלה ומנוע החישוב |
+| `src/laser_pricing/api/` | FastAPI — העלאה, תמחור, עריכת הטבלה |
+| `web/` | הממשק |
 
 ## מצב
 
-ראה `docs/STATUS.md`. הליבה החישובית עובדת קצה-לקצה; API וממשק בהמשך.
+ראה `docs/STATUS.md`.

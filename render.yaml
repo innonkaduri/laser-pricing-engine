@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: laser-pricing
+    runtime: python
+    region: frankfurt
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.4"
+      # TARIFF_JSON — טבלת התמחור של ינון כמחרוזת JSON. זה מה ששורד פריסה
+      # מחדש: כתיבה לדיסק בתוכנית החינמית נמחקת בכל הפעלה מחדש.
+      - key: TARIFF_JSON
+        sync: false

@@ -8,3 +8,6 @@ __pycache__/
 .venv/
 *.pyc
 tests/fixtures/
+
+# פלט של כלי הדפדפן בבדיקות ידניות
+.playwright-mcp/

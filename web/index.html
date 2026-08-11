@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>מנוע תמחור לייזר</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>⚙️</text></svg>">
+</head>
+<body>
+
+<header>
+  <h1>מנוע תמחור לייזר</h1>
+  <span class="sub" id="plate-label">טוען…</span>
+  <span class="spacer"></span>
+  <span class="sub" id="tariff-source"></span>
+</header>
+
+<p class="banner hidden" id="banner"></p>
+
+<nav class="tabs">
+  <button data-view="quote" class="active">תמחור</button>
+  <button data-view="tariff">טבלת התמחור</button>
+</nav>
+
+<main>
+
+  <section class="view active" id="view-quote">
+    <div class="grid">
+
+      <div>
+        <div class="card">
+          <h2>הוספת חלק</h2>
+
+          <h3>קובץ ייצור</h3>
+          <div class="drop" id="drop">
+            גרור לכאן קובץ DXF, או לחץ לבחירה
+            <input type="file" id="file" accept=".dxf" hidden multiple>
+          </div>
+          <p class="small muted" style="margin:8px 0 0">
+            הקובץ מפוענח בשרת ונמחק מיד. הוא לא נשלח לשום מודל — נשלחות רק המידות.
+          </p>
+
+          <h3>קלט ידני</h3>
+          <label>צורה</label>
+          <select id="m-shape">
+            <option value="rect">מלבן</option>
+            <option value="circle">עיגול</option>
+          </select>
+          <div class="row" id="m-rect-fields">
+            <div><label>רוחב (מ"מ)</label><input type="number" id="m-w" value="400" min="1" step="0.1"></div>
+            <div><label>גובה (מ"מ)</label><input type="number" id="m-h" value="250" min="1" step="0.1"></div>
+          </div>
+          <div id="m-circle-fields" style="display:none">
+            <label>קוטר (מ"מ)</label><input type="number" id="m-d" value="200" min="1" step="0.1">
+          </div>
+          <div class="row">
+            <div><label>מספר חורים</label><input type="number" id="m-holes" value="0" min="0" step="1"></div>
+            <div><label>קוטר חור (מ"מ)</label><input type="number" id="m-hole-d" value="20" min="0.1" step="0.1"></div>
+          </div>
+          <label>שם החלק</label>
+          <input type="text" id="m-name" placeholder="חלק ידני">
+          <div style="margin-top:12px"><button class="ghost" id="m-add">הוסף חלק ידני</button></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <h2>חלקים בהזמנה <span class="pill" id="part-count">0</span></h2>
+          <div id="parts"><p class="empty">עדיין לא נוספו חלקים.</p></div>
+          <div style="margin-top:12px; display:flex; gap:10px; align-items:center">
+            <button class="primary" id="calc" disabled>חשב הצעת מחיר</button>
+            <button class="ghost" id="clear">נקה הכל</button>
+            <span class="small muted" id="calc-note"></span>
+          </div>
+        </div>
+
+        <div id="quote-out"></div>
+      </div>
+
+    </div>
+  </section>
+
+  <section class="view" id="view-tariff">
+    <div class="card">
+      <h2>טבלת התמחור</h2>
+      <p class="small muted" style="margin-top:0">
+        כל מספר כספי במערכת מגיע מכאן. צירוף חומר+עובי שאינו בטבלה גורם לשגיאה מפורשת —
+        המנוע לא ממציא מחיר ולא נופל ל"ברירת מחדל סבירה".
+      </p>
+      <div id="tariff-status" class="small"></div>
+      <label>JSON</label>
+      <textarea id="tariff-json" spellcheck="false"></textarea>
+      <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; align-items:center">
+        <button class="primary" id="tariff-save">שמור והפעל</button>
+        <button class="ghost" id="tariff-reload">טען מחדש מהשרת</button>
+        <a class="ghost" style="text-decoration:none; padding:9px 16px; border:1px solid var(--line); border-radius:7px" href="/api/tariff/download">הורד קובץ</a>
+        <span class="small" id="tariff-msg"></span>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
