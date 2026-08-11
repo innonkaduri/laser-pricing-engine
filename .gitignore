@@ -2,3 +2,9 @@
 node_modules/
 .env
 *.log
+
+__pycache__/
+.pytest_cache/
+.venv/
+*.pyc
+tests/fixtures/

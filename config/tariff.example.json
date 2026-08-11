@@ -1,0 +1,78 @@
+{
+  "_README": [
+    "זו דוגמה למבנה הטבלה בלבד. כל המספרים הכספיים כאן הם מקומות שמורים",
+    "ואינם מחירים אמיתיים. ינון מזין את הערכים בפועל — המנוע מחשב לפיהם",
+    "ולעולם לא ממציא מחיר. צירוף חומר+עובי שאינו מופיע ב-rates יגרום",
+    "לשגיאה מפורשת ולא לניחוש.",
+    "",
+    "שדות בשורת rates:",
+    "  plate_price        — מחיר פלטה שלמה 3000x1500 (כך שינון מזין איך שהוא קונה)",
+    "  cut_rate_per_m     — מחיר חיתוך למטר אורך",
+    "  pierce_price       — מחיר ניקוב אחד (כל מתאר סגור = ניקוב)",
+    "  min_charge_per_part— מינימום לחלק בודד",
+    "  density_kg_m3      — לצורך הצגת משקל בלבד, לא משפיע על המחיר",
+    "",
+    "waste_tiers — הלב של התמחור הלא-בינארי. multiplier הוא על כמה משטח",
+    "החלק נטו הלקוח מחויב: 1.25 = הלקוח סופג 25% בזבוז. המדרגה האחרונה",
+    "חייבת לכסות עד 100%."
+  ],
+
+  "currency": "ILS",
+  "vat_pct": 18.0,
+  "margin_pct": 0.0,
+
+  "plate": {
+    "width_mm": 3000.0,
+    "height_mm": 1500.0,
+    "edge_margin_mm": 20.0,
+    "label": "3000x1500"
+  },
+
+  "part_gap_mm": 5.0,
+
+  "remnant_policy": {
+    "min_usable_short_side_mm": 200.0,
+    "full_value_area_mm2": 640000.0,
+    "max_credit_ratio": 0.5
+  },
+
+  "setup_fee_per_order": 0.0,
+  "setup_fee_per_part": 0.0,
+  "min_order_total": 0.0,
+
+  "waste_tiers": [
+    { "max_waste_pct": 15.0,  "multiplier": 1.10, "label": "ניצולת מצוינת" },
+    { "max_waste_pct": 30.0,  "multiplier": 1.25, "label": "ניצולת טובה" },
+    { "max_waste_pct": 50.0,  "multiplier": 1.45, "label": "ניצולת בינונית" },
+    { "max_waste_pct": 75.0,  "multiplier": 1.70, "label": "בזבוז גבוה" },
+    { "max_waste_pct": 100.0, "multiplier": 2.00, "label": "חלק בודד / בזבוז מקסימלי" }
+  ],
+
+  "rates": [
+    { "material_key": "st37", "material_name": "פלדה שחורה St37", "thickness_mm": 1.0,  "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0, "min_charge_per_part": 0.0, "density_kg_m3": 7850.0 },
+    { "material_key": "st37", "material_name": "פלדה שחורה St37", "thickness_mm": 1.5,  "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0, "min_charge_per_part": 0.0, "density_kg_m3": 7850.0 },
+    { "material_key": "st37", "material_name": "פלדה שחורה St37", "thickness_mm": 2.0,  "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0, "min_charge_per_part": 0.0, "density_kg_m3": 7850.0 },
+    { "material_key": "st37", "material_name": "פלדה שחורה St37", "thickness_mm": 3.0,  "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0, "min_charge_per_part": 0.0, "density_kg_m3": 7850.0 },
+    { "material_key": "st37", "material_name": "פלדה שחורה St37", "thickness_mm": 4.0,  "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0, "min_charge_per_part": 0.0, "density_kg_m3": 7850.0 },
+    { "material_key": "st37", "material_name": "פלדה שחורה St37", "thickness_mm": 5.0,  "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0, "min_charge_per_part": 0.0, "density_kg_m3": 7850.0 },
+    { "material_key": "st37", "material_name": "פלדה שחורה St37", "thickness_mm": 6.0,  "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0, "min_charge_per_part": 0.0, "density_kg_m3": 7850.0 },
+    { "material_key": "st37", "material_name": "פלדה שחורה St37", "thickness_mm": 8.0,  "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0, "min_charge_per_part": 0.0, "density_kg_m3": 7850.0 },
+    { "material_key": "st37", "material_name": "פלדה שחורה St37", "thickness_mm": 10.0, "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0, "min_charge_per_part": 0.0, "density_kg_m3": 7850.0 },
+
+    { "material_key": "ss304", "material_name": "נירוסטה 304", "thickness_mm": 1.0, "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0, "min_charge_per_part": 0.0, "density_kg_m3": 8000.0 },
+    { "material_key": "ss304", "material_name": "נירוסטה 304", "thickness_mm": 1.5, "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0, "min_charge_per_part": 0.0, "density_kg_m3": 8000.0 },
+    { "material_key": "ss304", "material_name": "נירוסטה 304", "thickness_mm": 2.0, "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0, "min_charge_per_part": 0.0, "density_kg_m3": 8000.0 },
+    { "material_key": "ss304", "material_name": "נירוסטה 304", "thickness_mm": 3.0, "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0, "min_charge_per_part": 0.0, "density_kg_m3": 8000.0 },
+    { "material_key": "ss304", "material_name": "נירוסטה 304", "thickness_mm": 4.0, "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0, "min_charge_per_part": 0.0, "density_kg_m3": 8000.0 },
+
+    { "material_key": "alu5083", "material_name": "אלומיניום 5083", "thickness_mm": 1.5, "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0, "min_charge_per_part": 0.0, "density_kg_m3": 2660.0 },
+    { "material_key": "alu5083", "material_name": "אלומיניום 5083", "thickness_mm": 2.0, "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0, "min_charge_per_part": 0.0, "density_kg_m3": 2660.0 },
+    { "material_key": "alu5083", "material_name": "אלומיניום 5083", "thickness_mm": 3.0, "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0, "min_charge_per_part": 0.0, "density_kg_m3": 2660.0 },
+    { "material_key": "alu5083", "material_name": "אלומיניום 5083", "thickness_mm": 5.0, "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0, "min_charge_per_part": 0.0, "density_kg_m3": 2660.0 },
+
+    { "material_key": "galv", "material_name": "פח מגולוון", "thickness_mm": 0.8, "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0, "min_charge_per_part": 0.0, "density_kg_m3": 7850.0 },
+    { "material_key": "galv", "material_name": "פח מגולוון", "thickness_mm": 1.0, "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0, "min_charge_per_part": 0.0, "density_kg_m3": 7850.0 },
+    { "material_key": "galv", "material_name": "פח מגולוון", "thickness_mm": 1.5, "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0, "min_charge_per_part": 0.0, "density_kg_m3": 7850.0 },
+    { "material_key": "galv", "material_name": "פח מגולוון", "thickness_mm": 2.0, "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0, "min_charge_per_part": 0.0, "density_kg_m3": 7850.0 }
+  ]
+}
