@@ -225,3 +225,114 @@ class TestAuthGate:
         monkeypatch.setenv("APP_USER", "ynon")
         assert client.get("/api/config", auth=("ynon", "sod")).status_code == 200
         assert client.get("/api/config", auth=("ynon", "wrong")).status_code == 401
+
+
+class TestSimplePriceForm:
+    """המסך שאבא של ינון ממלא — טופס, לא JSON."""
+
+    def test_form_exposes_prices_and_hides_calibration(self, client):
+        form = client.get("/api/prices").json()["form"]
+        assert form["materials"], "הטופס חייב להציג חומרים"
+        row = form["materials"][0]["rows"][0]
+        assert "plate_price" in row and "weld_rate_per_m" in row
+        # מדרגות בזבוז, מידות פלטה ומדיניות שאריות הן כיול של ינון
+        assert "waste_tiers" not in form
+        assert "plate" not in form
+        assert "remnant_policy" not in form
+
+    def test_saving_the_form_makes_the_engine_ready(self, client):
+        form = client.get("/api/prices").json()["form"]
+        assert client.get("/api/prices").json()["ready"] is False
+        for material in form["materials"]:
+            for row in material["rows"]:
+                row["plate_price"] = 500.0
+                row["cut_rate_per_m"] = 12.0
+        res = client.put("/api/prices", json=form)
+        assert res.status_code == 200
+        assert res.json()["ready"] is True
+        assert client.get("/api/config").json()["tariff_ready"] is True
+
+    def test_form_never_wipes_fields_it_does_not_show(self):
+        """הבאג המסוכן בטופס פשוט: לבנות טבלה חדשה ולמחוק את הכיול."""
+        from laser_pricing.api.simple_tariff import apply_form, to_form
+
+        raw = {
+            "rates": [
+                {
+                    "material_key": "st37",
+                    "material_name": "פלדה",
+                    "thickness_mm": 3.0,
+                    "plate_price": 0.0,
+                    "cut_rate_per_m": 0.0,
+                    "density_kg_m3": 7850.0,
+                }
+            ],
+            "waste_tiers": [{"max_waste_pct": 100.0, "multiplier": 2.0}],
+            "plate": {"width_mm": 3000.0, "height_mm": 1500.0, "edge_margin_mm": 20.0},
+            "remnant_policy": {"min_usable_short_side_mm": 200.0},
+        }
+        form = to_form(raw)
+        form["materials"][0]["rows"][0]["plate_price"] = 450.0
+        merged = apply_form(raw, form)
+
+        assert merged["rates"][0]["plate_price"] == 450.0
+        assert merged["waste_tiers"] == raw["waste_tiers"]
+        assert merged["plate"] == raw["plate"]
+        assert merged["remnant_policy"] == raw["remnant_policy"]
+        assert merged["rates"][0]["density_kg_m3"] == 7850.0
+
+    def test_blank_field_means_zero_not_an_error(self):
+        from laser_pricing.api.simple_tariff import apply_form
+
+        raw = {"rates": [{"material_key": "a", "material_name": "A", "thickness_mm": 1.0}]}
+        form = {"materials": [{"key": "a", "name": "A", "rows": [{"thickness_mm": 1.0, "plate_price": ""}]}]}
+        assert apply_form(raw, form)["rates"][0]["plate_price"] == 0.0
+
+    def test_new_thickness_can_be_added_without_touching_json(self):
+        from laser_pricing.api.simple_tariff import apply_form
+
+        raw = {"rates": [{"material_key": "a", "material_name": "A", "thickness_mm": 1.0}]}
+        form = {"materials": [{"key": "a", "name": "A", "rows": [{"thickness_mm": 12.0, "plate_price": 99.0}]}]}
+        merged = apply_form(raw, form)
+        assert len(merged["rates"]) == 2
+        assert merged["rates"][1]["thickness_mm"] == 12.0
+        assert merged["rates"][1]["density_kg_m3"] == 7850.0
+
+    def test_bad_numbers_are_rejected_with_a_clear_error(self, client):
+        form = client.get("/api/prices").json()["form"]
+        form["materials"][0]["rows"][0]["plate_price"] = -5.0
+        assert client.put("/api/prices", json=form).status_code == 422
+
+
+class TestEditorKeyIsScoped:
+    """הסיסמה הפשוטה פותחת את טופס המחירים בלבד."""
+
+    @pytest.fixture
+    def gated(self, monkeypatch):
+        monkeypatch.setenv("APP_PASSWORD", "strong-secret")
+        monkeypatch.setenv("EDITOR_PASSWORD", "123")
+        from laser_pricing.api.app import app
+
+        return TestClient(app)
+
+    def test_editor_key_opens_the_price_form(self, gated):
+        assert gated.get("/api/prices", headers={"X-Editor-Key": "123"}).status_code == 200
+        assert gated.get("/prices?k=123").status_code == 200
+
+    def test_editor_key_does_not_open_the_engine(self, gated):
+        assert gated.get("/api/config", headers={"X-Editor-Key": "123"}).status_code == 401
+        assert gated.get("/", headers={"X-Editor-Key": "123"}).status_code == 401
+
+    def test_editor_key_does_not_open_the_raw_json_editor(self, gated):
+        """הנקודה המרכזית: 123 לא נותן להחליף את הטבלה כולה."""
+        assert gated.get("/api/tariff", headers={"X-Editor-Key": "123"}).status_code == 401
+        assert gated.put("/api/tariff", json={}, headers={"X-Editor-Key": "123"}).status_code == 401
+
+    def test_wrong_editor_key_is_refused(self, gated):
+        assert gated.get("/api/prices", headers={"X-Editor-Key": "124"}).status_code == 401
+        assert gated.get("/prices?k=oops").status_code == 401
+
+    def test_main_password_still_opens_everything(self, gated):
+        auth = ("ynon", "strong-secret")
+        assert gated.get("/api/config", auth=auth).status_code == 200
+        assert gated.get("/api/prices", auth=auth).status_code == 200

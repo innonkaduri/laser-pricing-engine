@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>מילוי מחירים — מנוע תמחור לייזר</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>💰</text></svg>">
+<style>
+/* הדף עצמאי בכוונה — ראה את ההערה ב-app.py. */
+:root{
+  --bg:#f5f6f8; --card:#fff; --line:#dfe3e8; --text:#16191d; --muted:#5d6670;
+  --accent:#d9541e; --ok:#1d8a54; --ok-bg:#f1faf5; --warn:#96650a; --warn-bg:#fff8e6;
+  --bad:#c0362c; --bad-bg:#fdeeec;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:"Heebo","Segoe UI","Arial Hebrew",system-ui,sans-serif;
+  font-size:17px; line-height:1.6;
+}
+header{background:var(--card); border-bottom:1px solid var(--line); padding:22px 24px}
+header h1{margin:0; font-size:24px; font-weight:700}
+header p{margin:6px 0 0; color:var(--muted); font-size:15px}
+main{max-width:1000px; margin:0 auto; padding:22px 18px 120px}
+
+.card{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px; margin-bottom:18px}
+.card h2{margin:0 0 4px; font-size:19px}
+.card .sub{margin:0 0 16px; color:var(--muted); font-size:14px}
+
+.note{padding:14px 16px; border-radius:10px; font-size:15px; margin:0 0 18px}
+.note.warn{background:var(--warn-bg); color:var(--warn); border:1px solid #ecd9a4}
+.note.ok{background:var(--ok-bg); color:var(--ok); border:1px solid #bfe3d0}
+.note.bad{background:var(--bad-bg); color:var(--bad); border:1px solid #f2c5c0}
+.hidden{display:none}
+
+table{width:100%; border-collapse:collapse}
+th,td{padding:8px 6px; text-align:right; border-bottom:1px solid #eef0f3}
+th{font-size:13px; color:var(--muted); font-weight:600; vertical-align:bottom}
+tbody tr:last-child td{border-bottom:none}
+td.thk{font-weight:600; white-space:nowrap; width:86px}
+
+input{
+  width:100%; padding:10px 10px; font-size:17px; font-family:inherit;
+  border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--text);
+  text-align:left; direction:ltr; font-variant-numeric:tabular-nums;
+}
+input:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(217,84,30,.12)}
+input.filled{background:#f4fbf7; border-color:#bfe3d0}
+
+.general{display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:14px}
+.general label{display:block; font-size:14px; color:var(--muted); margin-bottom:5px}
+
+.bar{
+  position:fixed; inset-block-end:0; inset-inline:0; background:var(--card);
+  border-top:1px solid var(--line); padding:14px 24px; display:flex; gap:14px;
+  align-items:center; justify-content:flex-start; flex-wrap:wrap;
+  box-shadow:0 -2px 14px rgba(0,0,0,.05);
+}
+button{
+  font-family:inherit; font-size:18px; font-weight:600; padding:13px 34px;
+  border-radius:9px; border:1px solid var(--accent); background:var(--accent);
+  color:#fff; cursor:pointer;
+}
+button:disabled{background:#c9ced4; border-color:#c9ced4; cursor:not-allowed}
+#status{font-size:15px}
+
+.gate{max-width:380px; margin:70px auto; text-align:center}
+.gate input{text-align:center; direction:ltr; font-size:26px; letter-spacing:.25em; padding:14px}
+@media(max-width:640px){
+  body{font-size:16px}
+  th{font-size:11.5px}
+  th,td{padding:6px 3px}
+  input{padding:8px 6px; font-size:16px}
+  td.thk{width:58px}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>מילוי מחירים</h1>
+  <p>מנוע תמחור לייזר — המחירים שתמלא כאן הם שלפיהם המערכת מחשבת.</p>
+</header>
+
+<main>
+  <div id="gate" class="gate">
+    <div class="card">
+      <h2>הזנת קוד</h2>
+      <p class="sub">הקלד את הקוד שקיבלת מינון.</p>
+      <input id="gate-key" type="password" inputmode="numeric" autocomplete="off" placeholder="קוד">
+      <div style="margin-top:14px"><button id="gate-go">כניסה</button></div>
+      <p id="gate-msg" class="note bad hidden" style="margin-top:14px"></p>
+    </div>
+  </div>
+
+  <div id="app" class="hidden">
+    <p id="banner" class="note warn"></p>
+    <div id="materials"></div>
+
+    <div class="card">
+      <h2>הגדרות כלליות</h2>
+      <p class="sub">חלים על כל הזמנה, בלי קשר לחומר.</p>
+      <div class="general" id="general"></div>
+    </div>
+
+    <p class="note warn">
+      השאר 0 בכל שדה שאין לו מחיר. שדה שנשאר 0 פשוט לא ייגבה —
+      המערכת לא תמציא לו מחיר לבד.
+    </p>
+  </div>
+</main>
+
+<div id="bar" class="bar hidden">
+  <button id="save">שמור מחירים</button>
+  <span id="status"></span>
+</div>
+
+<script>
+'use strict';
+
+const $ = (s) => document.querySelector(s);
+const params = new URLSearchParams(location.search);
+let KEY = params.get('k') || '';
+let FORM = null;
+
+const fmt = (n) => (Number(n) || 0) === 0 ? '' : String(Number(n));
+
+async function api(path, options = {}) {
+  const headers = Object.assign({'X-Editor-Key': KEY}, options.headers || {});
+  const res = await fetch(path, Object.assign({}, options, {headers}));
+  const text = await res.text();
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch { body = null; }
+  if (!res.ok) throw new Error((body && body.detail) || text || ('שגיאה ' + res.status));
+  return body;
+}
+
+/* ---- כניסה ---- */
+
+async function tryKey(key) {
+  KEY = key;
+  const data = await api('/api/prices');
+  FORM = data.form;
+  sessionStorage.setItem('editorKey', key);
+  $('#gate').classList.add('hidden');
+  $('#app').classList.remove('hidden');
+  $('#bar').classList.remove('hidden');
+  render(data);
+}
+
+$('#gate-go').addEventListener('click', async () => {
+  const msg = $('#gate-msg');
+  msg.classList.add('hidden');
+  try {
+    await tryKey($('#gate-key').value.trim());
+  } catch (err) {
+    msg.textContent = 'הקוד שגוי. נסה שוב או בקש מינון קוד חדש.';
+    msg.classList.remove('hidden');
+  }
+});
+$('#gate-key').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#gate-go').click(); });
+
+/* ---- ציור הטופס ---- */
+
+function render(data) {
+  const banner = $('#banner');
+  if (data.ready) {
+    banner.className = 'note ok';
+    banner.textContent = 'יש מחירים פעילים במערכת. כל שינוי שתשמור כאן ייכנס לתוקף מיד.';
+  } else {
+    banner.className = 'note warn';
+    banner.textContent = 'עדיין לא מולאו מחירים — כל הצעת מחיר במערכת יוצאת כרגע 0. מלא את השדות ולחץ "שמור מחירים".';
+  }
+
+  const money = FORM.labels.money;
+  $('#materials').innerHTML = FORM.materials.map((m, mi) => `
+    <div class="card">
+      <h2>${esc(m.name)}</h2>
+      <p class="sub">מחיר לכל עובי. המחירים בשקלים.</p>
+      <div style="overflow-x:auto"><table>
+        <thead><tr>
+          <th>עובי מ"מ</th>
+          ${money.map((f) => `<th>${esc(f.label)}</th>`).join('')}
+        </tr></thead>
+        <tbody>${m.rows.map((r, ri) => `
+          <tr>
+            <td class="thk">${r.thickness_mm}</td>
+            ${money.map((f) => `
+              <td><input type="number" min="0" step="0.01" inputmode="decimal"
+                    value="${fmt(r[f.field])}" placeholder="0"
+                    data-m="${mi}" data-r="${ri}" data-f="${esc(f.field)}"></td>`).join('')}
+          </tr>`).join('')}
+        </tbody>
+      </table></div>
+    </div>`).join('');
+
+  $('#general').innerHTML = FORM.labels.general.map((f) => `
+    <div>
+      <label>${esc(f.label)}</label>
+      <input type="number" min="0" step="0.01" inputmode="decimal"
+             value="${fmt(FORM.general[f.field])}" placeholder="0" data-g="${esc(f.field)}">
+    </div>`).join('');
+
+  document.querySelectorAll('input[data-f], input[data-g]').forEach((el) => {
+    paint(el);
+    el.addEventListener('input', () => { paint(el); dirty(); });
+  });
+}
+
+function paint(el) {
+  el.classList.toggle('filled', Number(el.value) > 0);
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
+}
+
+function dirty() {
+  $('#status').textContent = 'יש שינויים שלא נשמרו.';
+  $('#status').style.color = 'var(--warn)';
+}
+
+/* ---- שמירה ---- */
+
+function collect() {
+  const out = JSON.parse(JSON.stringify(FORM));
+  document.querySelectorAll('input[data-f]').forEach((el) => {
+    out.materials[+el.dataset.m].rows[+el.dataset.r][el.dataset.f] = el.value === '' ? 0 : Number(el.value);
+  });
+  document.querySelectorAll('input[data-g]').forEach((el) => {
+    out.general[el.dataset.g] = el.value === '' ? 0 : Number(el.value);
+  });
+  return out;
+}
+
+$('#save').addEventListener('click', async () => {
+  const btn = $('#save');
+  const status = $('#status');
+  btn.disabled = true;
+  status.style.color = 'var(--muted)';
+  status.textContent = 'שומר…';
+  try {
+    const res = await api('/api/prices', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(collect()),
+    });
+    status.style.color = res.ready ? 'var(--ok)' : 'var(--warn)';
+    status.textContent = res.message;
+    const fresh = await api('/api/prices');
+    FORM = fresh.form;
+    render(fresh);
+  } catch (err) {
+    status.style.color = 'var(--bad)';
+    status.textContent = 'לא נשמר: ' + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/* ---- הפעלה ---- */
+
+(async () => {
+  const saved = KEY || sessionStorage.getItem('editorKey') || '';
+  if (saved) {
+    try { await tryKey(saved); return; } catch { /* נופלים למסך הקוד */ }
+  }
+  $('#gate-key').focus();
+})();
+</script>
+</body>
+</html>

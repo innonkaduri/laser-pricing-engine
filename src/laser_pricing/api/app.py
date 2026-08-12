@@ -32,6 +32,7 @@ from ..nesting.splitting import plan_split
 from ..pricing.engine import PricingError, price_order
 from ..pricing.tariff import InvalidTariffError, MissingTariffError
 from .serialize import geometry_to_json, quote_to_json
+from .simple_tariff import apply_form, to_form
 from .store import STORE, GeometryExpired, StoredGeometry
 from .tariff_store import STATE
 
@@ -49,6 +50,24 @@ app = FastAPI(
 
 OPEN_PATHS = frozenset({"/health"})
 
+EDITOR_PATHS = ("/prices", "/api/prices")
+"""המסלולים היחידים ש-EDITOR_PASSWORD פותח.
+
+הפרדת המפתחות היא העיקר כאן. אבא של ינון צריך סיסמה שאפשר להכתיב
+בטלפון, אבל אותה סיסמה על *כל* המערכת הייתה נותנת לכל אחד גם לתמחר,
+גם לראות הצעות וגם להחליף את הטבלה כולה דרך עורך ה-JSON. לכן מפתח
+העריכה פותח אך ורק את טופס המחירים, ומפתח המערכת נשאר נפרד וחזק.
+"""
+
+
+def _is_editor_path(path: str) -> bool:
+    return any(path == p or path.startswith(p + "/") for p in EDITOR_PATHS)
+
+
+def _editor_key(request: Request) -> str:
+    """המפתח מגיע מהלינק עצמו או מכותרת, כדי שלינק בודד יספיק."""
+    return request.headers.get("x-editor-key") or request.query_params.get("k", "")
+
 
 @app.middleware("http")
 async def basic_auth(request: Request, call_next):
@@ -61,8 +80,14 @@ async def basic_auth(request: Request, call_next):
     בפיתוח מקומי המשתנה לא מוגדר והשער כבוי.
     """
     password = os.environ.get("APP_PASSWORD", "")
-    if not password or request.url.path in OPEN_PATHS:
+    path = request.url.path
+    if not password or path in OPEN_PATHS:
         return await call_next(request)
+
+    editor_password = os.environ.get("EDITOR_PASSWORD", "")
+    if editor_password and _is_editor_path(path):
+        if hmac.compare_digest(_editor_key(request), editor_password):
+            return await call_next(request)
 
     header = request.headers.get("authorization", "")
     if header.startswith("Basic "):
@@ -75,6 +100,14 @@ async def basic_auth(request: Request, call_next):
         # השוואה בזמן קבוע — הפרש זמנים על סיסמה קצרה הוא דליפה אמיתית.
         if hmac.compare_digest(user, expected_user) and hmac.compare_digest(supplied, password):
             return await call_next(request)
+
+    if _is_editor_path(path):
+        # לאבא אין שם משתמש. דף שגיאה קריא עדיף על חלון התחברות של הדפדפן.
+        return Response(
+            status_code=401,
+            content="הקישור אינו תקין או שפג תוקפו. בקש מינון קישור חדש.",
+            media_type="text/plain; charset=utf-8",
+        )
 
     return Response(
         status_code=401,
@@ -300,6 +333,44 @@ async def put_tariff(raw: dict) -> dict:
     }
 
 
+# ---- טופס המחירים הפשוט ----
+
+
+@app.get("/api/prices")
+def get_prices() -> dict:
+    """הטבלה בצורת טופס, בלי מבנה נתונים ובלי מונחים טכניים."""
+    return {
+        "form": to_form(STATE.raw or {}),
+        "ready": STATE.is_ready,
+        "source": STATE.origin,
+    }
+
+
+@app.put("/api/prices")
+async def put_prices(form: dict) -> dict:
+    """שומר את המחירים מהטופס לתוך הטבלה הקיימת.
+
+    הטופס נוגע רק במחירים; מדרגות הבזבוז, מידות הפלטה ומדיניות
+    השאריות עוברות דרכו ללא שינוי.
+    """
+    try:
+        merged = apply_form(STATE.raw or {}, form)
+        STATE.replace(merged)
+    except (InvalidTariffError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    saved = STATE.persist()
+    return {
+        "ready": STATE.is_ready,
+        "persisted": saved is not None,
+        "message": (
+            "המחירים נשמרו והמערכת מחשבת לפיהם."
+            if STATE.is_ready
+            else "נשמר, אבל כל המחירים עדיין 0 — המערכת תציג 0 בכל הצעה."
+        ),
+    }
+
+
 @app.get("/api/tariff/download")
 def download_tariff() -> JSONResponse:
     return JSONResponse(
@@ -401,6 +472,16 @@ if WEB_DIR.exists():
     @app.get("/")
     def index() -> FileResponse:
         return FileResponse(WEB_DIR / "index.html")
+
+    @app.get("/prices")
+    def prices_form() -> FileResponse:
+        """מסך המחירים. עצמאי לחלוטין — CSS ו-JS בתוך הקובץ.
+
+        הסיבה טכנית ולא סגנונית: מפתח העריכה מגיע בכתובת עצמה, והדפדפן
+        לא יצרף אותו לבקשות ל-/static. דף שתלוי בקבצים חיצוניים היה
+        נטען שבור אצל מי שנכנס עם הלינק.
+        """
+        return FileResponse(WEB_DIR / "prices.html")
 
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 
