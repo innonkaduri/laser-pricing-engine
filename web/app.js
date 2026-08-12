@@ -34,7 +34,7 @@ async function boot() {
 
   if (cfg.plate) {
     $('#plate-label').textContent =
-      `פלטה ${cfg.plate.width_mm}×${cfg.plate.height_mm} מ"מ · שוליים ${cfg.plate.edge_margin_mm} · שטח עבודה ${cfg.plate.usable_width_mm}×${cfg.plate.usable_height_mm}`;
+      `פלטה ${cfg.plate.width_mm}×${cfg.plate.height_mm} · שטח עבודה ${cfg.plate.usable_width_mm}×${cfg.plate.usable_height_mm} מ"מ`;
   }
   $('#tariff-source').textContent = 'טבלה: ' + (cfg.tariff_source || '—');
 
@@ -42,8 +42,7 @@ async function boot() {
     showBanner('bad', 'טבלת התמחור אינה תקינה: ' + cfg.tariff_error);
   } else if (!cfg.tariff_ready) {
     showBanner('warn',
-      'טבלת התמחור עדיין לא הוזנה — נטענה התבנית שכל המחירים בה 0. ' +
-      'החישוב הגיאומטרי, אילוץ הפלטה ואחוזי הבזבוז אמיתיים לחלוטין, אבל כל סכום כספי יצא 0 עד שינון ימלא את הטבלה בלשונית "טבלת התמחור".');
+      'טבלת התמחור עדיין ריקה — כל סכום יצא 0. המידות, הפריסה ואחוזי הבזבוז אמיתיים.');
   }
 
   renderParts();
@@ -239,16 +238,16 @@ function renderParts() {
 
 /* ---------- ציור ---------- */
 
-function thumbSvg(d, size = 92) {
+function thumbSvg(d, size = 76) {
   const w = d.bbox.width_mm || 1;
   const h = d.bbox.height_mm || 1;
   const scale = (size - 10) / Math.max(w, h);
   const paths = (d.contours || []).map((c) => {
     const pts = c.points.map(([x, y]) => `${((x - d.bbox.min_x) * scale + 5).toFixed(2)},${((h - (y - d.bbox.min_y)) * scale + 5).toFixed(2)}`).join(' ');
-    const color = c.hole ? '#ff8a3d' : '#4a90d9';
+    const color = c.hole ? '#d9541e' : '#3f74a8';
     return c.closed
       ? `<polygon points="${pts}" fill="none" stroke="${color}" stroke-width="1.2"/>`
-      : `<polyline points="${pts}" fill="none" stroke="#97a1ae" stroke-width="1" stroke-dasharray="3 2"/>`;
+      : `<polyline points="${pts}" fill="none" stroke="#9aa3ae" stroke-width="1" stroke-dasharray="3 2"/>`;
   }).join('');
   return `<svg class="thumb" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${paths}</svg>`;
 }
@@ -262,13 +261,13 @@ function plateSvg(layout) {
     const x = p.x + margin;
     const y = H - margin - p.y - p.h;
     return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${p.w.toFixed(1)}" height="${p.h.toFixed(1)}"
-            fill="#2b4c73" stroke="#4a90d9" stroke-width="3"><title>${esc(p.item_id)}${p.rotated ? ' (מסובב)' : ''}</title></rect>`;
+            fill="#cfe0f0" stroke="#3f74a8" stroke-width="3"><title>${esc(p.item_id)}${p.rotated ? ' (מסובב)' : ''}</title></rect>`;
   }).join('');
   return `
     <svg class="plate" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
-      <rect x="0" y="0" width="${W}" height="${H}" fill="#12161b" stroke="#3a434f" stroke-width="4"/>
+      <rect x="0" y="0" width="${W}" height="${H}" fill="#fafbfc" stroke="#c7cdd4" stroke-width="4"/>
       <rect x="${margin}" y="${margin}" width="${W - 2 * margin}" height="${H - 2 * margin}"
-            fill="none" stroke="#2a323c" stroke-width="2" stroke-dasharray="14 10"/>
+            fill="none" stroke="#dde1e6" stroke-width="2" stroke-dasharray="14 10"/>
       ${rects}
     </svg>`;
 }
@@ -309,62 +308,66 @@ function renderQuote(q) {
 
   const stats = `
     <div class="stats">
-      <div class="stat"><div class="k">סה"כ חלקים</div><div class="v">${int(q.lines.reduce((s, l) => s + l.quantity, 0))}</div></div>
-      <div class="stat"><div class="k">משקל</div><div class="v">${fmt(weight, 1)} ק"ג</div></div>
-      <div class="stat"><div class="k">פלטות</div><div class="v">${int(q.groups.reduce((s, g) => s + g.plates_used, 0))}</div></div>
-      <div class="stat"><div class="k">לפני מע"מ</div><div class="v">${cur}${fmt(q.total_before_vat)}</div></div>
-      <div class="stat"><div class="k">מע"מ</div><div class="v">${cur}${fmt(q.vat_amount)}</div></div>
       <div class="stat total"><div class="k">סה"כ לתשלום</div><div class="v">${cur}${fmt(q.total)}</div></div>
+      <div class="stat"><div class="k">לפני מע"מ</div><div class="v">${cur}${fmt(q.total_before_vat)}</div></div>
+      <div class="stat"><div class="k">חלקים</div><div class="v">${int(q.lines.reduce((s, l) => s + l.quantity, 0))}</div></div>
+      <div class="stat"><div class="k">פלטות</div><div class="v">${int(q.groups.reduce((s, g) => s + g.plates_used, 0))}</div></div>
+      <div class="stat"><div class="k">משקל</div><div class="v">${fmt(weight, 1)} ק"ג</div></div>
     </div>`;
 
   const rejected = q.rejected.length ? `
     <div class="card">
       <h2>לא ניתן לייצור</h2>
-      <p class="small muted" style="margin-top:0">זו אי-אפשרות טכנית, לא שאלת מחיר. אי אפשר לאשר את ההזמנה לפני שהחלקים האלה מתוקנים.</p>
+      <p class="hint" style="margin-top:-8px">אי-אפשרות טכנית, לא שאלת מחיר. אי אפשר לאשר את ההזמנה לפני תיקון.</p>
       <ul class="rejects">${q.rejected.map((r) => `<li><b>${esc(r.part_name)}</b> — ${esc(r.reason)}</li>`).join('')}</ul>
     </div>` : '';
 
   const warnings = q.warnings.length ? `
     <div class="card"><h2>שים לב</h2><ul class="warnings">${q.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>` : '';
 
+  // מה שמופיע תמיד מול מה שנפתח במתג. הקריטריון: מה שהלקוח שואל עליו
+  // נשאר, ומה ששימושי לבדיקה תפעולית מסומן detail.
   const lines = `
     <div class="card">
-      <h2>פירוט ההצעה</h2>
-      <div class="scroll-x"><table>
+      <div class="table-head">
+        <h2 style="margin:0">פירוט ההצעה</h2>
+        <label class="toggle"><input type="checkbox" id="full-cols"> פירוט מלא</label>
+      </div>
+      <div class="scroll-x"><table id="lines-table">
         <thead><tr>
-          <th>חלק</th><th>חומר</th><th class="num">עובי</th><th class="num">מידות</th>
-          <th class="num">כמות</th><th class="num">שטח נטו</th><th class="num">שטח מחויב</th>
-          <th class="num">אורך חיתוך</th><th class="num">ניקובים</th><th class="num">משקל</th>
-          <th class="num">בזבוז</th><th>מדרגה</th>
-          <th class="num">חומר</th><th class="num">חיתוך</th><th class="num">ניקוב</th>
-          <th class="num">ליחידה</th><th class="num">סה"כ שורה</th>
+          <th>חלק</th><th>חומר</th><th class="num detail">עובי</th><th class="num">מידות</th>
+          <th class="num">כמות</th><th class="num detail">שטח נטו</th><th class="num detail">שטח מחויב</th>
+          <th class="num detail">אורך חיתוך</th><th class="num detail">ניקובים</th><th class="num detail">משקל</th>
+          <th class="num detail">בזבוז</th><th class="detail">מדרגה</th>
+          <th class="num detail">חומר</th><th class="num detail">חיתוך</th><th class="num detail">ניקוב</th>
+          <th class="num">ליחידה</th><th class="num">סה"כ</th>
         </tr></thead>
         <tbody>${q.lines.map((l) => `
           <tr>
             <td>${esc(l.part_name)}</td>
             <td>${esc(l.material_name)}</td>
-            <td class="num">${fmt(l.thickness_mm, 1)}</td>
+            <td class="num detail">${fmt(l.thickness_mm, 1)}</td>
             <td class="num">${fmt(l.width_mm, 0)}×${fmt(l.height_mm, 0)}</td>
             <td class="num">${int(l.quantity)}</td>
-            <td class="num">${fmt(l.net_area_mm2 / 100, 1)} סמ"ר</td>
-            <td class="num">${fmt(l.billed_area_mm2 / 100, 1)} סמ"ר</td>
-            <td class="num">${fmt(l.cut_length_mm / 1000, 2)} מ'</td>
-            <td class="num">${int(l.pierces)}</td>
-            <td class="num">${fmt(l.weight_kg, 2)}</td>
-            <td class="num">${fmt(l.waste_pct, 1)}%</td>
-            <td>${esc(l.waste_tier_label)}</td>
-            <td class="num">${cur}${fmt(l.material_cost)}</td>
-            <td class="num">${cur}${fmt(l.cutting_cost)}</td>
-            <td class="num">${cur}${fmt(l.piercing_cost)}</td>
+            <td class="num detail">${fmt(l.net_area_mm2 / 100, 1)} סמ"ר</td>
+            <td class="num detail">${fmt(l.billed_area_mm2 / 100, 1)} סמ"ר</td>
+            <td class="num detail">${fmt(l.cut_length_mm / 1000, 2)} מ'</td>
+            <td class="num detail">${int(l.pierces)}</td>
+            <td class="num detail">${fmt(l.weight_kg, 2)}</td>
+            <td class="num detail">${fmt(l.waste_pct, 1)}%</td>
+            <td class="detail">${esc(l.waste_tier_label)}</td>
+            <td class="num detail">${cur}${fmt(l.material_cost)}</td>
+            <td class="num detail">${cur}${fmt(l.cutting_cost)}</td>
+            <td class="num detail">${cur}${fmt(l.piercing_cost)}</td>
             <td class="num">${cur}${fmt(l.unit_price)}${l.min_charge_applied ? ' <span class="pill warn">מינימום</span>' : ''}</td>
             <td class="num"><b>${cur}${fmt(l.line_total)}</b></td>
           </tr>`).join('')}
         </tbody>
-        <tfoot><tr>
-          <td colspan="16">סיכום חלקים${q.order_setup_fee ? ` + הקמה ${cur}${fmt(q.order_setup_fee)}` : ''}${q.margin_amount ? ` + מרווח ${cur}${fmt(q.margin_amount)}` : ''}${q.min_order_applied ? ' (הופעל מינימום הזמנה)' : ''}</td>
-          <td class="num"><b>${cur}${fmt(q.total_before_vat)}</b></td>
-        </tr></tfoot>
       </table></div>
+      <p class="sum-line">
+        <span>סיכום חלקים${q.order_setup_fee ? ` + הקמה ${cur}${fmt(q.order_setup_fee)}` : ''}${q.margin_amount ? ` + מרווח ${cur}${fmt(q.margin_amount)}` : ''}${q.min_order_applied ? ' (הופעל מינימום הזמנה)' : ''}</span>
+        <b>${cur}${fmt(q.total_before_vat)}</b>
+      </p>
     </div>`;
 
   const groups = q.groups.map((g) => `
@@ -374,15 +377,8 @@ function renderQuote(q) {
         <div class="stat"><div class="k">פלטות</div><div class="v">${int(g.plates_used)}</div></div>
         <div class="stat"><div class="k">ניצולת</div><div class="v">${fmt(g.utilization_pct, 1)}%</div></div>
         <div class="stat"><div class="k">בזבוז מחויב</div><div class="v">${fmt(g.effective_waste_pct, 1)}%</div></div>
-        <div class="stat"><div class="k">מכפיל מדרגה</div><div class="v">×${fmt(g.tier.multiplier, 2)}</div></div>
-        <div class="stat"><div class="k">שארית שמישה</div><div class="v">${fmt(g.reusable_area_mm2 / 1e6, 2)} מ"ר</div></div>
-        <div class="stat"><div class="k">פלטות נטו</div><div class="v">${fmt(g.effective_plates, 2)}</div></div>
+        <div class="stat"><div class="k">מכפיל</div><div class="v">×${fmt(g.tier.multiplier, 2)}</div></div>
       </div>
-      <p class="small muted" style="margin:6px 0 0">
-        מדרגה: ${esc(g.tier.label || 'עד ' + g.tier.max_waste_pct + '%')} ·
-        בזבוז גולמי מול הפלטה המלאה ${fmt(g.raw_waste_pct, 1)}% ·
-        הבזבוז המחויב נמדד מול החומר שנצרך בפועל, אחרי זיכוי שאריות שחוזרות למלאי.
-      </p>
       ${g.layouts.map((layout) => `
         <div class="layout-wrap">
           <div class="cap">פלטה ${layout.index + 1} · ${int(layout.part_count)} חלקים · ניצולת ${fmt(layout.utilization_pct, 1)}%${layout.remnants.length ? ` · ${layout.remnants.length} שאריות שמישות (הגדולה: ${fmt(layout.remnants[0].width_mm, 0)}×${fmt(layout.remnants[0].height_mm, 0)})` : ''}</div>
@@ -392,9 +388,16 @@ function renderQuote(q) {
     </div>`).join('');
 
   const note = state.config.tariff_ready ? '' :
-    `<p class="banner warn" style="border-radius:8px; margin:0 0 18px">הסכומים כאן הם 0 כי טבלת התמחור עדיין ריקה. המידות, הפריסה ואחוזי הבזבוז אמיתיים.</p>`;
+    `<p class="banner warn" style="border-radius:8px; border:1px solid #ecd9a4; margin:0 0 16px">הסכומים כאן 0 — טבלת התמחור עדיין ריקה.</p>`;
 
-  $('#quote-out').innerHTML = note + `<div class="card">${stats}<p class="small muted" style="margin:6px 0 0">מקור הטבלה: ${esc(q.tariff_source)}</p></div>` + rejected + warnings + lines + groups;
+  $('#quote-out').innerHTML = note + `<div class="card">${stats}</div>` + rejected + warnings + lines + groups;
+
+  const toggle = $('#full-cols');
+  if (toggle) {
+    toggle.addEventListener('change', () => {
+      $('#lines-table').classList.toggle('full', toggle.checked);
+    });
+  }
 }
 
 /* ---------- עורך הטבלה ---------- */

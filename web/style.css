@@ -1,16 +1,21 @@
+/* ערכת נושא בהירה ושקטה. עיקרון: צבע רק במקום שבו הוא נושא מידע —
+   סה"כ לתשלום, אזהרה, פסילה. כל השאר אפור-לבן. */
+
 :root {
-  --bg: #0f1216;
-  --panel: #171b21;
-  --panel-2: #1e242c;
-  --line: #2a323c;
-  --text: #e6eaef;
-  --muted: #97a1ae;
-  --accent: #ff8a3d;
-  --accent-dim: #b35d24;
-  --ok: #3ecf8e;
-  --warn: #ffc857;
-  --bad: #ff5f56;
-  --steel: #4a90d9;
+  --bg: #f5f6f8;
+  --card: #ffffff;
+  --line: #e4e7ec;
+  --line-soft: #eef0f3;
+  --text: #1b1f24;
+  --muted: #6d7681;
+  --accent: #d9541e;
+  --accent-soft: #fdf1ec;
+  --ok: #1d8a54;
+  --warn: #96650a;
+  --warn-bg: #fff8e6;
+  --bad: #c0362c;
+  --bad-bg: #fdeeec;
+  --steel: #3f74a8;
   --radius: 10px;
 }
 
@@ -20,9 +25,9 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: "Segoe UI", "Heebo", "Arial Hebrew", system-ui, sans-serif;
+  font-family: "Heebo", "Segoe UI", "Arial Hebrew", system-ui, sans-serif;
   font-size: 15px;
-  line-height: 1.55;
+  line-height: 1.6;
 }
 
 a { color: var(--accent); }
@@ -30,75 +35,99 @@ a { color: var(--accent); }
 header {
   display: flex;
   align-items: baseline;
-  gap: 14px;
-  padding: 16px 24px;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 18px 28px 14px;
+  background: var(--card);
   border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, #191e25, #12161b);
 }
-header h1 { margin: 0; font-size: 20px; letter-spacing: .3px; }
+header h1 { margin: 0; font-size: 19px; font-weight: 600; white-space: nowrap; }
+@media (max-width: 700px) {
+  header, nav.tabs, .banner { padding-inline: 18px; }
+  main { padding: 18px 18px 60px; }
+  header .spacer { display: none; }
+}
 header .sub { color: var(--muted); font-size: 13px; }
 header .spacer { flex: 1; }
 
 .banner {
   margin: 0;
-  padding: 10px 24px;
-  font-size: 14px;
+  padding: 11px 28px;
+  font-size: 13.5px;
   border-bottom: 1px solid var(--line);
 }
-.banner.warn { background: #3a2f10; color: var(--warn); }
-.banner.bad  { background: #3a1614; color: var(--bad); }
-.banner.ok   { background: #13301f; color: var(--ok); }
+.banner.warn { background: var(--warn-bg); color: var(--warn); }
+.banner.bad  { background: var(--bad-bg);  color: var(--bad); }
 .banner.hidden { display: none; }
 
 nav.tabs {
   display: flex;
-  gap: 4px;
-  padding: 0 24px;
+  gap: 22px;
+  padding: 0 28px;
+  background: var(--card);
   border-bottom: 1px solid var(--line);
-  background: var(--panel);
 }
 nav.tabs button {
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
   color: var(--muted);
-  padding: 12px 16px;
-  font-size: 15px;
+  padding: 11px 0;
+  font-size: 14.5px;
   font-family: inherit;
   cursor: pointer;
 }
 nav.tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
 
-main { padding: 20px 24px 60px; max-width: 1500px; }
+main { padding: 22px 28px 70px; max-width: 1240px; }
 .view { display: none; }
 .view.active { display: block; }
 
-.grid { display: grid; grid-template-columns: 380px 1fr; gap: 20px; align-items: start; }
-@media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
+.grid { display: grid; grid-template-columns: 330px 1fr; gap: 20px; align-items: start; }
+/* בלי זה עמודת ה-1fr מתרחבת לרוחב הטבלה המלאה וגוררת את כל הדף לגלילה
+   אופקית, במקום שהטבלה תגלול בתוך .scroll-x שלה. */
+.grid > * { min-width: 0; }
+@media (max-width: 1000px) { .grid { grid-template-columns: 1fr; } }
 
 .card {
-  background: var(--panel);
+  background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 16px;
-  margin-bottom: 18px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
 }
-.card h2 { margin: 0 0 12px; font-size: 16px; }
-.card h3 { margin: 18px 0 8px; font-size: 14px; color: var(--muted); font-weight: 600; }
+.card h2 { margin: 0 0 14px; font-size: 15px; font-weight: 600; }
+.card h3 {
+  margin: 20px 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+  letter-spacing: .04em;
+}
 
-label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+label { display: block; font-size: 12.5px; color: var(--muted); margin: 10px 0 4px; }
 input, select, textarea {
   width: 100%;
-  background: var(--panel-2);
+  background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 7px;
   color: var(--text);
   padding: 8px 10px;
   font-family: inherit;
   font-size: 14px;
 }
-input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent-dim); }
-textarea { min-height: 220px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; direction: ltr; text-align: left; }
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+textarea {
+  min-height: 300px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12.5px;
+  direction: ltr;
+  text-align: left;
+  line-height: 1.5;
+}
 
 .row { display: flex; gap: 10px; }
 .row > * { flex: 1; }
@@ -107,84 +136,145 @@ button.primary, button.ghost {
   font-family: inherit;
   font-size: 14px;
   border-radius: 7px;
-  padding: 9px 16px;
+  padding: 9px 18px;
   cursor: pointer;
   border: 1px solid var(--line);
 }
-button.primary { background: var(--accent); border-color: var(--accent); color: #1a1005; font-weight: 600; }
-button.primary:disabled { background: var(--line); border-color: var(--line); color: var(--muted); cursor: not-allowed; }
-button.ghost { background: transparent; color: var(--text); }
-button.ghost:hover { border-color: var(--accent-dim); }
-button.link { background: none; border: none; color: var(--accent); cursor: pointer; font-family: inherit; font-size: 13px; padding: 0; }
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+button.primary:disabled {
+  background: var(--line-soft);
+  border-color: var(--line);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+button.ghost { background: var(--card); color: var(--text); }
+button.ghost:hover { border-color: var(--muted); }
 
 .drop {
-  border: 2px dashed var(--line);
+  border: 1.5px dashed var(--line);
   border-radius: var(--radius);
-  padding: 26px 14px;
+  padding: 28px 14px;
   text-align: center;
   color: var(--muted);
+  font-size: 14px;
   cursor: pointer;
   transition: .15s;
 }
-.drop.hot { border-color: var(--accent); color: var(--accent); background: #1d1710; }
+.drop:hover { border-color: var(--muted); }
+.drop.hot { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+
+/* ---- טבלה ---- */
 
 table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-th, td { padding: 7px 9px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
-th { color: var(--muted); font-weight: 600; font-size: 12.5px; }
-tbody tr:hover { background: #1b2027; }
+th, td { padding: 9px 10px; text-align: right; border-bottom: 1px solid var(--line-soft); white-space: nowrap; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; }
+tbody tr:last-child td { border-bottom: none; }
 td.num, th.num { font-variant-numeric: tabular-nums; }
 .scroll-x { overflow-x: auto; }
 
+/* ברירת המחדל היא הטבלה הקצרה. העמודות התפעוליות נפתחות במתג אחד,
+   כי 17 עמודות בבת אחת הן הסיבה המרכזית שהמסך הרגיש כבד. */
+table:not(.full) .detail { display: none; }
+
+.table-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 10px;
+}
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.toggle input { width: auto; margin: 0; accent-color: var(--accent); }
+
+.sum-line {
+  margin: 12px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 13.5px;
+  color: var(--muted);
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.sum-line b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* ---- תגיות וסטטיסטיקות ---- */
+
 .pill {
   display: inline-block;
-  padding: 1px 8px;
+  padding: 1px 9px;
   border-radius: 20px;
-  font-size: 12px;
+  font-size: 11.5px;
   border: 1px solid var(--line);
   color: var(--muted);
+  background: var(--card);
 }
-.pill.ok { color: var(--ok); border-color: #23533c; }
-.pill.bad { color: var(--bad); border-color: #5b2320; }
-.pill.warn { color: var(--warn); border-color: #5c4a17; }
+.pill.ok   { color: var(--ok);   border-color: #bfe3d0; background: #f2fbf6; }
+.pill.bad  { color: var(--bad);  border-color: #f2c5c0; background: var(--bad-bg); }
+.pill.warn { color: var(--warn); border-color: #ecd9a4; background: var(--warn-bg); }
 
-.stats { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 4px; }
-.stat {
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 9px 14px;
-  min-width: 120px;
-}
+.stats { display: flex; flex-wrap: wrap; gap: 26px; }
 .stat .k { font-size: 12px; color: var(--muted); }
-.stat .v { font-size: 18px; font-variant-numeric: tabular-nums; }
-.stat.total .v { color: var(--accent); font-weight: 700; }
+.stat .v { font-size: 20px; font-variant-numeric: tabular-nums; line-height: 1.3; }
+.stat.total .v { color: var(--accent); font-weight: 700; font-size: 24px; }
+
+/* ---- חלקים ---- */
 
 .part {
   display: grid;
-  grid-template-columns: 92px 1fr;
-  gap: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 10px;
-  margin-bottom: 10px;
-  background: var(--panel-2);
+  grid-template-columns: 76px 1fr;
+  gap: 14px;
+  border-top: 1px solid var(--line-soft);
+  padding: 12px 0;
 }
-.part.bad { border-color: #5b2320; }
+.part:first-child { border-top: none; padding-top: 2px; }
+.part.bad .name { color: var(--bad); }
 .part .meta { font-size: 12.5px; color: var(--muted); }
-.part .name { font-size: 14.5px; color: var(--text); margin-bottom: 2px; }
-.part .controls { display: flex; gap: 6px; margin-top: 8px; align-items: end; }
+.part .name { font-size: 14.5px; margin-bottom: 2px; }
+.part .controls { display: flex; gap: 8px; margin-top: 8px; align-items: end; }
 .part .controls label { margin: 0 0 2px; font-size: 11.5px; }
 .part .controls > div { flex: 1; }
-.part .controls input, .part .controls select { padding: 5px 7px; font-size: 13px; }
+.part .controls input, .part .controls select { padding: 5px 8px; font-size: 13px; }
 
-svg.thumb { background: #0b0e12; border: 1px solid var(--line); border-radius: 6px; display: block; }
+svg.thumb {
+  background: #fafbfc;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  display: block;
+}
 
-.layout-wrap { margin-top: 12px; }
-.layout-wrap .cap { font-size: 12.5px; color: var(--muted); margin-bottom: 5px; }
-svg.plate { background: #0b0e12; border: 1px solid var(--line); border-radius: 6px; width: 100%; height: auto; }
+/* ---- פריסת הפלטה ---- */
+
+.layout-wrap { margin-top: 14px; }
+.layout-wrap .cap { font-size: 12.5px; color: var(--muted); margin-bottom: 6px; }
+svg.plate {
+  background: #fafbfc;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  width: 100%;
+  height: auto;
+}
+
+/* ---- שונות ---- */
 
 .muted { color: var(--muted); }
 .small { font-size: 12.5px; }
-.empty { color: var(--muted); padding: 18px 0; text-align: center; }
-ul.warnings { margin: 8px 0 0; padding-inline-start: 18px; color: var(--warn); font-size: 13px; }
-ul.rejects { margin: 8px 0 0; padding-inline-start: 18px; color: var(--bad); font-size: 13px; }
+.empty { color: var(--muted); padding: 22px 0; text-align: center; font-size: 14px; }
+.hint { font-size: 12.5px; color: var(--muted); margin: 8px 0 0; }
+ul.warnings, ul.rejects { margin: 6px 0 0; padding-inline-start: 18px; font-size: 13px; }
+ul.warnings { color: var(--warn); }
+ul.rejects  { color: var(--bad); }
