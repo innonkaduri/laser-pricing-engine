@@ -6,7 +6,7 @@ import pytest
 
 from laser_pricing.cad import read_dxf
 from laser_pricing.domain.geometry import BoundingBox
-from laser_pricing.nesting import Plate, check_manufacturability, nest
+from laser_pricing.nesting import Plate, check_manufacturability, nest, plan_split
 from laser_pricing.nesting.nester import NestItem, RemnantPolicy, grade_remnant
 from laser_pricing.nesting.packer import Rect
 from laser_pricing.nesting.plate import NotManufacturableError
@@ -14,13 +14,13 @@ from laser_pricing.nesting.plate import NotManufacturableError
 FULL_PLATE = Plate(edge_margin_mm=0.0)
 
 
-class TestHardConstraint:
-    """האילוץ הפיזי — הבדיקה הבינארית היחידה במערכת."""
+class TestSinglePlateFit:
+    """`check_manufacturability` = "נכנס על פלטה אחת", לא "ניתן לייצור"."""
 
-    def test_oversized_part_is_rejected(self):
+    def test_oversized_part_does_not_fit_one_plate(self):
         result = check_manufacturability(BoundingBox(0, 0, 3200, 1000), FULL_PLATE)
         assert not result.ok
-        assert "לא ניתן לייצור" in result.reason
+        assert "ריתוך" in result.reason
 
     def test_part_that_only_fits_rotated_is_accepted(self):
         result = check_manufacturability(BoundingBox(0, 0, 1400, 2900), FULL_PLATE)
@@ -44,10 +44,64 @@ class TestHardConstraint:
     def test_margin_is_configurable_not_hardcoded(self):
         assert check_manufacturability(BoundingBox(0, 0, 3000, 1500), Plate(edge_margin_mm=0)).ok
 
-    def test_oversized_dxf_is_blocked_end_to_end(self, oversized_dxf):
+    def test_raise_if_impossible_still_available_for_strict_callers(self, oversized_dxf):
+        """מי שכן דורש חתיכה אחת עדיין יכול לאכוף את זה."""
         geo = read_dxf(oversized_dxf).geometry
         with pytest.raises(NotManufacturableError):
             check_manufacturability(geo.bbox, FULL_PLATE).raise_if_impossible()
+
+
+class TestSplitting:
+    """חלק שגדול מפלטה נחתך ומולחם — החלטת ינון 2026-08-12."""
+
+    def test_part_within_one_plate_is_not_split(self):
+        plan = plan_split(BoundingBox(0, 0, 1000, 800), FULL_PLATE)
+        assert plan.piece_count == 1
+        assert not plan.is_split
+        assert plan.seam_length_mm == 0.0
+        assert plan.extra_cut_length_mm == 0.0
+        assert plan.extra_pierces == 0
+
+    def test_part_longer_than_one_plate_splits_into_two(self):
+        plan = plan_split(BoundingBox(0, 0, 4000, 1000), FULL_PLATE)
+        assert plan.piece_count == 2
+        assert plan.columns == 2 and plan.rows == 1
+        # תפר אנכי אחד לאורך כל הגובה
+        assert plan.seam_length_mm == pytest.approx(1000)
+        # כל תפר נחתך פעמיים — חתיכה על כל פלטה מקבלת את הקצה שלה
+        assert plan.extra_cut_length_mm == pytest.approx(2000)
+        assert plan.extra_pierces == 1
+
+    def test_pieces_cover_the_original_area_exactly(self):
+        plan = plan_split(BoundingBox(0, 0, 4000, 1000), FULL_PLATE)
+        covered = sum(p.width_mm * p.height_mm for p in plan.pieces)
+        assert covered == pytest.approx(4000 * 1000)
+        assert sum(p.area_fraction for p in plan.pieces) == pytest.approx(1.0)
+
+    def test_every_piece_fits_a_single_plate(self):
+        """התכונה שאסור שתישבר: אחרי הפיצול הכל נכנס."""
+        for w, h in [(4000, 1000), (7000, 1400), (3100, 3100), (9000, 4000)]:
+            plan = plan_split(BoundingBox(0, 0, w, h), FULL_PLATE)
+            for piece in plan.pieces:
+                assert check_manufacturability(
+                    BoundingBox(0, 0, piece.width_mm, piece.height_mm), FULL_PLATE
+                ).ok, f"חתיכה {piece.width_mm}x{piece.height_mm} מתוך {w}x{h} לא נכנסת"
+
+    def test_orientation_that_needs_fewer_pieces_wins(self):
+        """1400x4000 מסתדר בשתי חתיכות בסיבוב, במקום שלוש בלעדיו."""
+        plan = plan_split(BoundingBox(0, 0, 1400, 4000), FULL_PLATE)
+        assert plan.piece_count == 2
+
+    def test_measurement_noise_does_not_trigger_a_split(self):
+        plan = plan_split(BoundingBox(0, 0, 3000.02, 1500), FULL_PLATE)
+        assert plan.piece_count == 1
+
+    def test_two_dimensional_oversize_uses_a_grid(self):
+        plan = plan_split(BoundingBox(0, 0, 5000, 2500), FULL_PLATE)
+        assert plan.piece_count == 4
+        assert plan.columns == 2 and plan.rows == 2
+        # תפר אנכי לאורך הגובה + תפר אופקי לאורך הרוחב
+        assert plan.seam_length_mm == pytest.approx(2500 + 5000)
 
 
 class TestGradedWaste:

@@ -106,6 +106,9 @@ def group_to_json(group: MaterialGroup) -> dict:
         },
         "reusable_area_mm2": round(nesting.reusable_area_mm2, 1),
         "effective_plates": round(nesting.effective_plates, 3),
+        "billed_area_mm2": round(group.billed_area_mm2, 1),
+        "consumed_area_mm2": round(group.consumed_area_mm2, 1),
+        "plate_floor_applied": group.plate_floor_applied,
         "layouts": [layout_to_json(layout) for layout in nesting.layouts],
         "unplaced": [i.item_id for i in nesting.unplaced],
     }
@@ -122,6 +125,7 @@ def line_to_json(line: QuoteLine) -> dict:
         "material_cost": line.material_cost,
         "cutting_cost": line.cutting_cost,
         "piercing_cost": line.piercing_cost,
+        "welding_cost": line.welding_cost,
         "setup_cost": line.setup_cost,
         "min_charge_applied": line.min_charge_applied,
         "net_area_mm2": line.net_area_mm2,
@@ -133,6 +137,9 @@ def line_to_json(line: QuoteLine) -> dict:
         "height_mm": line.height_mm,
         "waste_pct": line.waste_pct,
         "waste_tier_label": line.waste_tier_label,
+        "pieces": line.pieces,
+        "weld_length_mm": line.weld_length_mm,
+        "plate_floor_applied": line.plate_floor_applied,
     }
 
 
@@ -162,4 +169,5 @@ def quote_to_json(quote: Quote) -> dict:
         "tariff_source": quote.tariff_source,
         "has_rejections": quote.has_rejections,
         "is_quotable": quote.is_quotable,
+        "has_split_parts": quote.has_split_parts,
     }

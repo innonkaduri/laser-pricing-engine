@@ -1,8 +1,14 @@
-"""הפלטה והאילוץ הפיזי הקשיח.
+"""הפלטה ומידותיה.
 
-משטח העבודה הוא 3000x1500 מ"מ. חלק שחורג ממנו **לא ניתן לייצור** —
-זו לא שאלה של מחיר אלא של אי-אפשרות טכנית. הבדיקה הזאת חוסמת
-לפני כל חישוב תמחור, ואי אפשר לעקוף אותה בטבלת המחירים.
+משטח העבודה הוא 3000x1500 מ"מ.
+
+**שינוי כלל (ינון, 2026-08-12):** חריגה מהמידות האלה אינה פוסלת עוד את
+החלק. חלק גדול יותר נחתך בכמה פלטות ומולחם, ולכן החריגה היא גורם עלות
+(פלטות נוספות + מטרי ריתוך) ולא אי-אפשרות טכנית. חישוב הפיצול נמצא
+ב-`splitting.py`.
+
+מה שנשאר כאן הוא השאלה הצרה יותר: האם חלק נכנס על פלטה **אחת**. זו
+עדיין שאלה בינארית, והיא הבסיס שממנו נגזר מספר החתיכות.
 """
 
 from __future__ import annotations
@@ -61,7 +67,11 @@ STANDARD_PLATE = Plate()
 
 @dataclass(frozen=True)
 class Manufacturability:
-    """תשובה בינארית — ורק כאן התשובה בינארית."""
+    """האם החלק נכנס על פלטה אחת.
+
+    שים לב ל-`ok`: משמעותו "נכנס על פלטה אחת", **לא** "ניתן לייצור".
+    חלק שלא נכנס עדיין ניתן לייצור — בפיצול והלחמה.
+    """
 
     ok: bool
     reason: str = ""
@@ -70,19 +80,20 @@ class Manufacturability:
     rotated: bool = False
 
     def raise_if_impossible(self) -> None:
+        """לשימוש רק במקום שבו פלטה אחת היא דרישה מוצהרת."""
         if not self.ok:
             raise NotManufacturableError(self.reason)
 
 
 class NotManufacturableError(Exception):
-    """החלק חורג מהפלטה. אין מחיר — אין ייצור."""
+    """החלק אינו נכנס על פלטה אחת ומי שקרא דרש פלטה אחת."""
 
 
 def check_manufacturability(bbox: BoundingBox, plate: Plate = STANDARD_PLATE) -> Manufacturability:
-    """האם החלק נכנס בכלל על הפלטה, בסיבוב 0° או 90°.
+    """האם החלק נכנס על פלטה אחת, בסיבוב 0° או 90°.
 
-    זו הבדיקה הקשיחה היחידה במערכת. כל השאר — ניצולת, בזבוז, מחיר —
-    הוא רציף ומדורג.
+    זו לא בדיקת יכולת ייצור אלא בדיקת "חתיכה אחת". חלק שנכשל בה עובר
+    ל-`splitting.plan_split` שמחשב לכמה חתיכות לחלק אותו.
     """
     w, h = bbox.width, bbox.height
     limit_w = plate.usable_width + FIT_TOLERANCE_MM
@@ -97,8 +108,8 @@ def check_manufacturability(bbox: BoundingBox, plate: Plate = STANDARD_PLATE) ->
         ok=False,
         reason=(
             f'החלק במידות {w:.1f}x{h:.1f} מ"מ חורג ממשטח העבודה '
-            f'{plate.usable_width:.0f}x{plate.usable_height:.0f} מ"מ בשני הסיבובים — '
-            f'לא ניתן לייצור.'
+            f'{plate.usable_width:.0f}x{plate.usable_height:.0f} מ"מ — '
+            f'ייוצר בכמה חתיכות עם ריתוך.'
         ),
         required_width_mm=w,
         required_height_mm=h,

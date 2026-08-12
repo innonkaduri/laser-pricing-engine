@@ -163,21 +163,27 @@ function renderParts() {
     $('#calc').disabled = true;
     $('#calc-note').textContent = 'אין חומרים בטבלת התמחור.';
   } else {
-    const blocked = state.parts.some((p) => !p.data.manufacturable);
+    const split = state.parts.filter((p) => (p.data.pieces || 1) > 1).length;
     $('#calc').disabled = false;
-    $('#calc-note').textContent = blocked ? 'יש חלק שאינו ניתן לייצור — הוא לא ייכלל בהצעה.' : '';
+    $('#calc-note').textContent = split
+      ? `${split} חלקים גדולים מפלטה — ייוצרו בכמה חתיכות עם ריתוך.`
+      : '';
   }
 
   host.innerHTML = state.parts.map((p) => {
     const d = p.data;
     const mat = materials.find((m) => m.key === p.material_key) || materials[0];
     const thicknesses = mat ? mat.thicknesses : [];
+    const pieces = d.pieces || 1;
+    const isSplit = pieces > 1;
     return `
-      <div class="part ${d.manufacturable ? '' : 'bad'}" data-uid="${p.uid}">
+      <div class="part" data-uid="${p.uid}">
         ${thumbSvg(d)}
         <div>
           <div class="name">${esc(d.name)}
-            <span class="pill ${d.manufacturable ? 'ok' : 'bad'}">${d.manufacturable ? (d.rotated_to_fit ? 'נכנס בסיבוב' : 'ניתן לייצור') : 'לא ניתן לייצור'}</span>
+            ${isSplit
+              ? `<span class="pill warn">${pieces} חתיכות + ריתוך</span>`
+              : `<span class="pill ok">${d.rotated_to_fit ? 'נכנס בסיבוב' : 'נכנס בפלטה'}</span>`}
             <span class="pill">${d.source === 'dxf' ? 'DXF' : 'ידני'}</span>
           </div>
           <div class="meta">
@@ -187,7 +193,7 @@ function renderParts() {
             ${d.pierces} ניקובים · ${d.holes} חורים
             ${d.units_detected && d.units_detected !== 'unknown' ? ` · יחידות: ${esc(d.units_detected)}` : ''}
           </div>
-          ${d.manufacturable ? '' : `<div class="small" style="color:var(--bad)">${esc(d.manufacturability_reason)}</div>`}
+          ${isSplit ? `<div class="small" style="color:var(--warn)">גדול מפלטה — ייחתך ל-${d.split_columns}×${d.split_rows} חתיכות ויולחם, ${fmt(d.weld_length_mm / 1000, 2)} מ' תפר.</div>` : ''}
           <div class="controls">
             <div><label>חומר</label>
               <select data-field="material_key">
@@ -340,11 +346,12 @@ function renderQuote(q) {
           <th class="num detail">אורך חיתוך</th><th class="num detail">ניקובים</th><th class="num detail">משקל</th>
           <th class="num detail">בזבוז</th><th class="detail">מדרגה</th>
           <th class="num detail">חומר</th><th class="num detail">חיתוך</th><th class="num detail">ניקוב</th>
+          <th class="num detail">ריתוך</th>
           <th class="num">ליחידה</th><th class="num">סה"כ</th>
         </tr></thead>
         <tbody>${q.lines.map((l) => `
           <tr>
-            <td>${esc(l.part_name)}</td>
+            <td>${esc(l.part_name)}${l.pieces > 1 ? ` <span class="pill warn">${l.pieces} חתיכות</span>` : ''}</td>
             <td>${esc(l.material_name)}</td>
             <td class="num detail">${fmt(l.thickness_mm, 1)}</td>
             <td class="num">${fmt(l.width_mm, 0)}×${fmt(l.height_mm, 0)}</td>
@@ -356,9 +363,10 @@ function renderQuote(q) {
             <td class="num detail">${fmt(l.weight_kg, 2)}</td>
             <td class="num detail">${fmt(l.waste_pct, 1)}%</td>
             <td class="detail">${esc(l.waste_tier_label)}</td>
-            <td class="num detail">${cur}${fmt(l.material_cost)}</td>
+            <td class="num detail">${cur}${fmt(l.material_cost)}${l.plate_floor_applied ? ' <span class="pill warn">רצפת פלטה</span>' : ''}</td>
             <td class="num detail">${cur}${fmt(l.cutting_cost)}</td>
             <td class="num detail">${cur}${fmt(l.piercing_cost)}</td>
+            <td class="num detail">${cur}${fmt(l.welding_cost)}${l.weld_length_mm ? ` <span class="muted">(${fmt(l.weld_length_mm / 1000, 2)} מ')</span>` : ''}</td>
             <td class="num">${cur}${fmt(l.unit_price)}${l.min_charge_applied ? ' <span class="pill warn">מינימום</span>' : ''}</td>
             <td class="num"><b>${cur}${fmt(l.line_total)}</b></td>
           </tr>`).join('')}
@@ -379,6 +387,7 @@ function renderQuote(q) {
         <div class="stat"><div class="k">בזבוז מחויב</div><div class="v">${fmt(g.effective_waste_pct, 1)}%</div></div>
         <div class="stat"><div class="k">מכפיל</div><div class="v">×${fmt(g.tier.multiplier, 2)}</div></div>
       </div>
+      ${g.plate_floor_applied ? `<p class="hint" style="color:var(--warn)">הופעלה רצפת פלטה: החיוב הועלה ל-${fmt(g.consumed_area_mm2 / 1e6, 2)} מ"ר — החומר שנצרך בפועל.</p>` : ''}
       ${g.layouts.map((layout) => `
         <div class="layout-wrap">
           <div class="cap">פלטה ${layout.index + 1} · ${int(layout.part_count)} חלקים · ניצולת ${fmt(layout.utilization_pct, 1)}%${layout.remnants.length ? ` · ${layout.remnants.length} שאריות שמישות (הגדולה: ${fmt(layout.remnants[0].width_mm, 0)}×${fmt(layout.remnants[0].height_mm, 0)})` : ''}</div>

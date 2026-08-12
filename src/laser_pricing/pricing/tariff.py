@@ -36,6 +36,12 @@ class MaterialRate:
     pierce_price: float = 0.0
     min_charge_per_part: float = 0.0
     density_kg_m3: float = 7850.0  # פלדה. משמש להצגת משקל בלבד, לא לתמחור.
+    weld_rate_per_m: float = 0.0
+    """מחיר ריתוך למטר תפר, לחלק שגדול מפלטה ומיוצר בכמה חתיכות.
+
+    נשאר 0 עד שינון יזין אותו — ואז המנוע מדווח על כך במפורש במקום
+    להלחים בחינם בשקט.
+    """
 
     def __post_init__(self) -> None:
         if self.thickness_mm <= 0:
@@ -45,6 +51,7 @@ class MaterialRate:
             ("מחיר חיתוך למטר", self.cut_rate_per_m),
             ("מחיר ניקוב", self.pierce_price),
             ("מינימום לחלק", self.min_charge_per_part),
+            ("מחיר ריתוך למטר", self.weld_rate_per_m),
         ):
             if value < 0:
                 raise InvalidTariffError(f"{label} שלילי ב-{self.material_key} {self.thickness_mm}")
@@ -90,6 +97,12 @@ class Tariff:
     margin_pct: float = 0.0
     vat_pct: float = 18.0
     currency: str = "ILS"
+    max_pieces_per_part: int = 0
+    """תקרת חתיכות לחלק מפוצל. 0 = ללא הגבלה.
+
+    ינון אישר פיצול לשתי פלטות. חלק שדורש יותר מזה עדיין מתומחר, אבל
+    מקבל אזהרה מפורשת. מי שרוצה לחסום לגמרי מציב כאן 2.
+    """
     source: str = "<inline>"
 
     def __post_init__(self) -> None:
@@ -193,6 +206,7 @@ def tariff_from_dict(raw: dict, source: str = "<dict>") -> Tariff:
         "margin_pct",
         "vat_pct",
         "currency",
+        "max_pieces_per_part",
     }
     extras = {k: v for k, v in raw.items() if k in known}
 

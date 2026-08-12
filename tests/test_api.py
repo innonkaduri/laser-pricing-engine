@@ -104,20 +104,37 @@ class TestExtraction:
         assert response.status_code == 400
 
 
-class TestHardConstraint:
-    def test_oversized_part_is_flagged_at_upload(self, client, oversized_dxf):
+class TestOversizedPartsAreSplit:
+    """מאז 2026-08-12 חלק גדול מפלטה מיוצר בכמה חתיכות עם ריתוך."""
+
+    def test_oversized_part_is_flagged_as_split_at_upload(self, client, oversized_dxf):
         with open(oversized_dxf, "rb") as handle:
             data = client.post("/api/upload", files={"file": ("big.dxf", handle)}).json()
-        assert data["manufacturable"] is False
-        assert "לא ניתן לייצור" in data["manufacturability_reason"]
+        assert data["manufacturable"] is True
+        assert data["fits_single_plate"] is False
+        assert data["pieces"] == 2
+        assert data["weld_length_mm"] > 0
+        assert "ריתוך" in data["manufacturability_reason"]
 
-    def test_oversized_part_gets_no_price(self, priced_client):
+    def test_normal_part_reports_a_single_piece(self, client):
+        data = _manual(client, width_mm=400, height_mm=250)
+        assert data["fits_single_plate"] is True
+        assert data["pieces"] == 1
+        assert data["weld_length_mm"] == 0
+        assert data["manufacturability_reason"] == ""
+
+    def test_oversized_part_gets_a_price(self, priced_client):
         big = _manual(priced_client, width_mm=3200, height_mm=1000)
         response = priced_client.post(
             "/api/quote",
             json={"parts": [{"geometry_id": big["geometry_id"], "material_key": "st37", "thickness_mm": 3.0}]},
         )
-        assert response.status_code == 422
+        assert response.status_code == 200
+        quote = response.json()
+        assert quote["has_split_parts"] is True
+        assert quote["lines"][0]["pieces"] == 2
+        assert quote["lines"][0]["line_total"] > 0
+        assert not quote["rejected"]
 
 
 class TestPricing:

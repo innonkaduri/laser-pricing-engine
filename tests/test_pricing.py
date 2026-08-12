@@ -50,6 +50,10 @@ BASE_TARIFF = {
 
 def make_tariff(**overrides):
     raw = json.loads(json.dumps(BASE_TARIFF))
+    # שדות ברמת שורת החומר מנותבים לשורה, לא לשורש הטבלה.
+    for rate_field in ("weld_rate_per_m", "min_charge_per_part", "pierce_price"):
+        if rate_field in overrides:
+            raw["rates"][0][rate_field] = overrides.pop(rate_field)
     raw.update(overrides)
     return tariff_from_dict(raw, source="test")
 
@@ -196,13 +200,40 @@ class TestGradedWasteAffectsPrice:
         assert seen == sorted(seen, reverse=True)
         assert len(set(seen)) == len(seen)
 
-    def test_unit_price_never_rises_with_quantity(self):
-        """ההבטחה ללקוח: להזמין יותר לעולם לא מייקר את היחידה."""
+    def test_unit_price_falls_with_quantity_within_one_plate(self):
+        """בתוך פלטה אחת ההבטחה נשמרת: יותר יחידות = יחידה זולה יותר."""
         prices = [
             price_order([square_part(qty=q)], make_tariff()).lines[0].unit_price
-            for q in (1, 2, 5, 10, 15, 20, 30, 40)
+            for q in (1, 2, 5, 10)
         ]
         assert prices == sorted(prices, reverse=True)
+
+    def test_plate_floor_can_raise_the_unit_price_at_a_plate_boundary(self):
+        """התנגשות מתועדת בין שני כללים של ינון, ולא באג.
+
+        רצפת הפלטה (2026-08-12) אומרת: לעולם לא לחייב על פחות חומר ממה
+        שנצרך. פלטה שנייה שנפתחת כמעט ריקה נצרכת כמעט במלואה, ולכן
+        מחיר היחידה *עולה* בדיוק בגבול הפלטה, ויורד שוב כשהיא מתמלאת.
+
+        זה סותר את ההבטחה "להזמין יותר לעולם לא מייקר את היחידה" —
+        הבטחה שהמנוע הסיק ולא כלל שינון קבע. ההוראה המפורשת גוברת,
+        אבל הבדיקה הזאת קיימת כדי שההתנהגות תישאר גלויה: אם ינון יחליט
+        להעדיף מונוטוניות, כאן מתחיל התיקון.
+        """
+        at_10 = price_order([square_part(qty=10)], make_tariff())
+        at_15 = price_order([square_part(qty=15)], make_tariff())
+        at_20 = price_order([square_part(qty=20)], make_tariff())
+
+        assert at_10.groups[0].plates_used == 1
+        assert at_15.groups[0].plates_used == 2
+
+        # הקפיצה מגיעה מהרצפה, ולא ממקום אחר
+        assert at_15.groups[0].plate_floor_applied
+        assert not at_10.groups[0].plate_floor_applied
+        assert at_15.lines[0].unit_price > at_10.lines[0].unit_price
+
+        # וכשהפלטה השנייה מתמלאת, המחיר חוזר לרדת
+        assert at_20.lines[0].unit_price < at_15.lines[0].unit_price
 
     def test_opening_a_second_plate_is_an_honest_step_up(self):
         """מעבר לפלטה שנייה מעלה את הבזבוז — זו פיזיקה, לא באג."""
@@ -223,39 +254,127 @@ class TestGradedWasteAffectsPrice:
         assert quote.lines[0].waste_tier_label
 
 
-class TestPhysicalConstraintBlocksPricing:
-    def test_oversized_part_gets_no_price(self):
-        part = Part(
-            name="ענק",
-            geometry=PartGeometry([rectangle(3200, 1000)]),
+def giant_part(name: str = "ענק", w: float = 3200.0, h: float = 1000.0) -> Part:
+    return Part(
+        name=name,
+        geometry=PartGeometry([rectangle(w, h)]),
+        material_key="st37",
+        thickness_mm=3.0,
+    )
+
+
+class TestOversizedPartsAreSplitNotRejected:
+    """החלטת ינון 2026-08-12 — חלק גדול מפלטה נחתך ומולחם."""
+
+    def test_oversized_part_gets_a_price(self):
+        quote = price_order([giant_part()], make_tariff())
+        assert not quote.rejected
+        assert quote.is_quotable
+        assert quote.lines[0].line_total > 0
+
+    def test_oversized_part_is_reported_as_split(self):
+        quote = price_order([giant_part()], make_tariff())
+        line = quote.lines[0]
+        assert line.pieces == 2
+        assert line.is_split
+        assert quote.has_split_parts
+        assert line.weld_length_mm == pytest.approx(1000)
+
+    def test_split_adds_cut_length_and_pierces(self):
+        whole = price_order([square_part(name="רגיל")], make_tariff()).lines[0]
+        split = price_order([giant_part()], make_tariff()).lines[0]
+        # מתאר אחד הופך לשניים, ולכן ניקוב נוסף
+        assert split.pieces == 2
+        assert split.pierces == 2
+        assert whole.pierces == 1
+
+    def test_split_consumes_more_than_one_plate(self):
+        quote = price_order([giant_part(w=4000, h=1400)], make_tariff())
+        assert quote.groups[0].plates_used == 2
+
+    def test_user_is_warned_that_the_part_was_split(self):
+        quote = price_order([giant_part()], make_tariff())
+        assert any("ריתוך" in w for w in quote.warnings)
+
+    def test_zero_weld_rate_is_announced_not_silently_free(self):
+        """ריתוך בחינם בשקט הוא בדיוק סוג הטעות שהמנוע אמור לא לעשות."""
+        quote = price_order([giant_part()], make_tariff())
+        assert quote.lines[0].welding_cost == 0.0
+        assert any("weld_rate_per_m" in w for w in quote.warnings)
+
+    def test_weld_rate_from_the_table_is_charged(self):
+        tariff = make_tariff(weld_rate_per_m=50.0)
+        quote = price_order([giant_part()], tariff)
+        # תפר אחד באורך מטר, 50 ש"ח למטר
+        assert quote.lines[0].welding_cost == pytest.approx(50.0, abs=0.01)
+
+    def test_more_than_two_pieces_needs_explicit_approval(self):
+        quote = price_order([giant_part(w=9000, h=1400)], make_tariff())
+        assert quote.lines[0].pieces > 2
+        assert any("אישור מפורש" in w for w in quote.warnings)
+
+    def test_explicit_cap_still_rejects(self):
+        """מי שרוצה לחסום פיצול מעבר ל-N מציב max_pieces_per_part."""
+        tariff = make_tariff(max_pieces_per_part=1)
+        quote = price_order([square_part(name="תקין"), giant_part()], tariff)
+        assert [line.part_name for line in quote.lines] == ["תקין"]
+        assert [r.part_name for r in quote.rejected] == ["ענק"]
+        assert not quote.is_quotable
+
+    def test_strict_mode_fails_the_whole_order_when_capped(self):
+        tariff = make_tariff(max_pieces_per_part=1)
+        with pytest.raises(PricingError, match="חתיכות"):
+            price_order([square_part(name="תקין"), giant_part()], tariff, strict=True)
+
+
+class TestFullPlateFloor:
+    """חלק שהורס את שארית הפלטה מחויב כפלטה שלמה — ינון, 2026-08-12."""
+
+    def _frame(self, name: str = "מסגרת") -> Part:
+        """מסגרת ענקית: תופסת פלטה שלמה, אבל שטח המתכת שלה קטן."""
+        outer = rectangle(2900, 1400)
+        hole = rectangle(2700, 1200, origin=(100, 100))
+        return Part(
+            name=name,
+            geometry=PartGeometry([outer, hole]),
             material_key="st37",
             thickness_mm=3.0,
         )
-        with pytest.raises(PricingError):
-            price_order([part], make_tariff())
 
-    def test_rejected_part_is_reported_next_to_valid_ones(self):
-        parts = [square_part(name="תקין"), Part(
-            name="ענק",
-            geometry=PartGeometry([rectangle(3200, 1000)]),
-            material_key="st37",
-            thickness_mm=3.0,
-        )]
+    def test_billing_never_falls_below_the_material_consumed(self):
+        tariff = make_tariff()
+        quote = price_order([self._frame()], tariff)
+        group = quote.groups[0]
+        assert group.plate_floor_applied
+        assert group.billed_area_mm2 == pytest.approx(group.consumed_area_mm2, rel=1e-6)
+
+    def test_a_plate_destroying_part_is_charged_a_whole_plate(self):
+        """אין שארית שמישה — ולכן החיוב הוא מחיר הפלטה המלא."""
+        tariff = make_tariff()
+        quote = price_order([self._frame()], tariff)
+        group = quote.groups[0]
+        assert group.nesting.reusable_area_mm2 == 0.0
+        plate_price = tariff.rate_for("st37", 3.0).plate_price
+        assert quote.lines[0].material_cost == pytest.approx(plate_price, rel=1e-3)
+
+    def test_floor_is_announced(self):
+        quote = price_order([self._frame()], make_tariff())
+        assert any("רצפת פלטה" in w for w in quote.warnings)
+        assert quote.lines[0].plate_floor_applied
+
+    def test_efficient_order_is_untouched_by_the_floor(self):
+        """הרצפה היא רשת ביטחון, לא תוספת מחיר לכולם."""
+        parts = [square_part(name="רגיל", qty=40)]
         quote = price_order(parts, make_tariff())
-        assert [line.part_name for line in quote.lines] == ["תקין"]
-        assert [r.part_name for r in quote.rejected] == ["ענק"]
-        assert quote.has_rejections
-        assert not quote.is_quotable
+        assert not quote.groups[0].plate_floor_applied
+        assert not quote.lines[0].plate_floor_applied
 
-    def test_strict_mode_fails_the_whole_order(self):
-        parts = [square_part(name="תקין"), Part(
-            name="ענק",
-            geometry=PartGeometry([rectangle(3200, 1000)]),
-            material_key="st37",
-            thickness_mm=3.0,
-        )]
-        with pytest.raises(PricingError, match="לא ניתן לייצור"):
-            price_order(parts, make_tariff(), strict=True)
+    def test_floor_is_shared_across_parts_in_the_group(self):
+        """הפלטה משותפת, ולכן גם הרצפה — היא לא נגבית פעמיים."""
+        quote = price_order([self._frame("א"), self._frame("ב")], make_tariff())
+        group = quote.groups[0]
+        billed = sum(line.billed_area_mm2 * line.quantity for line in quote.lines)
+        assert billed == pytest.approx(group.consumed_area_mm2, rel=1e-6)
 
 
 class TestGrouping:

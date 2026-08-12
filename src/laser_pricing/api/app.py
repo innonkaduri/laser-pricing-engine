@@ -28,6 +28,7 @@ from ..cad.dxf_reader import read_dxf
 from ..domain.geometry import Contour, PartGeometry, circle, rectangle
 from ..domain.part import Part, PartSource
 from ..nesting.plate import check_manufacturability
+from ..nesting.splitting import plan_split
 from ..pricing.engine import PricingError, price_order
 from ..pricing.tariff import InvalidTariffError, MissingTariffError
 from .serialize import geometry_to_json, quote_to_json
@@ -318,14 +319,26 @@ def _require_tariff():
 
 
 def _geometry_response(key: str, name: str, source: str, geometry: PartGeometry) -> dict:
-    verdict = check_manufacturability(geometry.bbox, _plate())
+    """תשובת השרת על חלק בודד, מיד אחרי חילוץ הגיאומטריה.
+
+    `manufacturable` נשאר True גם לחלק שגדול מפלטה: מאז החלטת הפיצול
+    כל חלק ניתן לייצור, והשאלה היא רק בכמה חתיכות ובכמה ריתוך.
+    """
+    plate = _plate()
+    verdict = check_manufacturability(geometry.bbox, plate)
+    plan = plan_split(geometry.bbox, plate)
     return {
         "geometry_id": key,
         "name": name,
         "source": source,
-        "manufacturable": verdict.ok,
-        "manufacturability_reason": verdict.reason,
+        "manufacturable": True,
+        "fits_single_plate": verdict.ok,
+        "manufacturability_reason": "" if verdict.ok else verdict.reason,
         "rotated_to_fit": verdict.rotated,
+        "pieces": plan.piece_count,
+        "split_columns": plan.columns,
+        "split_rows": plan.rows,
+        "weld_length_mm": round(plan.seam_length_mm, 2),
         **geometry_to_json(geometry),
     }
 
