@@ -1,0 +1,11 @@
+[Unit]
+Description=גיבוי טבלת המחירים של מנוע תמחור הלייזר
+Documentation=file:///opt/laser/scripts/backup-tariff.sh
+
+[Service]
+Type=oneshot
+# רץ כ-root כדי לכתוב ל-/var/backups — הקריאה מ-/opt/laser/config בלבד.
+ExecStart=/opt/laser/scripts/backup-tariff.sh
+Environment=TARIFF_PATH=/opt/laser/config/tariff.json
+Environment=BACKUP_DIR=/var/backups/laser-tariff
+Environment=KEEP=60

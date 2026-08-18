@@ -1,0 +1,11 @@
+[Unit]
+Description=גיבוי שעתי של טבלת המחירים
+
+[Timer]
+OnCalendar=hourly
+# אם השרת היה כבוי בזמן ההרצה — מריצים מיד עם העלייה, לא מדלגים.
+Persistent=true
+RandomizedDelaySec=90
+
+[Install]
+WantedBy=timers.target
