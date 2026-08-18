@@ -31,8 +31,10 @@ echo "יחידה: $UNIT"
 umask 077
 cat > "$ENV_FILE" <<'ENVEOF'
 # שער המערכת. ינון בלבד.
+# נשמר <APP_PASSWORD> בכוונה: ינון כבר מחזיק אותו, והוא מעולם לא נשלח
+# בתעבורה אל השרת הזה — מה שהיה פרוץ הוא היעדר השער, לא הסיסמה.
 APP_USER=ynon
-APP_PASSWORD=Bc9KhPxgsbwb6tDq
+APP_PASSWORD=<APP_PASSWORD>
 
 # מפתח מוגבל לטופס המחירים בלבד: /prices ו-/api/prices.
 # אינו פותח את המנוע, את ההצעות ואת עורך ה-JSON.
