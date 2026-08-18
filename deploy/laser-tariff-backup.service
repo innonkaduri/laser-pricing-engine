@@ -1,6 +1,7 @@
 [Unit]
 Description=גיבוי טבלת המחירים של מנוע תמחור הלייזר
 Documentation=file:///opt/laser/scripts/backup-tariff.sh
+# היחידה המשרתת היא laser-pricing.service (אומת על הקופסה).
 
 [Service]
 Type=oneshot

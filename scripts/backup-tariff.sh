@@ -8,10 +8,10 @@
 # מוחק כל תיקייה לא-מנוטרת — כולל תיקיית גיבויים שתשב שם.
 #
 # שחזור:
-#   systemctl stop laser
+#   systemctl stop laser-pricing
 #   cp /var/backups/laser-tariff/tariff-<חותמת>.json /opt/laser/config/tariff.json
 #   chown laser:laser /opt/laser/config/tariff.json
-#   systemctl start laser
+#   systemctl start laser-pricing
 
 set -euo pipefail
 
