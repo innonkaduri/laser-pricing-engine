@@ -152,7 +152,50 @@ class QuoteRequest(BaseModel):
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok"}
+    """מצב הטבלה — כולל השאלה אם מה שבזיכרון קיים גם על הדיסק.
+
+    שני כללים קובעים את הצורה של התשובה הזאת:
+
+    1. **תמיד 200.** הנתיב הזה הוא `healthCheckPath` של הפלטפורמה.
+       פלטפורמה שרואה "לא בריא" מפעילה מחדש — וההפעלה מחדש היא בדיוק
+       מה שמוחק את הטבלה מהזיכרון, כלומר את העותק היחיד ששרד במקרה
+       שהקובץ נעלם. בדיקת בריאות שמגיבה לאובדן בהריגת הניצול האחרון
+       היא לא הגנה אלא הדק. הסטייה מדווחת ב-`warnings`, לא בקוד HTTP.
+
+    2. **בלי אישור, ולכן בלי תוכן.** `/health` פתוח לכל האינטרנט
+       (`OPEN_PATHS`), ולכן יוצאים מכאן בוליאנים, ספירות ומחרוזת
+       המקור בלבד — לא שמות חומרים, לא עוביים ולא מחירים. גם טקסט
+       שגיאת הטעינה נשאר בפנים, כי הוא מצטט שורות מהטבלה.
+    """
+    disk_present, disk_matches = STATE.disk_state()
+    rates = list(STATE.tariff.rates.values()) if STATE.tariff else []
+    ready = STATE.is_ready
+
+    warnings: list[str] = []
+    if STATE.error:
+        warnings.append("טעינת הטבלה נכשלה — ראה /api/config עם התחברות.")
+    if not ready:
+        warnings.append("הטבלה עדיין ריקה ממחירים — כל סכום ייצא 0.")
+    # TARIFF_JSON מגיע מהסביבה ושורד הפעלה מחדש בעצמו, ולכן מצב הדיסק
+    # שם אינו מעיד על סכנה. האזהרה נכונה רק כשהדיסק הוא מה שאמור לשרוד.
+    if ready and STATE.origin != "TARIFF_JSON":
+        if not disk_present:
+            warnings.append("הטבלה קיימת בזיכרון בלבד — הפעלה מחדש תמחק אותה.")
+        elif not disk_matches:
+            warnings.append("הטבלה בזיכרון שונה מזו שעל הדיסק — הפעלה מחדש תחזיר את גרסת הדיסק.")
+
+    return {
+        "status": "ok",
+        "tariff_ready": ready,
+        "tariff_source": STATE.origin,
+        "tariff_error": bool(STATE.error),
+        "rate_rows": len(rates),
+        "priced_rows": sum(1 for r in rates if r.plate_price > 0 or r.cut_rate_per_m > 0),
+        "materials_count": len({r.material_key for r in rates}),
+        "disk_present": disk_present,
+        "disk_matches_memory": disk_matches,
+        "warnings": warnings,
+    }
 
 
 @app.get("/api/config")

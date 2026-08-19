@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -41,9 +43,25 @@ def isolated_tariff(tmp_path, monkeypatch):
     """
     monkeypatch.setattr(tariff_store, "LIVE_PATH", tmp_path / "tariff.json")
     state = tariff_store.STATE
-    before = (state.raw, state.tariff, state.origin, state.error)
+    before = (
+        state.raw,
+        state.tariff,
+        state.origin,
+        state.error,
+        state.memory_hash,
+        state._disk_stat,
+        state._disk_hash,
+    )
     yield
-    state.raw, state.tariff, state.origin, state.error = before
+    (
+        state.raw,
+        state.tariff,
+        state.origin,
+        state.error,
+        state.memory_hash,
+        state._disk_stat,
+        state._disk_hash,
+    ) = before
 
 
 @pytest.fixture
@@ -225,6 +243,66 @@ class TestAuthGate:
         monkeypatch.setenv("APP_USER", "ynon")
         assert client.get("/api/config", auth=("ynon", "sod")).status_code == 200
         assert client.get("/api/config", auth=("ynon", "wrong")).status_code == 401
+
+
+class TestHealth:
+    """בדיקת הבריאות שומרת על ההבחנה בין "בזיכרון" ל"על הדיסק".
+
+    המקרה שהוליד אותה: הקובץ נמחק מהשרת, השירות המשיך להחזיר
+    `ready=True` מהזיכרון, ורק הפעלה מחדש הייתה חושפת שאין טבלה.
+    """
+
+    def test_reports_that_the_table_lives_only_in_memory(self, priced_client, tmp_path):
+        (tmp_path / "tariff.json").unlink()
+        body = priced_client.get("/health").json()
+        assert body["tariff_ready"] is True
+        assert body["disk_present"] is False
+        assert body["disk_matches_memory"] is False
+        assert any("הפעלה מחדש תמחק אותה" in w for w in body["warnings"])
+
+    def test_stays_200_on_drift_so_the_platform_will_not_restart_us(self, priced_client, tmp_path):
+        """הפעלה מחדש היא בדיוק מה שהורג את העותק היחיד שנשאר."""
+        (tmp_path / "tariff.json").unlink()
+        assert priced_client.get("/health").status_code == 200
+
+    def test_disk_and_memory_agree_right_after_a_save(self, priced_client):
+        body = priced_client.get("/health").json()
+        assert body["disk_present"] is True
+        assert body["disk_matches_memory"] is True
+        assert body["warnings"] == []
+
+    def test_notices_a_file_changed_behind_the_service(self, priced_client, tmp_path):
+        live = tmp_path / "tariff.json"
+        live.write_text(live.read_text(encoding="utf-8").replace("900.0", "111.0"), encoding="utf-8")
+        body = priced_client.get("/health").json()
+        assert body["disk_present"] is True
+        assert body["disk_matches_memory"] is False
+        assert any("שונה מזו שעל הדיסק" in w for w in body["warnings"])
+
+    def test_leaks_no_material_names_or_prices(self, priced_client):
+        """הנתיב פתוח בלי אישור — ספירות ובוליאנים בלבד."""
+        raw = priced_client.get("/health").text
+        for secret in ("st37", "פלדה שחורה", "900", "12.0", "1.5"):
+            assert secret not in raw
+        body = priced_client.get("/health").json()
+        assert body["materials_count"] == 1
+        assert body["rate_rows"] == 1
+        assert body["priced_rows"] == 1
+
+    def test_does_not_read_the_file_on_every_call(self, priced_client, monkeypatch):
+        """הבדיקה הזאת רצה כל דקה. `stat` מספיק כשהקובץ לא זז."""
+        reads = 0
+        original = Path.read_bytes
+
+        def counting_read(self):
+            nonlocal reads
+            reads += 1
+            return original(self)
+
+        monkeypatch.setattr(Path, "read_bytes", counting_read)
+        for _ in range(5):
+            assert priced_client.get("/health").json()["disk_matches_memory"] is True
+        assert reads == 0
 
 
 class TestSimplePriceForm:
