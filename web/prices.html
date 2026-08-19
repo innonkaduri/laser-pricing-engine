@@ -54,6 +54,17 @@ button.row-remove{
 button.row-remove:hover{color:var(--bad); border-color:var(--bad)}
 
 .general{display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:14px}
+.start-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:14px}
+.start-grid label{display:block; font-size:14px; color:var(--muted); margin-bottom:5px}
+select{
+  width:100%; padding:10px; font-size:17px; font-family:inherit;
+  border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--text);
+}
+button.copy-down{
+  font-size:12px; font-weight:500; padding:3px 8px; margin-top:4px;
+  background:transparent; color:var(--muted); border-color:var(--line);
+}
+button.copy-down:hover{color:var(--accent); border-color:var(--accent)}
 .general label{display:block; font-size:14px; color:var(--muted); margin-bottom:5px}
 
 .bar{
@@ -104,6 +115,45 @@ button:disabled{background:#c9ced4; border-color:#c9ced4; cursor:not-allowed}
 
   <div id="app" class="hidden">
     <p id="banner" class="note warn"></p>
+
+    <!-- מסך ההתחלה. שתי תיבות, לא טבלה.
+         הסיבה נמדדה: הצעת מחיר אמיתית לחלוטין יוצאת משני תאים מתוך 154
+         (מחיר פלטה + מחיר חיתוך למטר). מה שחסם את אבא לא היה נפח
+         העבודה אלא מסך שנראה כמו טופס מס הכנסה. -->
+    <div id="start" class="card hidden">
+      <h2>נתחיל בקטן</h2>
+      <p class="sub">
+        שני מספרים על החומר שאתה מוכר הכי הרבה, וכבר תצא ממנו הצעת מחיר
+        אמיתית. אפשר להוסיף עוד אחר כך — כל שדה שנשאר ריק פשוט לא נגבה.
+      </p>
+      <div class="start-grid">
+        <div>
+          <label for="start-material">חומר</label>
+          <select id="start-material"></select>
+        </div>
+        <div>
+          <label for="start-thickness">עובי (מ"מ)</label>
+          <select id="start-thickness"></select>
+        </div>
+        <div>
+          <label for="start-plate">מחיר פלטה שלמה (₪)</label>
+          <input id="start-plate" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0">
+        </div>
+        <div>
+          <label for="start-cut">מחיר חיתוך למטר (₪)</label>
+          <input id="start-cut" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0">
+        </div>
+      </div>
+      <div style="margin-top:18px; display:flex; gap:14px; align-items:center; flex-wrap:wrap">
+        <button id="start-save">שמור והתחל</button>
+        <span id="start-status" style="font-size:15px"></span>
+      </div>
+      <p style="margin:16px 0 0">
+        <a href="#" id="show-all" style="color:var(--accent)">יש לי את כל המחירים — הצג את הטבלה המלאה</a>
+      </p>
+    </div>
+
+    <div id="full">
     <div id="materials"></div>
 
     <div class="card">
@@ -116,6 +166,7 @@ button:disabled{background:#c9ced4; border-color:#c9ced4; cursor:not-allowed}
       השאר 0 בכל שדה שאין לו מחיר. שדה שנשאר 0 פשוט לא ייגבה —
       המערכת לא תמציא לו מחיר לבד.
     </p>
+    </div>
   </div>
 </main>
 
@@ -153,9 +204,13 @@ async function tryKey(key) {
   sessionStorage.setItem('editorKey', key);
   $('#gate').classList.add('hidden');
   $('#app').classList.remove('hidden');
-  $('#bar').classList.remove('hidden');
   render(data);
-  offerDraft();
+  if (anyFilled() || readDraft()) {
+    showFull();
+    offerDraft();
+  } else {
+    showStart();
+  }
 }
 
 $('#gate-go').addEventListener('click', async () => {
@@ -169,6 +224,90 @@ $('#gate-go').addEventListener('click', async () => {
   }
 });
 $('#gate-key').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#gate-go').click(); });
+
+/* ---- מצב ההתחלה ----
+
+   מי שעוד לא הזין דבר רואה שני שדות. מי שכבר באמצע רואה את הטבלה
+   המלאה, כי החלפת המסך תחתיו הייתה מחיקת ההקשר שלו. */
+
+function anyFilled() {
+  return FORM.materials.some((m) => m.rows.some((r) =>
+    FORM.labels.money.some((f) => Number(r[f.field]) > 0)));
+}
+
+function renderStart() {
+  const sel = $('#start-material');
+  sel.innerHTML = FORM.materials
+    .map((m, i) => `<option value="${i}">${esc(m.name)}</option>`).join('');
+  sel.addEventListener('change', renderStartThicknesses);
+  renderStartThicknesses();
+}
+
+function renderStartThicknesses() {
+  const mi = Number($('#start-material').value || 0);
+  const rows = (FORM.materials[mi] || {rows: []}).rows;
+  $('#start-thickness').innerHTML = rows
+    .map((r, i) => `<option value="${i}">${r.thickness_mm}</option>`).join('');
+}
+
+function showFull() {
+  $('#start').classList.add('hidden');
+  $('#full').classList.remove('hidden');
+  $('#bar').classList.remove('hidden');
+}
+
+function showStart() {
+  const banner = $('#banner');
+  banner.className = 'note warn';
+  banner.textContent = 'עדיין לא מולאו מחירים — כל הצעת מחיר במערכת יוצאת כרגע 0.';
+  $('#start').classList.remove('hidden');
+  $('#full').classList.add('hidden');
+  $('#bar').classList.add('hidden');
+  renderStart();
+}
+
+$('#show-all').addEventListener('click', (e) => { e.preventDefault(); showFull(); });
+
+$('#start-save').addEventListener('click', async () => {
+  const btn = $('#start-save');
+  const status = $('#start-status');
+  const mi = Number($('#start-material').value || 0);
+  const ri = Number($('#start-thickness').value || 0);
+  const plate = Number($('#start-plate').value || 0);
+  const cut = Number($('#start-cut').value || 0);
+
+  if (plate <= 0 && cut <= 0) {
+    status.style.color = 'var(--bad)';
+    status.textContent = 'צריך לפחות אחד משני המספרים.';
+    return;
+  }
+
+  btn.disabled = true;
+  status.style.color = 'var(--muted)';
+  status.textContent = 'שומר…';
+  try {
+    const body = JSON.parse(JSON.stringify(FORM));
+    body.materials[mi].rows[ri].plate_price = plate;
+    body.materials[mi].rows[ri].cut_rate_per_m = cut;
+    const res = await api('/api/prices', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    clearDraft();
+    const fresh = await api('/api/prices');
+    FORM = fresh.form;
+    render(fresh);
+    showFull();
+    $('#status').style.color = res.ready ? 'var(--ok)' : 'var(--warn)';
+    $('#status').textContent = res.message;
+  } catch (err) {
+    status.style.color = 'var(--bad)';
+    status.textContent = 'לא נשמר: ' + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 /* ---- ציור הטופס ---- */
 
@@ -190,7 +329,9 @@ function render(data) {
       <div style="overflow-x:auto"><table>
         <thead><tr>
           <th>עובי מ"מ</th>
-          ${money.map((f) => `<th>${esc(f.label)}</th>`).join('')}
+          ${money.map((f) => `<th>${esc(f.label)}<br>
+            <button class="copy-down" data-m="${mi}" data-f="${esc(f.field)}"
+              title="מעתיק את הערך מהשורה הראשונה לכל העוביים של החומר הזה">העתק לכולם</button></th>`).join('')}
           <th></th>
         </tr></thead>
         <tbody>${m.rows.map((r, ri) => `
@@ -216,6 +357,26 @@ function render(data) {
   document.querySelectorAll('input[data-f], input[data-g]').forEach((el) => {
     paint(el);
     el.addEventListener('input', () => { paint(el); dirty(); });
+  });
+
+  /* העתקה, לא גזירה. המספר שנכנס לכל השורות הוא המספר שאבא הקליד
+     בשורה הראשונה, והוא רואה אותו בכל תיבה ויכול לתקן כל אחת. מחיר
+     שנגזר מעובי או מחומר היה מספר שאיש לא הקליד — וזה בדיוק מה
+     שהמנוע הזה קיים כדי לא לעשות. */
+  document.querySelectorAll('.copy-down').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const field = btn.dataset.f;
+      const inputs = Array.from(document.querySelectorAll(
+        `input[data-m="${btn.dataset.m}"][data-f="${field}"]`));
+      const source = inputs.find((el) => Number(el.value) > 0);
+      if (!source) return;
+      inputs.forEach((el) => {
+        if (el === source) return;
+        el.value = source.value;
+        paint(el);
+      });
+      dirty();
+    });
   });
 
   /* 22 שורות הן ניחוש של התבנית ולא המציאות של אבא. מי שמוכר ארבעה
