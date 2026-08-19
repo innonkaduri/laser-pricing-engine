@@ -30,3 +30,10 @@ config/users.db-wal
 # בדיוק כמו ש-scripts/backup-tariff.sh עצר את הקודם.
 config/backup-status.json
 .secrets/
+
+# רעש של כלים על השרת ובמק. `npm ci` ו-pip יוצרים תיקיות כאלה, והן
+# מופיעות ב-`git status` של הקופסה — מה שיכשיל כל בדיקת "העץ נקי"
+# ברגע שהיא תהפוך לתנאי חוסם.
+.cache/
+.pytest_cache/
+__pycache__/
