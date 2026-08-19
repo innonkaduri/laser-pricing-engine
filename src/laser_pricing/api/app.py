@@ -14,12 +14,15 @@ import base64
 import hmac
 import math
 import os
+import sqlite3
 import tempfile
+import time
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote_plus
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -31,6 +34,7 @@ from ..nesting.plate import check_manufacturability
 from ..nesting.splitting import plan_split
 from ..pricing.engine import PricingError, price_order
 from ..pricing.tariff import InvalidTariffError, MissingTariffError
+from . import identity
 from .serialize import geometry_to_json, quote_to_json
 from .simple_tariff import apply_form, to_form
 from .store import STORE, GeometryExpired, StoredGeometry
@@ -48,7 +52,10 @@ app = FastAPI(
 
 # ---- נעילה ----
 
-OPEN_PATHS = frozenset({"/health"})
+OPEN_PATHS = frozenset({"/health", "/login", "/api/login"})
+"""מה שנפתח בלי זהות. `/login` ו-`/api/login` הם המסך שבו משיגים זהות,
+ו-`/health` הוא בדיקת הפלטפורמה — ולכן שלושתם מחזירים בוליאנים ומסכים
+בלבד, ולעולם לא מחירים."""
 
 EDITOR_PATHS = ("/prices", "/api/prices")
 """המסלולים היחידים ש-EDITOR_PASSWORD פותח.
@@ -69,51 +76,85 @@ def _editor_key(request: Request) -> str:
     return request.headers.get("x-editor-key") or request.query_params.get("k", "")
 
 
-@app.middleware("http")
-async def basic_auth(request: Request, call_next):
-    """שער סיסמה פשוט, פעיל רק כאשר APP_PASSWORD מוגדר.
+PRICE_TABLE_PATHS = ("/prices", "/api/prices", "/api/tariff")
+"""מה שדורש `prices:edit`: טופס אבא ועורך ה-JSON הגולמי.
 
-    כתובת ציבורית בלי שער היא לא רק "מישהו יראה מחירים" — היא מאפשרת
-    לכל אחד גם *לשנות* את טבלת התמחור דרך PUT /api/tariff. לכן השער
-    חל על הכל, כולל הממשק, ולא רק על העריכה.
+עורך ה-JSON נכנס לרשימה הזאת ולא לרשימת המשתמשים הרגילים, כי `PUT`
+עליו מחליף את הטבלה **כולה** — כולל הכיול שאף אחד לא רואה בטופס.
+"""
 
-    בפיתוח מקומי המשתנה לא מוגדר והשער כבוי.
+
+def _required_capability(path: str) -> str:
+    if any(path == p or path.startswith(p + "/") for p in PRICE_TABLE_PATHS):
+        return identity.CAP_PRICES_EDIT
+    return identity.CAP_QUOTE_USE
+
+
+def _gate_is_on() -> bool:
+    """השער פעיל אם יש סיסמת מערכת או אם קיימים משתמשים.
+
+    בפיתוח מקומי אין לא זה ולא זה, והשער כבוי. **בפרודקשן זה בדיוק
+    המקום שדפק ב-18.8**: המשתנים לא היו ביחידה, ה-middleware ויתר על
+    השער בשקט, והשרת היה פתוח לכתיבה לכל האינטרנט. לכן היום זה גם
+    מדווח ב-`/health`, ולא רק מתרחש.
     """
-    password = os.environ.get("APP_PASSWORD", "")
+    if os.environ.get("APP_PASSWORD", ""):
+        return True
+    try:
+        return identity.user_count() > 0
+    except sqlite3.Error:
+        # מסד פגום לא יפתח את השער. כישלון סגור, לא כישלון פתוח.
+        return True
+
+
+def _wants_html(request: Request) -> bool:
+    return request.method == "GET" and "text/html" in request.headers.get("accept", "")
+
+
+@app.middleware("http")
+async def auth_gate(request: Request, call_next):
+    """מי אתה, ומה מותר לך.
+
+    כל הזהות מגיעה מ-`identity.current_user` — סשן, Basic, או טוקן
+    שירות של ה-CRM. הקובץ הזה מחליט רק *מה נדרש לאיזה מסלול*, ולא
+    מאיפה מגיעה הזהות; החלפת מקור הזהות ל-CRM לא נוגעת כאן.
+    """
     path = request.url.path
-    if not password or path in OPEN_PATHS:
+    if path in OPEN_PATHS or not _gate_is_on():
         return await call_next(request)
 
-    editor_password = os.environ.get("EDITOR_PASSWORD", "")
-    if editor_password and _is_editor_path(path):
-        if hmac.compare_digest(_editor_key(request), editor_password):
-            return await call_next(request)
+    user = identity.current_user(request)
 
-    header = request.headers.get("authorization", "")
-    if header.startswith("Basic "):
-        try:
-            decoded = base64.b64decode(header[6:]).decode("utf-8")
-            user, _, supplied = decoded.partition(":")
-        except (ValueError, UnicodeDecodeError):
-            user = supplied = ""
-        expected_user = os.environ.get("APP_USER", "ynon")
-        # השוואה בזמן קבוע — הפרש זמנים על סיסמה קצרה הוא דליפה אמיתית.
-        if hmac.compare_digest(user, expected_user) and hmac.compare_digest(supplied, password):
-            return await call_next(request)
+    # הקישור של אבא: מפתח מוגבל למסלול, לא אדם. נשאר בתוקף כדי שלא
+    # ניקח ממנו את הטופס באמצע המילוי.
+    if user is None and _is_editor_path(path):
+        editor_password = os.environ.get("EDITOR_PASSWORD", "")
+        if editor_password and hmac.compare_digest(_editor_key(request), editor_password):
+            user = identity.EDITOR_LINK_USER
 
-    if _is_editor_path(path):
-        # לאבא אין שם משתמש. דף שגיאה קריא עדיף על חלון התחברות של הדפדפן.
+    if user is None:
+        if _is_editor_path(path):
+            # לאבא אין שם משתמש, ומסך כניסה רק יבלבל אותו.
+            return Response(
+                status_code=401,
+                content="הקישור אינו תקין או שפג תוקפו. בקש מינון קישור חדש.",
+                media_type="text/plain; charset=utf-8",
+            )
+        if _wants_html(request):
+            # דפדפן מקבל מסך כניסה; curl וכלים מקבלים 401 כמו תמיד.
+            return RedirectResponse(f"/login?next={quote_plus(path)}", status_code=303)
+        return Response(status_code=401, content="נדרשת התחברות")
+
+    required = _required_capability(path)
+    if not user.can(required):
         return Response(
-            status_code=401,
-            content="הקישור אינו תקין או שפג תוקפו. בקש מינון קישור חדש.",
+            status_code=403,
+            content=f"אין לך הרשאה ל-{required}. בקש מינון.",
             media_type="text/plain; charset=utf-8",
         )
 
-    return Response(
-        status_code=401,
-        content="נדרשת התחברות",
-        headers={"WWW-Authenticate": 'Basic realm="laser-pricing", charset="UTF-8"'},
-    )
+    request.state.user = user
+    return await call_next(request)
 
 
 # ---- מודלים של הבקשות ----
@@ -187,8 +228,16 @@ def health() -> dict:
         elif not disk_matches:
             warnings.append("הטבלה בזיכרון שונה מזו שעל הדיסק — הפעלה מחדש תחזיר את גרסת הדיסק.")
 
+    gate_on = _gate_is_on()
+    if not gate_on:
+        # זו התאונה של 18.8 בדיוק. אם היא תחזור — שתצעק, ולא בשקט.
+        warnings.append("השער כבוי — הכתובת פתוחה לקריאה ולכתיבה לכל אחד.")
+    if gate_on and identity.SESSION_SECRET_IS_EPHEMERAL:
+        warnings.append("אין SESSION_SECRET — כל הפעלה מחדש תנתק את המשתמשים.")
+
     return {
         "status": "ok",
+        "gate_on": gate_on,
         "tariff_ready": ready,
         "tariff_source": STATE.origin,
         "tariff_error": bool(STATE.error),
@@ -198,6 +247,95 @@ def health() -> dict:
         "disk_present": disk_present,
         "disk_matches_memory": disk_matches,
         "warnings": warnings,
+    }
+
+
+# ---- כניסה ----
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+    next: str = "/"
+
+
+_LOGIN_FAILURES: dict[str, list[float]] = {}
+_MAX_FAILURES = 8
+_FAILURE_WINDOW_SECONDS = 600
+
+
+def _throttled(key: str) -> bool:
+    """חסימה פשוטה בזיכרון על ניסיונות כושלים.
+
+    מסך כניסה פתוח לאינטרנט בלי הגבלת קצב הוא הזמנה לניחוש סיסמאות.
+    בזיכרון התהליך ולא במסד — ארבעה משתמשים ותהליך אחד, וזה מספיק.
+    """
+    now = time.time()
+    recent = [t for t in _LOGIN_FAILURES.get(key, []) if now - t < _FAILURE_WINDOW_SECONDS]
+    _LOGIN_FAILURES[key] = recent
+    return len(recent) >= _MAX_FAILURES
+
+
+def _record_failure(key: str) -> None:
+    _LOGIN_FAILURES.setdefault(key, []).append(time.time())
+
+
+@app.post("/api/login")
+def login(body: LoginRequest, request: Request) -> JSONResponse:
+    client = request.client.host if request.client else "?"
+    key = f"{client}|{body.username.strip().lower()}"
+    if _throttled(key):
+        raise HTTPException(status_code=429, detail="יותר מדי ניסיונות. נסה שוב בעוד כמה דקות.")
+
+    user = identity.authenticate(body.username, body.password)
+    if user is None:
+        _record_failure(key)
+        # אותה הודעה לשם לא קיים ולסיסמה שגויה — אחרת הטופס מדליף
+        # אילו שמות משתמש קיימים במערכת.
+        raise HTTPException(status_code=401, detail="שם משתמש או סיסמה שגויים.")
+
+    _LOGIN_FAILURES.pop(key, None)
+    response = JSONResponse(
+        {
+            "username": user.username,
+            "display_name": user.display_name,
+            "capabilities": sorted(user.capabilities),
+            "next": body.next if body.next.startswith("/") else "/",
+        }
+    )
+    response.set_cookie(
+        identity.SESSION_COOKIE,
+        identity.issue_session(user.username),
+        max_age=identity.SESSION_TTL_SECONDS,
+        httponly=True,
+        samesite="lax",
+        # Secure רק כשבאמת ב-HTTPS: אחרת פיתוח מקומי על http לא יעבוד
+        # והמפתח יכבה את הדגל לגמרי — וזה נגמר בפרודקשן בלי Secure.
+        secure=request.url.scheme == "https",
+        path="/",
+    )
+    return response
+
+
+@app.post("/api/logout")
+def logout() -> JSONResponse:
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(identity.SESSION_COOKIE, path="/")
+    return response
+
+
+@app.get("/api/me")
+def me(request: Request) -> dict:
+    """מי מחובר עכשיו. הממשק מציג את זה בכותרת."""
+    user = getattr(request.state, "user", None)
+    if user is None:
+        return {"authenticated": False, "gate": _gate_is_on()}
+    return {
+        "authenticated": True,
+        "username": user.username,
+        "display_name": user.display_name,
+        "capabilities": sorted(user.capabilities),
+        "source": user.source,
     }
 
 
@@ -520,6 +658,12 @@ if WEB_DIR.exists():
     @app.get("/")
     def index() -> FileResponse:
         return FileResponse(WEB_DIR / "index.html")
+
+    @app.get("/login")
+    def login_page() -> FileResponse:
+        """מסך הכניסה. עצמאי לחלוטין, מאותה סיבה כמו טופס המחירים:
+        דף שנטען לפני שיש זהות לא יכול להסתמך על /static שמאחורי השער."""
+        return FileResponse(WEB_DIR / "login.html")
 
     @app.get("/prices")
     def prices_form() -> FileResponse:

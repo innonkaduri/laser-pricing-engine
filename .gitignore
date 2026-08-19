@@ -17,3 +17,10 @@ tests/fixtures/
 # ו-`git clean -fd` בשרת מוחק קבצים לא-מנוטרים שאינם ב-.gitignore.
 # בלי השורה הזאת פקודה אחת מוחקת את כל מה שאבא הזין.
 config/tariff.json
+
+# מסד המשתמשים — גיבובי סיסמאות של ארבעת המשתמשים הפנימיים.
+# מחוץ למעקב מאותן שתי סיבות כמו הטבלה: הריפו ציבורי, ו-`git clean -fd`
+# מוחק קבצים לא-מנוטרים שאינם כאן.
+config/users.db
+config/users.db-journal
+config/users.db-wal

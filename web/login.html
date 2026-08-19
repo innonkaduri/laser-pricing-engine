@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>כניסה — מנוע תמחור לייזר</title>
+<style>
+/* עצמאי לחלוטין, בכוונה: הדף הזה נטען לפני שיש זהות, ו-/static יושב
+   מאחורי השער. דף שתלוי בקובץ חיצוני היה נטען שבור בדיוק כאן. */
+:root{
+  --bg:#f4f5f7; --card:#fff; --text:#1b1f24; --muted:#6b7280;
+  --line:#e3e6ea; --accent:#d9541e; --bad:#b3261e; --bad-bg:#fdeceb;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+  background:var(--bg); color:var(--text); padding:20px;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Rubik,Arial,sans-serif;
+}
+.card{
+  background:var(--card); border:1px solid var(--line); border-radius:14px;
+  padding:28px 26px; width:100%; max-width:380px;
+}
+h1{margin:0 0 4px; font-size:19px}
+p.sub{margin:0 0 22px; color:var(--muted); font-size:14px}
+label{display:block; font-size:13px; color:var(--muted); margin:0 0 5px}
+input{
+  width:100%; padding:11px 12px; font-size:17px; font-family:inherit; margin:0 0 16px;
+  border:1px solid var(--line); border-radius:9px; background:#fff; color:var(--text);
+}
+input:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(217,84,30,.12)}
+button{
+  width:100%; padding:12px; font-size:16px; font-family:inherit; font-weight:600;
+  border:none; border-radius:9px; background:var(--accent); color:#fff; cursor:pointer;
+}
+button[disabled]{opacity:.6; cursor:default}
+.error{
+  background:var(--bad-bg); color:var(--bad); border:1px solid #f2c5c0;
+  border-radius:9px; padding:11px 12px; font-size:14px; margin:0 0 16px;
+}
+.hidden{display:none}
+.foot{margin:18px 0 0; font-size:12.5px; color:var(--muted); line-height:1.6}
+</style>
+</head>
+<body>
+
+<form class="card" id="form">
+  <h1>מנוע תמחור לייזר</h1>
+  <p class="sub">כניסה למערכת</p>
+
+  <div class="error hidden" id="error"></div>
+
+  <label for="u">שם משתמש</label>
+  <input id="u" name="username" autocomplete="username" autocapitalize="off" autocorrect="off" required>
+
+  <label for="p">סיסמה</label>
+  <input id="p" name="password" type="password" autocomplete="current-password" required>
+
+  <button id="go" type="submit">כניסה</button>
+
+  <p class="foot">
+    ממלא את טבלת המחירים? הקישור שקיבלת בטלפון עובד כמו שהוא — אין צורך
+    בשם משתמש.
+  </p>
+</form>
+
+<script>
+const params = new URLSearchParams(location.search);
+const next = params.get('next') || '/';
+const errorBox = document.getElementById('error');
+
+function showError(message) {
+  errorBox.textContent = message;
+  errorBox.classList.remove('hidden');
+}
+
+document.getElementById('form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const button = document.getElementById('go');
+  button.disabled = true;
+  button.textContent = 'נכנס…';
+  errorBox.classList.add('hidden');
+  try {
+    const response = await fetch('/api/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        username: document.getElementById('u').value,
+        password: document.getElementById('p').value,
+        next,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || 'הכניסה נכשלה.');
+    location.href = data.next || '/';
+  } catch (err) {
+    showError(err.message);
+    button.disabled = false;
+    button.textContent = 'כניסה';
+  }
+});
+</script>
+
+</body>
+</html>

@@ -12,8 +12,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from laser_pricing.api import tariff_store
-from laser_pricing.api.app import app
+from laser_pricing.api import identity, tariff_store
+# היבוא הפרטי מכוון: מונה הניסיונות הכושלים הוא מצב של התהליך, ובדיקה
+# חייבת לאפס אותו כדי לא לחסום את הבדיקה הבאה.
+from laser_pricing.api.app import _LOGIN_FAILURES, app
 
 TEST_TARIFF = {
     "rates": [
@@ -62,6 +64,18 @@ def isolated_tariff(tmp_path, monkeypatch):
         state._disk_stat,
         state._disk_hash,
     ) = before
+
+
+@pytest.fixture(autouse=True)
+def isolated_users(tmp_path, monkeypatch):
+    """מסד המשתמשים גם הוא מצב גלובלי — ובדיקה לא תיצור אותו בריפו.
+
+    גם מונה הניסיונות הכושלים מתאפס: הוא חי בזיכרון התהליך בכוונה, ולכן
+    בדיקה שממצה אותו הייתה חוסמת את הבדיקה הבאה (וזה בדיוק מה שקרה).
+    """
+    monkeypatch.setattr(identity, "DB_PATH", tmp_path / "users.db")
+    _LOGIN_FAILURES.clear()
+    yield
 
 
 @pytest.fixture
@@ -269,7 +283,9 @@ class TestHealth:
         body = priced_client.get("/health").json()
         assert body["disk_present"] is True
         assert body["disk_matches_memory"] is True
-        assert body["warnings"] == []
+        # אין אזהרת סטייה. אזהרת "השער כבוי" כן מופיעה כאן, כי בבדיקות
+        # אין סיסמה ואין משתמשים — וזה בדיוק מה שהיא אמורה לומר.
+        assert not any("זיכרון" in w or "דיסק" in w for w in body["warnings"])
 
     def test_notices_a_file_changed_behind_the_service(self, priced_client, tmp_path):
         live = tmp_path / "tariff.json"
@@ -481,3 +497,134 @@ class TestEditorKeyIsScoped:
         auth = ("ynon", "strong-secret")
         assert gated.get("/api/config", auth=auth).status_code == 200
         assert gated.get("/api/prices", auth=auth).status_code == 200
+
+
+class TestUsersAndCapabilities:
+    """התפר: זהות אחת, שתי יכולות, ומקור זהות שאפשר להחליף.
+
+    מה שנבדק כאן הוא לא "יש מסך כניסה" אלא ההבטחות: שאבא ממשיך לעבוד
+    בלי חשבון, שמי שנכנס לתמחר אינו יכול לגעת בטבלה, ושה-CRM מדבר עם
+    המנוע כשירות ולא כאדם.
+    """
+
+    @pytest.fixture
+    def users(self):
+        identity.create_user("itai", "sod-arok-1", "איתי", {identity.CAP_QUOTE_USE})
+        identity.create_user(
+            "aba", "sod-arok-2", "אבא", {identity.CAP_PRICES_EDIT, identity.CAP_QUOTE_USE}
+        )
+        return identity.list_users()
+
+    @pytest.fixture
+    def gated(self, users, monkeypatch):
+        """שער דלוק בלי APP_PASSWORD — קיום משתמשים לבדו מספיק."""
+        monkeypatch.delenv("APP_PASSWORD", raising=False)
+        monkeypatch.setenv("EDITOR_PASSWORD", "123")
+        return TestClient(app)
+
+    def _login(self, client, username, password):
+        return client.post("/api/login", json={"username": username, "password": password})
+
+    def _login_ok(self, client, username, password):
+        response = self._login(client, username, password)
+        assert response.status_code == 200, response.text
+        return response
+
+    # ---- השער עצמו ----
+
+    def test_users_alone_turn_the_gate_on(self, gated):
+        """בלי המשתמשים ובלי APP_PASSWORD השרת פתוח. זו התאונה של 18.8."""
+        assert gated.get("/api/config").status_code == 401
+        assert gated.get("/health").json()["gate_on"] is True
+
+    def test_login_page_is_reachable_without_identity(self, gated):
+        assert gated.get("/login").status_code == 200
+        assert gated.post("/api/login", json={"username": "x", "password": "y"}).status_code == 401
+
+    def test_browser_gets_the_login_screen_and_curl_gets_401(self, gated):
+        page = gated.get("/", headers={"accept": "text/html"}, follow_redirects=False)
+        assert page.status_code == 303 and page.headers["location"].startswith("/login")
+        assert gated.get("/", headers={"accept": "*/*"}).status_code == 401
+
+    # ---- זהות ----
+
+    def test_session_cookie_opens_the_engine(self, gated):
+        assert self._login(gated, "itai", "sod-arok-1").status_code == 200
+        assert gated.get("/api/config").status_code == 200
+        assert gated.get("/api/me").json()["username"] == "itai"
+
+    def test_wrong_password_says_nothing_about_which_part_was_wrong(self, gated):
+        no_user = self._login(gated, "mi-ze", "sod-arok-1")
+        bad_password = self._login(gated, "itai", "lo-nachon")
+        assert no_user.status_code == bad_password.status_code == 401
+        assert no_user.json()["detail"] == bad_password.json()["detail"]
+
+    def test_logout_closes_the_session(self, gated):
+        self._login_ok(gated, "itai", "sod-arok-1")
+        assert gated.post("/api/logout").status_code == 200
+        assert gated.get("/api/config").status_code == 401
+
+    def test_disabled_user_is_out_immediately_even_with_a_live_session(self, gated):
+        self._login_ok(gated, "itai", "sod-arok-1")
+        assert gated.get("/api/config").status_code == 200
+        identity.set_disabled("itai", True)
+        # הזהות נטענת בכל בקשה, ולכן חסימה אינה מחכה לפקיעת העוגייה.
+        assert gated.get("/api/config").status_code == 401
+
+    def test_a_forged_cookie_is_refused(self, gated):
+        forged = identity.issue_session("itai").split(".")[0] + ".zayefti-et-hachatima"
+        gated.cookies.set(identity.SESSION_COOKIE, forged)
+        assert gated.get("/api/config").status_code == 401
+
+    def test_login_throttles_repeated_failures(self, gated):
+        codes = [self._login(gated, "itai", f"nisayon-{i}").status_code for i in range(12)]
+        assert 429 in codes, "מסך כניסה פומבי בלי הגבלת קצב הוא ניחוש סיסמאות חופשי"
+
+    # ---- יכולות ----
+
+    def test_quote_user_cannot_touch_the_price_table(self, gated):
+        self._login_ok(gated, "itai", "sod-arok-1")
+        assert gated.get("/api/prices").status_code == 403
+        assert gated.put("/api/tariff", json=TEST_TARIFF).status_code == 403
+        # אבל לתמחר הוא כן יכול — זו כל הפואנטה של ההפרדה.
+        assert gated.get("/api/config").status_code == 200
+
+    def test_price_editor_can_do_both(self, gated):
+        self._login_ok(gated, "aba", "sod-arok-2")
+        assert gated.get("/api/prices").status_code == 200
+        assert gated.get("/api/config").status_code == 200
+
+    # ---- מה שאסור שיישבר ----
+
+    def test_dads_link_keeps_working_without_an_account(self, gated):
+        """הסעיף שהאב הדגיש: אבא באמצע מילוי, ואין להכניס אותו למסך כניסה."""
+        assert gated.get("/prices?k=123").status_code == 200
+        assert gated.get("/api/prices", headers={"X-Editor-Key": "123"}).status_code == 200
+        assert gated.get("/prices?k=lo-nachon").status_code == 401
+
+    def test_dads_link_still_does_not_open_the_engine(self, gated):
+        assert gated.get("/api/config", headers={"X-Editor-Key": "123"}).status_code == 401
+        assert gated.put("/api/tariff", json={}, headers={"X-Editor-Key": "123"}).status_code == 401
+
+    def test_the_historical_password_still_works(self, gated, monkeypatch):
+        """ינון וסקריפטים משתמשים בה, ולכן היא לא נשברת ביום המעבר."""
+        monkeypatch.setenv("APP_PASSWORD", "strong-secret")
+        monkeypatch.setenv("APP_USER", "ynon")
+        assert gated.get("/api/config", auth=("ynon", "strong-secret")).status_code == 200
+        assert gated.get("/api/prices", auth=("ynon", "strong-secret")).status_code == 200
+        assert gated.get("/api/config", auth=("ynon", "lo-nachon")).status_code == 401
+
+    # ---- ה-CRM ----
+
+    def test_service_token_prices_but_never_edits(self, gated, monkeypatch):
+        """הגבול: ה-CRM מתמחר, ולעולם לא נוגע בטבלה של אבא."""
+        monkeypatch.setenv("SERVICE_TOKEN", "token-shel-hacrm")
+        headers = {"X-Service-Token": "token-shel-hacrm"}
+        assert gated.get("/api/config", headers=headers).status_code == 200
+        assert gated.get("/api/prices", headers=headers).status_code == 403
+        assert gated.put("/api/tariff", json=TEST_TARIFF, headers=headers).status_code == 403
+        assert gated.get("/api/me", headers=headers).json()["source"] == "service"
+
+    def test_a_wrong_service_token_is_nobody(self, gated, monkeypatch):
+        monkeypatch.setenv("SERVICE_TOKEN", "token-shel-hacrm")
+        assert gated.get("/api/config", headers={"X-Service-Token": "nisayon"}).status_code == 401

@@ -46,7 +46,43 @@ async function boot() {
   }
 
   renderParts();
-  loadTariffEditor();
+  await showWhoAmI();
+}
+
+async function showWhoAmI() {
+  /* מי מחובר, מה מותר לו, ואיך יוצאים. נכשל בשקט בכוונה: בפיתוח מקומי
+     השער כבוי, ואין סיבה שכותרת ריקה תפיל באנר שגיאה על המסך. */
+  let me;
+  try {
+    me = await api('/api/me');
+  } catch {
+    loadTariffEditor();
+    return;
+  }
+  state.me = me;
+
+  /* לשונית שאי אפשר לשמור בה היא תקלה שנראית כמו הרשאה. מי שאין לו
+     prices:edit פשוט לא רואה את עורך הטבלה. */
+  const mayEdit = !me.authenticated || (me.capabilities || []).includes('prices:edit');
+  if (mayEdit) {
+    loadTariffEditor();
+  } else {
+    const tab = document.querySelector('nav.tabs button[data-view="tariff"]');
+    if (tab) tab.remove();
+  }
+
+  if (!me.authenticated) return;
+  const host = $('#whoami');
+  host.textContent = `מחובר: ${me.display_name} · `;
+  const out = document.createElement('a');
+  out.href = '#';
+  out.textContent = 'יציאה';
+  out.addEventListener('click', async (event) => {
+    event.preventDefault();
+    await fetch('/api/logout', { method: 'POST' });
+    location.href = '/login';
+  });
+  host.appendChild(out);
 }
 
 function showBanner(kind, text) {
