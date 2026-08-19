@@ -111,7 +111,8 @@ button:disabled{background:#c9ced4; border-color:#c9ced4; cursor:not-allowed}
   <div id="gate" class="gate">
     <div class="card">
       <h2>הזנת קוד</h2>
-      <p class="sub">הקלד את הקוד שקיבלת מינון.</p>
+      <p class="sub">הקלד את הקוד שקיבלת מינון. מי שיש לו חשבון במערכת
+        יכול פשוט <a href="/login?next=%2Fprices">להיכנס עם שם משתמש</a>.</p>
       <input id="gate-key" type="password" inputmode="numeric" autocomplete="off" placeholder="קוד">
       <div style="margin-top:14px"><button id="gate-go">כניסה</button></div>
       <p id="gate-msg" class="note bad hidden" style="margin-top:14px"></p>
@@ -207,7 +208,7 @@ async function tryKey(key) {
   KEY = key;
   const data = await api('/api/prices');
   FORM = data.form;
-  sessionStorage.setItem('editorKey', key);
+  if (key) sessionStorage.setItem('editorKey', key);
   $('#gate').classList.add('hidden');
   $('#app').classList.remove('hidden');
   render(data);
@@ -588,6 +589,9 @@ $('#save').addEventListener('click', async () => {
   if (saved) {
     try { await tryKey(saved); return; } catch { /* נופלים למסך הקוד */ }
   }
+  /* מי שכבר מחובר כמשתמש עם prices:edit לא צריך קוד — השרת כבר אישר
+     אותו. מסך הקוד נועד לאבא, שאין לו חשבון, ולא לינון שנכנס בשמו. */
+  try { await tryKey(''); return; } catch { /* אין זהות — מסך הקוד */ }
   $('#gate-key').focus();
 })();
 </script>
