@@ -440,6 +440,11 @@ $('#calc').addEventListener('click', async () => {
 });
 
 function renderQuote(q) {
+  /* התאריך נכתב לנייר ולא למסך. הגיליון הוא פנימי — הפירוק, הבזבוז
+     והפריסה — וההצעה שיוצאת ללקוח נוצרת ב-CRM. */
+  const dateEl = $('#print-date');
+  if (dateEl) dateEl.textContent = new Date().toLocaleString('he-IL');
+
   const cur = q.currency === 'ILS' ? '₪' : q.currency;
   const weight = q.lines.reduce((s, l) => s + l.weight_kg, 0);
 
@@ -468,7 +473,10 @@ function renderQuote(q) {
     <div class="card">
       <div class="table-head">
         <h2 style="margin:0">פירוט ההצעה</h2>
-        <label class="toggle"><input type="checkbox" id="full-cols"> פירוט מלא</label>
+        <div style="display:flex; gap:12px; align-items:center">
+          <label class="toggle"><input type="checkbox" id="full-cols"> פירוט מלא</label>
+          <button class="ghost" id="print-sheet">הדפס גיליון</button>
+        </div>
       </div>
       <div class="scroll-x"><table id="lines-table">
         <thead><tr>
@@ -532,6 +540,9 @@ function renderQuote(q) {
     `<p class="banner warn" style="border-radius:8px; border:1px solid #ecd9a4; margin:0 0 16px">הסכומים כאן 0 — טבלת התמחור עדיין ריקה.</p>`;
 
   $('#quote-out').innerHTML = note + `<div class="card">${stats}</div>` + rejected + warnings + lines + groups;
+
+  const printBtn = $('#print-sheet');
+  if (printBtn) printBtn.addEventListener('click', () => window.print());
 
   const toggle = $('#full-cols');
   if (toggle) {

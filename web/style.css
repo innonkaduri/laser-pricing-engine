@@ -281,3 +281,58 @@ svg.plate {
 ul.warnings, ul.rejects { margin: 6px 0 0; padding-inline-start: 18px; font-size: 13px; }
 ul.warnings { color: var(--warn); }
 ul.rejects  { color: var(--bad); }
+
+/* ---- הדפסה ----
+
+   **גיליון פנימי, לא מסמך ללקוח.** ההצעה שיוצאת ללקוח נוצרת ב-CRM,
+   שם יושבים שם הלקוח, המספור, התוקף והתנאים. מה שנדפס מכאן הוא מה
+   שרק המנוע יודע לייצר: פירוק העלות, אחוזי הבזבוז והפריסה על הפלטה.
+   אין כאן שדה לשם לקוח, ולא במקרה — היום שבו יהיה כזה הוא היום שבו
+   שני מסמכים שונים יטענו לאותו תפקיד.
+
+   הדפסה ולא ספריית PDF בשרת: wkhtmltopdf ו-weasyprint הן תלויות
+   כבדות על קופסה עם שתי ליבות שמריצה עוד ארבעה פרויקטים, והדפדפן
+   כבר יודע לייצא PDF — ומדפיס בדיוק את מה שנבדק על המסך. */
+
+.print-only { display: none; }
+
+@media print {
+  /* לרוחב, ובכוונה: 19 עמודות של גיליון תמחור אינן נכנסות ל-A4 לאורך.
+     נמדד — הטבלה 1316 פיקסלים מול 703 שיש לאורך. דף שחותך עמודות
+     בשקט גרוע מדף מכוער. */
+  @page { size: A4 landscape; margin: 12mm; }
+
+  body { background: #fff; font-size: 11pt; }
+  header, nav.tabs, .banner, #whoami { display: none !important; }
+  main { padding: 0; max-width: none; }
+
+  /* כל מה שהוא קלט ופעולה — לא נייר. */
+  .grid > div:first-child, #parts, .actions, button, .toggle,
+  .drop, input, select, textarea, #view-state, #view-tariff { display: none !important; }
+
+  .grid { display: block; }
+  .card {
+    border: 1px solid #ccc; break-inside: avoid; margin-bottom: 10px;
+    padding: 12px 14px;
+  }
+  .card h2 { font-size: 13pt; }
+
+  .print-only { display: block; }
+  .print-head {
+    border-bottom: 2px solid #333; margin-bottom: 14px; padding-bottom: 8px;
+  }
+  .print-head h1 { margin: 0; font-size: 16pt; }
+  .print-head .meta { font-size: 10pt; color: #444; margin-top: 4px; }
+  .print-head .internal { font-weight: 700; margin-top: 6px; }
+
+  /* בהדפסה אין מתג "פירוט מלא", ולכן הכול גלוי: מי שמדפיס גיליון
+     תמחור פנימי רוצה דווקא את העמודות התפעוליות. */
+  table .detail, table th.detail, table td.detail { display: table-cell !important; }
+  table { font-size: 8pt; }
+  th, td { white-space: normal; padding: 3px 4px; }
+  .scroll-x { overflow: visible !important; }
+
+  .layout-wrap { break-inside: avoid; }
+  svg { max-width: 100%; height: auto; }
+  a[href]::after { content: ""; }
+}
