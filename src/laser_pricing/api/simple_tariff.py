@@ -56,8 +56,16 @@ def to_form(raw: dict) -> dict:
     for entry in materials.values():
         entry["rows"].sort(key=lambda r: r["thickness_mm"])
 
+    # שטח הפלטה אינו מחיר ואינו נערך כאן — הוא נשלח כדי שהטופס יוכל
+    # להחזיר לאבא את המספר *שלו* ביחידות שהוא חושב בהן: 640 לפלטה הם
+    # 142 ש"ח למ"ר. מי שהקליד 640000 יראה 142,222 ויתפוס את האפס.
+    plate = raw.get("plate", {})
+    width = _num(plate.get("width_mm", 3000.0)) or 3000.0
+    height = _num(plate.get("height_mm", 1500.0)) or 1500.0
+
     return {
         "currency": raw.get("currency", "ILS"),
+        "plate_area_m2": round(width * height / 1_000_000.0, 4),
         "general": {field: _num(raw.get(field)) for field, _ in GENERAL_FIELDS},
         "materials": sorted(materials.values(), key=lambda m: m["name"]),
         "labels": {

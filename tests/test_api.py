@@ -802,3 +802,30 @@ class TestRemovingRowsFromDadsForm:
         form["materials"][0]["rows"][0]["remove"] = True
         assert client.put("/api/prices", json=form).status_code == 200
         assert client.get("/api/tariff").json()["raw"]["rates"] == []
+
+
+class TestFormEchoesDadsNumberBackToHim:
+    """שטח הפלטה נשלח לטופס כדי להחזיר לאבא את המספר שלו במ"ר.
+
+    זו לא ולידציה ולא שיפוט על המחיר — זו הצגה של אותו מספר ביחידה
+    שהוא חושב בה. 640 לפלטה הם 142 ש"ח למ"ר; מי שהקליד 640000 יראה
+    142,222 ויתפוס את האפס לפני שהוא שומר.
+    """
+
+    def test_plate_area_is_in_the_form(self, client):
+        form = client.get("/api/prices").json()["form"]
+        assert form["plate_area_m2"] == pytest.approx(4.5)  # 3000x1500
+
+    def test_it_follows_a_non_standard_plate(self, client):
+        assert client.put(
+            "/api/tariff",
+            json={**TEST_TARIFF, "plate": {"width_mm": 2000.0, "height_mm": 1000.0}},
+        ).status_code == 200
+        form = client.get("/api/prices").json()["form"]
+        assert form["plate_area_m2"] == pytest.approx(2.0)
+
+    def test_the_plate_itself_stays_out_of_the_editable_form(self, client):
+        """מידות הפלטה הן כיול של ינון. מוצג — לא נערך."""
+        form = client.get("/api/prices").json()["form"]
+        assert "plate" not in form
+        assert not any(f["field"] == "plate_area_m2" for f in form["labels"]["money"])
