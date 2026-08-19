@@ -24,3 +24,8 @@ config/tariff.json
 config/users.db
 config/users.db-journal
 config/users.db-wal
+
+# דיווח הגיבוי לדשבורד — נכתב על השרת בכל ריצה של הטיימר.
+# בלי השורה הזאת הוא קובץ לא-מנוטר בעץ, והוא יעצור את ה-`git pull` הבא
+# בדיוק כמו ש-scripts/backup-tariff.sh עצר את הקודם.
+config/backup-status.json
