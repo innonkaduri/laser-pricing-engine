@@ -9,13 +9,35 @@
 # EnvironmentFile ולא Environment= ביחידה: סיסמה בתוך unit file נקראת
 # על ידי כל משתמש (`systemctl cat`), בעוד /etc/laser-pricing.env הוא 600 root.
 #
-# הרצה:  sudo bash enable-auth.sh
+# **הסיסמאות אינן בקובץ הזה.** הריפו ציבורי, וסיסמה שנכנסת לקומיט
+# מתפרסמת לתמיד — סורקי הסודות של GitHub מוצאים אותה תוך דקות, ומחיקה
+# מאוחרת אינה מוחקת מהעותקים ומהאינדקסים. לכן הן נקראות מהסביבה או
+# מהמקלדת, ואינן נכתבות לשום מקום חוץ מ-/etc/laser-pricing.env (600 root).
+#
+# הרצה:
+#   sudo APP_PASSWORD='...' EDITOR_PASSWORD='...' bash enable-auth.sh
+#   או פשוט `sudo bash enable-auth.sh` והסקריפט ישאל.
 set -euo pipefail
 
 ENV_FILE=/etc/laser-pricing.env
+APP_USER="${APP_USER:-ynon}"
 
 if [[ $EUID -ne 0 ]]; then
   echo "צריך root: sudo bash $0" >&2
+  exit 1
+fi
+
+# שער המערכת. ינון בלבד.
+if [[ -z "${APP_PASSWORD:-}" ]]; then
+  read -rsp "סיסמת המערכת (APP_PASSWORD) עבור $APP_USER: " APP_PASSWORD; echo
+fi
+# מפתח מוגבל לטופס המחירים בלבד: /prices ו-/api/prices.
+# אינו פותח את המנוע, את ההצעות ואת עורך ה-JSON.
+if [[ -z "${EDITOR_PASSWORD:-}" ]]; then
+  read -rsp "קוד הטופס לאבא (EDITOR_PASSWORD): " EDITOR_PASSWORD; echo
+fi
+if [[ -z "$APP_PASSWORD" || -z "$EDITOR_PASSWORD" ]]; then
+  echo "סיסמה ריקה פירושה שער כבוי והשרת פתוח לכל האינטרנט. עצירה." >&2
   exit 1
 fi
 
@@ -29,16 +51,10 @@ fi
 echo "יחידה: $UNIT"
 
 umask 077
-cat > "$ENV_FILE" <<'ENVEOF'
-# שער המערכת. ינון בלבד.
-# נשמר <APP_PASSWORD> בכוונה: ינון כבר מחזיק אותו, והוא מעולם לא נשלח
-# בתעבורה אל השרת הזה — מה שהיה פרוץ הוא היעדר השער, לא הסיסמה.
-APP_USER=ynon
-APP_PASSWORD=<APP_PASSWORD>
-
-# מפתח מוגבל לטופס המחירים בלבד: /prices ו-/api/prices.
-# אינו פותח את המנוע, את ההצעות ואת עורך ה-JSON.
-EDITOR_PASSWORD=<EDITOR_PASSWORD>
+cat > "$ENV_FILE" <<ENVEOF
+APP_USER=$APP_USER
+APP_PASSWORD=$APP_PASSWORD
+EDITOR_PASSWORD=$EDITOR_PASSWORD
 ENVEOF
 chown root:root "$ENV_FILE"
 chmod 600 "$ENV_FILE"
