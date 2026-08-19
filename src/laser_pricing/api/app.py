@@ -297,12 +297,19 @@ def login(body: LoginRequest, request: Request) -> JSONResponse:
         raise HTTPException(status_code=401, detail="שם משתמש או סיסמה שגויים.")
 
     _LOGIN_FAILURES.pop(key, None)
+
+    # מי שיש לו רק prices:edit יקבל 403 על המנוע, והמסך הראשי ייפתח
+    # על שגיאה. אבא ממלא מחירים — שיגיע לטופס ולא לדף שבור.
+    target = body.next if body.next.startswith("/") else "/"
+    if target == "/" and not user.can(identity.CAP_QUOTE_USE):
+        target = "/prices"
+
     response = JSONResponse(
         {
             "username": user.username,
             "display_name": user.display_name,
             "capabilities": sorted(user.capabilities),
-            "next": body.next if body.next.startswith("/") else "/",
+            "next": target,
         }
     )
     response.set_cookie(

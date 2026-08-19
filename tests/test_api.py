@@ -698,3 +698,29 @@ class TestOperationalDashboard:
         assert gated.post("/api/login", json={"username": "itai", "password": "sod-arok-1"}).status_code == 200
         # מסך תפעולי הוא של כל מי שנכנס, ולא רק של מי שעורך מחירים.
         assert gated.get("/api/dashboard").status_code == 200
+
+
+class TestLoginLandsWhereTheUserCanWork:
+    def test_a_prices_only_user_is_sent_to_the_form(self, monkeypatch):
+        """אבא ממלא מחירים. דף ראשי שנפתח על 403 נראה כמו תקלה."""
+        identity.create_user("aba", "sod-arok-2", "אבא", {identity.CAP_PRICES_EDIT})
+        monkeypatch.delenv("APP_PASSWORD", raising=False)
+        client = TestClient(app)
+        body = client.post("/api/login", json={"username": "aba", "password": "sod-arok-2"}).json()
+        assert body["next"] == "/prices"
+
+    def test_an_engine_user_lands_on_the_engine(self, monkeypatch):
+        identity.create_user("itai", "sod-arok-1", "איתי", {identity.CAP_QUOTE_USE})
+        monkeypatch.delenv("APP_PASSWORD", raising=False)
+        client = TestClient(app)
+        body = client.post("/api/login", json={"username": "itai", "password": "sod-arok-1"}).json()
+        assert body["next"] == "/"
+
+    def test_an_explicit_destination_is_kept(self, monkeypatch):
+        identity.create_user("aba", "sod-arok-2", "אבא", {identity.CAP_PRICES_EDIT})
+        monkeypatch.delenv("APP_PASSWORD", raising=False)
+        client = TestClient(app)
+        body = client.post(
+            "/api/login", json={"username": "aba", "password": "sod-arok-2", "next": "/prices?k=x"}
+        ).json()
+        assert body["next"] == "/prices?k=x"
