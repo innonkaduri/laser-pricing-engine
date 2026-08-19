@@ -29,3 +29,4 @@ config/users.db-wal
 # בלי השורה הזאת הוא קובץ לא-מנוטר בעץ, והוא יעצור את ה-`git pull` הבא
 # בדיוק כמו ש-scripts/backup-tariff.sh עצר את הקודם.
 config/backup-status.json
+.secrets/

@@ -724,3 +724,81 @@ class TestLoginLandsWhereTheUserCanWork:
             "/api/login", json={"username": "aba", "password": "sod-arok-2", "next": "/prices?k=x"}
         ).json()
         assert body["next"] == "/prices?k=x"
+
+
+class TestKnowingWhoYouAreIsNotACapability:
+    """`/api/me` ו-`/api/logout` פתוחים לכל מי שנכנס.
+
+    אבא, שיש לו `prices:edit` בלבד, קיבל "אין לך הרשאה ל-quote:use"
+    על השאלה מי הוא — הודעת הרשאה על משהו שאינו הרשאה, בכל כניסה.
+    """
+
+    @pytest.fixture
+    def aba(self, monkeypatch):
+        identity.create_user("aba", "sod-arok-2", "אבא", {identity.CAP_PRICES_EDIT})
+        monkeypatch.delenv("APP_PASSWORD", raising=False)
+        client = TestClient(app)
+        assert client.post("/api/login", json={"username": "aba", "password": "sod-arok-2"}).status_code == 200
+        return client
+
+    def test_a_prices_only_user_can_ask_who_they_are(self, aba):
+        body = aba.get("/api/me").json()
+        assert body["authenticated"] is True
+        assert body["username"] == "aba"
+        assert body["capabilities"] == ["prices:edit"]
+
+    def test_a_prices_only_user_can_log_out(self, aba):
+        assert aba.post("/api/logout").status_code == 200
+        assert aba.get("/api/me").status_code == 401
+
+    def test_but_the_engine_is_still_closed_to_them(self, aba):
+        assert aba.get("/api/config").status_code == 403
+
+    def test_me_still_needs_an_identity(self, monkeypatch):
+        identity.create_user("itai", "sod-arok-1", "איתי", {identity.CAP_QUOTE_USE})
+        monkeypatch.delenv("APP_PASSWORD", raising=False)
+        assert TestClient(app).get("/api/me").status_code == 401
+
+
+class TestRemovingRowsFromDadsForm:
+    """22 השורות בתבנית הן ניחוש. אבא ימלא רק את מה שהוא מוכר."""
+
+    def test_a_row_marked_for_removal_disappears(self, client):
+        from laser_pricing.api.simple_tariff import apply_form
+
+        raw = {
+            "rates": [
+                {"material_key": "st37", "material_name": "פלדה", "thickness_mm": 1.0},
+                {"material_key": "st37", "material_name": "פלדה", "thickness_mm": 3.0},
+            ]
+        }
+        form = {
+            "materials": [
+                {
+                    "key": "st37",
+                    "name": "פלדה",
+                    "rows": [
+                        {"thickness_mm": 1.0, "remove": True},
+                        {"thickness_mm": 3.0, "plate_price": 900.0},
+                    ],
+                }
+            ]
+        }
+        merged = apply_form(raw, form)
+        assert [r["thickness_mm"] for r in merged["rates"]] == [3.0]
+        assert merged["rates"][0]["plate_price"] == 900.0
+
+    def test_a_row_the_form_never_mentions_survives(self, client):
+        """"לא הזכרת" אינו "מחק" — אחרת טופס חלקי מוחק חצי טבלה בשקט."""
+        from laser_pricing.api.simple_tariff import apply_form
+
+        raw = {"rates": [{"material_key": "st37", "material_name": "פלדה", "thickness_mm": 8.0}]}
+        merged = apply_form(raw, {"materials": []})
+        assert len(merged["rates"]) == 1
+
+    def test_removal_survives_the_round_trip_through_the_api(self, client):
+        assert client.put("/api/tariff", json=TEST_TARIFF).status_code == 200
+        form = client.get("/api/prices").json()["form"]
+        form["materials"][0]["rows"][0]["remove"] = True
+        assert client.put("/api/prices", json=form).status_code == 200
+        assert client.get("/api/tariff").json()["raw"]["rates"] == []

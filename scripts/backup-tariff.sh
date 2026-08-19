@@ -7,19 +7,23 @@
 # היעד נמצא **מחוץ** לעץ ה-git בכוונה. `git clean -fd` בתוך /opt/laser
 # מוחק כל תיקייה לא-מנוטרת — כולל תיקיית גיבויים שתשב שם.
 #
+# מאותה סיבה גם המקור עבר ל-/var/lib/laser (19.8.2026): קובץ שאי אפשר
+# לשחזר אותו מהקוד לא צריך לשבת בתוך עץ עבודה שמושכים אליו, ממזגים בו
+# ומנקים אותו. `git clean -fdx` מוחק גם קבצים ש-.gitignore מכסה.
+#
 # מגובה גם מסד המשתמשים (users.db). הוא קטן, אבל גם הוא לא ניתן לשחזור
 # מהקוד — ובלעדיו אף אחד לא נכנס למערכת.
 #
 # שחזור:
 #   systemctl stop laser-pricing
-#   cp /var/backups/laser-tariff/tariff-<חותמת>.json /opt/laser/config/tariff.json
-#   cp /var/backups/laser-tariff/users-<חותמת>.db     /opt/laser/config/users.db
-#   chown laser:laser /opt/laser/config/tariff.json /opt/laser/config/users.db
+#   cp /var/backups/laser-tariff/tariff-<חותמת>.json /var/lib/laser/tariff.json
+#   cp /var/backups/laser-tariff/users-<חותמת>.db     /var/lib/laser/users.db
+#   chown laser:laser /var/lib/laser/tariff.json /var/lib/laser/users.db
 #   systemctl start laser-pricing
 
 set -euo pipefail
 
-SRC="${TARIFF_PATH:-/opt/laser/config/tariff.json}"
+SRC="${TARIFF_PATH:-/var/lib/laser/tariff.json}"
 DEST="${BACKUP_DIR:-/var/backups/laser-tariff}"
 KEEP="${KEEP:-60}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
@@ -87,7 +91,7 @@ backup_tariff || STATUS=1
 # בלעדיו אף אחד לא נכנס למערכת, והוא אינו ניתן לשחזור מהקוד — בדיוק
 # כמו הטבלה. `.backup` של sqlite ולא `cp`: העתקה של קובץ שנכתב באותו
 # רגע נותנת מסד פגום שנראה תקין עד הפעם הראשונה שקוראים ממנו.
-USERS_DB="${USERS_DB:-/opt/laser/config/users.db}"
+USERS_DB="${USERS_DB:-/var/lib/laser/users.db}"
 if [[ ! -f "$USERS_DB" ]]; then
   echo "אין עדיין מסד משתמשים ב-$USERS_DB."
 else
@@ -142,7 +146,7 @@ fi
 # יכול לראות מתי גובה לאחרונה. במקום לפתוח את התיקייה (ובכך לחשוף את
 # המחירים לכל מי שמריץ קוד בתהליך), הסקריפט מדווח החוצה קובץ מצב קטן
 # שאין בו אלא חותמות זמן.
-STATUS_FILE="${BACKUP_STATUS_FILE:-/opt/laser/config/backup-status.json}"
+STATUS_FILE="${BACKUP_STATUS_FILE:-/var/lib/laser/backup-status.json}"
 python3 - "$DEST" "$STATUS_FILE" "$STATUS" <<'PY' || echo "לא ניתן לכתוב את קובץ המצב." >&2
 import json, os, pathlib, sys, time
 

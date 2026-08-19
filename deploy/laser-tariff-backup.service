@@ -5,9 +5,10 @@ Documentation=file:///opt/laser/scripts/backup-tariff.sh
 
 [Service]
 Type=oneshot
-# רץ כ-root כדי לכתוב ל-/var/backups — הקריאה מ-/opt/laser/config בלבד.
+# רץ כ-root כדי לכתוב ל-/var/backups — הקריאה מ-/var/lib/laser בלבד.
 ExecStart=/opt/laser/scripts/backup-tariff.sh
-Environment=TARIFF_PATH=/opt/laser/config/tariff.json
-Environment=USERS_DB=/opt/laser/config/users.db
+Environment=TARIFF_PATH=/var/lib/laser/tariff.json
+Environment=USERS_DB=/var/lib/laser/users.db
+Environment=BACKUP_STATUS_FILE=/var/lib/laser/backup-status.json
 Environment=BACKUP_DIR=/var/backups/laser-tariff
 Environment=KEEP=60

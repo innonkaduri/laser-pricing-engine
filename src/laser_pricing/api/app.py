@@ -86,7 +86,18 @@ PRICE_TABLE_PATHS = ("/prices", "/api/prices", "/api/tariff")
 """
 
 
-def _required_capability(path: str) -> str:
+ANY_USER_PATHS = ("/api/me", "/api/logout")
+"""מה שכל מי שנכנס רשאי, ויהיו יכולותיו אשר יהיו.
+
+"מי אני" ו"צא" אינם יכולת. אבא, שיש לו `prices:edit` בלבד, קיבל על
+`/api/me` את "אין לך הרשאה ל-quote:use" — כלומר הודעת הרשאה על שאלה
+שאין לה שום קשר להרשאות, בכל כניסה מחדש.
+"""
+
+
+def _required_capability(path: str) -> str | None:
+    if path in ANY_USER_PATHS:
+        return None
     if any(path == p or path.startswith(p + "/") for p in PRICE_TABLE_PATHS):
         return identity.CAP_PRICES_EDIT
     return identity.CAP_QUOTE_USE
@@ -148,7 +159,7 @@ async def auth_gate(request: Request, call_next):
         return Response(status_code=401, content="נדרשת התחברות")
 
     required = _required_capability(path)
-    if not user.can(required):
+    if required is not None and not user.can(required):
         return Response(
             status_code=403,
             content=f"אין לך הרשאה ל-{required}. בקש מינון.",

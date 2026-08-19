@@ -72,6 +72,11 @@ def apply_form(raw: dict, form: dict) -> dict:
 
     שורה שהטופס מזכיר ואינה קיימת בטבלה נוצרת — כדי שאפשר יהיה להוסיף
     עובי חדש בלי לגעת ב-JSON. שורה שהטופס לא מזכיר נשארת כמות שהיא.
+
+    שורה עם `"remove": true` נמחקת. זו הדרך היחידה למחוק דרך הטופס,
+    והיא מפורשת בכוונה: 22 השורות בתבנית הן ניחוש, ואבא לא צריך למלא
+    154 תאים בשביל עוביים שהוא לא מוכר — אבל "לא הזכרת אותה" עדיין
+    לא אומר "מחק אותה", אחרת טופס חלקי היה מוחק חצי טבלה בשקט.
     """
     updated = copy.deepcopy(raw)
     updated.setdefault("rates", [])
@@ -90,6 +95,12 @@ def apply_form(raw: dict, form: dict) -> dict:
             thickness = _num(row.get("thickness_mm"))
             if thickness <= 0:
                 continue
+            if row.get("remove"):
+                target = index.pop((key, _round_thickness(thickness)), None)
+                if target is not None:
+                    updated["rates"].remove(target)
+                continue
+
             target = index.get((key, _round_thickness(thickness)))
             if target is None:
                 target = {

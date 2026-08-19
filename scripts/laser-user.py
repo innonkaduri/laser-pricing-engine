@@ -6,12 +6,18 @@
 נכנס לשום מסך). מסך ניהול היה משטח תקיפה שלם עבור פעולה שקורית
 פעם ברבעון.
 
-דוגמאות:
-  sudo -u laser python3 scripts/laser-user.py add itai --caps quote:use
-  sudo -u laser python3 scripts/laser-user.py add aba  --caps prices:edit,quote:use
-  sudo -u laser python3 scripts/laser-user.py list
-  sudo -u laser python3 scripts/laser-user.py passwd itai
-  sudo -u laser python3 scripts/laser-user.py disable itai
+**על השרת מריצים עם הפייתון של הסביבה הווירטואלית**, לא עם זה של
+המערכת — `python3` המערכתי אינו רואה את התלויות ונופל על
+`ModuleNotFoundError: No module named 'fastapi'`:
+
+  cd /opt/laser
+  sudo -u laser .venv/bin/python3 scripts/laser-user.py list
+  sudo -u laser .venv/bin/python3 scripts/laser-user.py add itai --caps quote:use
+  sudo -u laser .venv/bin/python3 scripts/laser-user.py add aba  --caps prices:edit
+  sudo -u laser .venv/bin/python3 scripts/laser-user.py passwd itai
+  sudo -u laser .venv/bin/python3 scripts/laser-user.py disable itai
+
+הסקריפט מוסיף את `src/` ל-`sys.path` בעצמו, ולכן אין צורך ב-PYTHONPATH.
 
 הסיסמה לעולם אינה ארגומנט בשורת הפקודה: היא נשארת בהיסטוריית המעטפת
 ונראית ב-`ps`. הסקריפט מבקש אותה, או קורא אותה מ-LASER_USER_PASSWORD.
