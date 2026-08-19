@@ -12,11 +12,13 @@ from __future__ import annotations
 
 import base64
 import hmac
+import json
 import math
 import os
 import sqlite3
 import tempfile
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote_plus
@@ -36,7 +38,7 @@ from ..pricing.engine import PricingError, price_order
 from ..pricing.tariff import InvalidTariffError, MissingTariffError
 from . import identity
 from .serialize import geometry_to_json, quote_to_json
-from .simple_tariff import apply_form, to_form
+from .simple_tariff import MONEY_FIELDS, apply_form, to_form
 from .store import STORE, GeometryExpired, StoredGeometry
 from .tariff_store import STATE
 
@@ -336,6 +338,126 @@ def me(request: Request) -> dict:
         "display_name": user.display_name,
         "capabilities": sorted(user.capabilities),
         "source": user.source,
+    }
+
+
+# ---- מצב המערכת ----
+
+BACKUP_STATUS_PATH = Path(
+    os.environ.get("BACKUP_STATUS_FILE", Path(__file__).resolve().parents[3] / "config" / "backup-status.json")
+)
+BACKUP_STALE_AFTER_MINUTES = 180
+"""הטיימר שעתי. שלוש שעות בלי ריצה זו תקלה ולא איחור."""
+
+
+def _backup_state() -> dict:
+    """מתי גובה לאחרונה — מתוך קובץ המצב שהסקריפט מדווח.
+
+    השירות אינו יכול לקרוא את `/var/backups/laser-tariff` (700 root),
+    וזה מכוון: תהליך שמגיש דפים לאינטרנט לא צריך גישת קריאה לכל
+    הגרסאות של טבלת המחירים. לכן הוא נשען על חותמות זמן בלבד.
+    """
+    try:
+        raw = json.loads(BACKUP_STATUS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"reporting": False, "stale": True, "minutes_since_run": None}
+
+    minutes = None
+    try:
+        last = datetime.strptime(raw["last_run"], "%Y-%m-%dT%H:%M:%S")
+        minutes = max(0, int((datetime.now() - last).total_seconds() // 60))
+    except (KeyError, TypeError, ValueError):
+        pass
+
+    return {
+        "reporting": True,
+        "last_run": raw.get("last_run"),
+        "ok": bool(raw.get("ok", False)),
+        "minutes_since_run": minutes,
+        "stale": minutes is None or minutes > BACKUP_STALE_AFTER_MINUTES,
+        "tariff": raw.get("tariff", {}),
+        "users": raw.get("users", {}),
+    }
+
+
+def _table_coverage() -> dict:
+    """כמה מהטבלה באמת מלא, ואיפה חסר.
+
+    זה הלב של המסך התפעולי: "הטבלה ריקה" הוא מצב שאפשר לעבוד איתו,
+    אבל רק אם רואים בדיוק **מה** ריק. הספירה היא על תאים כספיים —
+    שורה × שדות מחיר — ולא על שורות, כי שורה עם מחיר פלטה בלבד עדיין
+    תייצר הצעה חלקית.
+    """
+    fields = [f for f, _ in MONEY_FIELDS]
+    materials: dict[str, dict] = {}
+    filled_cells = 0
+    total_cells = 0
+
+    for row in STATE.raw.get("rates", []):
+        key = row.get("material_key", "")
+        entry = materials.setdefault(
+            key,
+            {
+                "key": key,
+                "name": row.get("material_name", key),
+                "rows": 0,
+                "priced_rows": 0,
+                "filled_cells": 0,
+                "total_cells": 0,
+                "empty_fields": {f: 0 for f in fields},
+            },
+        )
+        entry["rows"] += 1
+        row_has_price = False
+        for field in fields:
+            total_cells += 1
+            entry["total_cells"] += 1
+            try:
+                value = float(row.get(field, 0) or 0)
+            except (TypeError, ValueError):
+                value = 0.0
+            if value > 0:
+                filled_cells += 1
+                entry["filled_cells"] += 1
+                if field in ("plate_price", "cut_rate_per_m"):
+                    row_has_price = True
+            else:
+                entry["empty_fields"][field] += 1
+        if row_has_price:
+            entry["priced_rows"] += 1
+
+    return {
+        "materials": sorted(materials.values(), key=lambda m: str(m["name"])),
+        "filled_cells": filled_cells,
+        "total_cells": total_cells,
+        "field_labels": [{"field": f, "label": lbl} for f, lbl in MONEY_FIELDS],
+    }
+
+
+@app.get("/api/dashboard")
+def dashboard() -> dict:
+    """המסך התפעולי: מה מלא, מה בריא, ומתי גובה לאחרונה.
+
+    **לא מסך מכירות.** היסטוריית ההצעות יושבת ב-CRM לפי קו הגבול
+    שסוכם, והמנוע אינו שומר הצעות כלל.
+    """
+    disk_present, disk_matches = STATE.disk_state()
+    coverage = _table_coverage()
+    return {
+        "tariff": {
+            "ready": STATE.is_ready,
+            "source": STATE.origin,
+            "error": STATE.error,
+            **coverage,
+        },
+        "engine": {
+            "disk_present": disk_present,
+            "disk_matches_memory": disk_matches,
+            "gate_on": _gate_is_on(),
+            "session_secret_ephemeral": identity.SESSION_SECRET_IS_EPHEMERAL,
+        },
+        "backup": _backup_state(),
+        "users": {"count": identity.user_count()},
     }
 
 

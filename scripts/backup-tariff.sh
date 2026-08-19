@@ -136,4 +136,37 @@ PY
   fi
 fi
 
+# ---- דיווח לדשבורד ----
+#
+# תיקיית הגיבויים היא 700 root, והשירות רץ כמשתמש אחר — כלומר הוא אינו
+# יכול לראות מתי גובה לאחרונה. במקום לפתוח את התיקייה (ובכך לחשוף את
+# המחירים לכל מי שמריץ קוד בתהליך), הסקריפט מדווח החוצה קובץ מצב קטן
+# שאין בו אלא חותמות זמן.
+STATUS_FILE="${BACKUP_STATUS_FILE:-/opt/laser/config/backup-status.json}"
+python3 - "$DEST" "$STATUS_FILE" "$STATUS" <<'PY' || echo "לא ניתן לכתוב את קובץ המצב." >&2
+import json, os, pathlib, sys, time
+
+dest, status_file, status = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), int(sys.argv[3])
+
+
+def newest(pattern: str):
+    files = sorted(dest.glob(pattern))
+    if not files:
+        return None, 0
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(files[-1].stat().st_mtime)), len(files)
+
+
+tariff_at, tariff_count = newest("tariff-*.json")
+users_at, users_count = newest("users-*.db")
+payload = {
+    "last_run": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    "ok": status == 0,
+    "tariff": {"last_backup": tariff_at, "count": tariff_count},
+    "users": {"last_backup": users_at, "count": users_count},
+}
+status_file.parent.mkdir(parents=True, exist_ok=True)
+status_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+os.chmod(status_file, 0o644)  # חותמות זמן בלבד — השירות חייב לקרוא אותו
+PY
+
 exit "$STATUS"

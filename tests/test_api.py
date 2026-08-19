@@ -7,6 +7,9 @@
 
 from __future__ import annotations
 
+import json
+import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -16,6 +19,11 @@ from laser_pricing.api import identity, tariff_store
 # היבוא הפרטי מכוון: מונה הניסיונות הכושלים הוא מצב של התהליך, ובדיקה
 # חייבת לאפס אותו כדי לא לחסום את הבדיקה הבאה.
 from laser_pricing.api.app import _LOGIN_FAILURES, app
+
+# `from laser_pricing.api import app` מחזיר את אובייקט ה-FastAPI ולא את
+# המודול, כי החבילה מייצאת אותו. למי שצריך לשנות משתנה ברמת המודול
+# (monkeypatch) זו טעות שקטה: הערך נדבק על האובייקט הלא נכון.
+app_module = sys.modules["laser_pricing.api.app"]
 
 TEST_TARIFF = {
     "rates": [
@@ -628,3 +636,65 @@ class TestUsersAndCapabilities:
     def test_a_wrong_service_token_is_nobody(self, gated, monkeypatch):
         monkeypatch.setenv("SERVICE_TOKEN", "token-shel-hacrm")
         assert gated.get("/api/config", headers={"X-Service-Token": "nisayon"}).status_code == 401
+
+
+class TestOperationalDashboard:
+    """מסך תפעולי ולא מסך מכירות — היסטוריית ההצעות יושבת ב-CRM."""
+
+    def test_coverage_counts_cells_and_not_rows(self, client):
+        """שורה עם מחיר פלטה בלבד עדיין מייצרת הצעה חלקית."""
+        body = client.get("/api/dashboard").json()["tariff"]
+        assert body["total_cells"] == 22 * len(body["field_labels"])
+        assert body["filled_cells"] == 0
+        assert body["ready"] is False
+
+    def test_a_single_filled_row_moves_the_counter(self, priced_client):
+        body = priced_client.get("/api/dashboard").json()["tariff"]
+        assert body["ready"] is True
+        assert body["filled_cells"] == 3  # plate_price, cut_rate_per_m, pierce_price
+        material = body["materials"][0]
+        assert material["priced_rows"] == 1
+        # השדות שאיש לא מילא באף שורה — זה מה שהמסך מציג לאבא.
+        assert material["empty_fields"]["bend_price"] == material["rows"]
+
+    def test_backup_state_is_read_from_the_report_not_the_backup_dir(self, client, tmp_path, monkeypatch):
+        """תיקיית הגיבויים היא 700 root; השירות רואה חותמות זמן בלבד."""
+        missing = client.get("/api/dashboard").json()["backup"]
+        assert missing["reporting"] is False and missing["stale"] is True
+
+        status = tmp_path / "backup-status.json"
+        status.write_text(
+            json.dumps(
+                {
+                    "last_run": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                    "ok": True,
+                    "tariff": {"last_backup": None, "count": 0},
+                    "users": {"last_backup": None, "count": 0},
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(app_module, "BACKUP_STATUS_PATH", status)
+        fresh = client.get("/api/dashboard").json()["backup"]
+        assert fresh["reporting"] is True and fresh["stale"] is False
+        assert fresh["minutes_since_run"] == 0
+
+    def test_an_old_report_is_stale(self, client, tmp_path, monkeypatch):
+        old = datetime.now() - timedelta(hours=5)
+        status = tmp_path / "backup-status.json"
+        status.write_text(
+            json.dumps({"last_run": old.strftime("%Y-%m-%dT%H:%M:%S"), "ok": True}), encoding="utf-8"
+        )
+        monkeypatch.setattr(app_module, "BACKUP_STATUS_PATH", status)
+        body = client.get("/api/dashboard").json()["backup"]
+        assert body["stale"] is True
+        assert body["minutes_since_run"] >= 300
+
+    def test_the_dashboard_is_behind_the_gate(self, monkeypatch):
+        identity.create_user("itai", "sod-arok-1", "איתי", {identity.CAP_QUOTE_USE})
+        monkeypatch.delenv("APP_PASSWORD", raising=False)
+        gated = TestClient(app)
+        assert gated.get("/api/dashboard").status_code == 401
+        assert gated.post("/api/login", json={"username": "itai", "password": "sod-arok-1"}).status_code == 200
+        # מסך תפעולי הוא של כל מי שנכנס, ולא רק של מי שעורך מחירים.
+        assert gated.get("/api/dashboard").status_code == 200

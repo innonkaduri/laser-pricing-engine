@@ -97,8 +97,89 @@ document.querySelectorAll('nav.tabs button').forEach((btn) => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('nav.tabs button').forEach((b) => b.classList.toggle('active', b === btn));
     document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.id === 'view-' + btn.dataset.view));
+    if (btn.dataset.view === 'state') loadState();
   });
 });
+
+/* ---------- מצב המערכת ---------- */
+
+async function loadState() {
+  const host = $('#state-out');
+  let data;
+  try {
+    data = await api('/api/dashboard');
+  } catch (err) {
+    host.innerHTML = `<div class="card"><h2>מצב המערכת</h2><p style="color:var(--bad)">${esc(err.message)}</p></div>`;
+    return;
+  }
+
+  const t = data.tariff;
+  const pct = t.total_cells ? Math.round((t.filled_cells / t.total_cells) * 100) : 0;
+  const labels = Object.fromEntries(t.field_labels.map((f) => [f.field, f.label]));
+
+  /* הכותרת אומרת את האמת הלא-נעימה בגדול: כמה מהטבלה באמת מלא.
+     "הטבלה ריקה" הוא מצב שאפשר לעבוד איתו — רק אם רואים מה ריק. */
+  const alerts = [];
+  if (!t.filled_cells) {
+    alerts.push('הטבלה ריקה לגמרי — כל סכום יצא 0. המידות, הפריסה והבזבוז אמיתיים גם עכשיו.');
+  } else if (!t.ready) {
+    alerts.push('אין עדיין מחיר פלטה או מחיר חיתוך באף שורה — כל סכום יצא 0.');
+  }
+  if (t.error) alerts.push('טעינת הטבלה נכשלה: ' + t.error);
+  if (!data.engine.gate_on) alerts.push('השער כבוי — הכתובת פתוחה לכל אחד.');
+  if (data.engine.session_secret_ephemeral) alerts.push('אין SESSION_SECRET — כל הפעלה מחדש תנתק את כולם.');
+  if (t.ready && !data.engine.disk_present) alerts.push('הטבלה קיימת בזיכרון בלבד — הפעלה מחדש תמחק אותה.');
+  if (t.ready && data.engine.disk_present && !data.engine.disk_matches_memory) {
+    alerts.push('הטבלה בזיכרון שונה מזו שעל הדיסק.');
+  }
+  if (!data.backup.reporting) alerts.push('הגיבוי אינו מדווח — ייתכן שהטיימר אינו רץ.');
+  else if (data.backup.stale) alerts.push(`הגיבוי לא רץ מזה ${int(data.backup.minutes_since_run || 0)} דקות.`);
+  if (!data.users.count) alerts.push('אין עדיין משתמשים — הכניסה אפשרית רק בסיסמת המערכת.');
+
+  host.innerHTML = `
+    <div class="card">
+      <h2>מצב המערכת</h2>
+      <div class="stats">
+        <div class="stat total"><div class="k">שדות מחיר שמולאו</div><div class="v">${pct}%</div></div>
+        <div class="stat"><div class="k">מתוך</div><div class="v">${int(t.filled_cells)}/${int(t.total_cells)}</div></div>
+        <div class="stat"><div class="k">מקור הטבלה</div><div class="v" style="font-size:15px">${esc(t.source || '—')}</div></div>
+        <div class="stat"><div class="k">משתמשים</div><div class="v">${int(data.users.count)}</div></div>
+        <div class="stat"><div class="k">גיבוי אחרון</div><div class="v" style="font-size:15px">${
+          data.backup.reporting && data.backup.last_run ? esc(data.backup.last_run.replace('T', ' ')) : '—'
+        }</div></div>
+      </div>
+      ${alerts.length
+        ? `<ul class="warnings" style="margin-top:14px">${alerts.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>`
+        : '<p class="hint" style="margin-top:14px">אין התראות פתוחות.</p>'}
+    </div>
+
+    <div class="card">
+      <h2>מה עוד חסר בטבלה</h2>
+      <p class="hint" style="margin-top:-8px">
+        שורה עם מחיר פלטה בלבד עדיין מייצרת הצעה חלקית, ולכן הספירה היא על תאים ולא על שורות.
+      </p>
+      <div class="scroll-x"><table>
+        <thead><tr>
+          <th>חומר</th><th class="num">עוביים</th><th class="num">עם מחיר</th>
+          <th class="num">תאים שמולאו</th><th>שדות שריקים בכל השורות</th>
+        </tr></thead>
+        <tbody>${t.materials.map((m) => {
+          const allEmpty = Object.entries(m.empty_fields)
+            .filter(([, count]) => count === m.rows)
+            .map(([field]) => labels[field] || field);
+          return `
+          <tr>
+            <td>${esc(m.name)}</td>
+            <td class="num">${int(m.rows)}</td>
+            <td class="num">${int(m.priced_rows)}</td>
+            <td class="num">${int(m.filled_cells)}/${int(m.total_cells)}</td>
+            <td class="small">${allEmpty.length ? esc(allEmpty.join(' · ')) : '—'}</td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table></div>
+    </div>`;
+}
 
 /* ---------- העלאת קבצים ---------- */
 
