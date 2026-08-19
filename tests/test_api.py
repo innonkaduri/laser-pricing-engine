@@ -829,3 +829,24 @@ class TestFormEchoesDadsNumberBackToHim:
         form = client.get("/api/prices").json()["form"]
         assert "plate" not in form
         assert not any(f["field"] == "plate_area_m2" for f in form["labels"]["money"])
+
+
+class TestUploadCeiling:
+    """התקרה נמדדה ולא נבחרה: 56MB עלו 41 שניות ו-823MB על מק מהיר,
+    והקופסה היא שתי ליבות משותפות לחמישה פרויקטים."""
+
+    def test_a_file_over_the_ceiling_is_refused_with_what_to_do(self, client):
+        from laser_pricing.api.app import MAX_UPLOAD_BYTES
+
+        huge = b"0" * (MAX_UPLOAD_BYTES + 1)
+        response = client.post("/api/upload", files={"file": ("plan.dxf", huge)})
+        assert response.status_code == 413
+        detail = response.json()["detail"]
+        # לא רק "נכשל" — גם מה לעשות במקום.
+        assert "המתאר של החלק בלבד" in detail
+
+    def test_the_default_ceiling_is_25mb(self):
+        """אם מישהו משנה את המספר — שיראה גם את המדידה שבדוקסטרינג."""
+        from laser_pricing.api.app import MAX_UPLOAD_BYTES
+
+        assert MAX_UPLOAD_BYTES == 25 * 1024 * 1024

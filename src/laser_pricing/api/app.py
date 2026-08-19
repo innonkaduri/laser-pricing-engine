@@ -42,7 +42,21 @@ from .simple_tariff import MONEY_FIELDS, apply_form, to_form
 from .store import STORE, GeometryExpired, StoredGeometry
 from .tariff_store import STATE
 
-MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_MB", "25")) * 1024 * 1024
+"""תקרת ההעלאה. נמדדה, לא נבחרה יפה.
+
+זמן פענוח ושיא זיכרון על מק מהיר (מ-19.8.2026), קובץ עם מתארים סגורים:
+
+    1.9MB  →   1.8 שניות,   82MB
+    11.4MB →  11.9 שניות,  221MB
+    56.4MB →  41.3 שניות,  823MB
+
+הקופסה היא שתי ליבות משותפות לחמישה פרויקטים, כלומר איטית פי כמה
+מהמדידה הזאת. 25MB נותנים מרווח אמיתי לתוכניות כבדות ועדיין משאירים
+את הפענוח בסדר גודל של עשרות שניות ומאות מגה-בייט. קובץ של 60MB אינו
+חלק — הוא תוכנית שלמה עם ריהוט, מידות וטקסט, ומה שהמנוע צריך הוא
+המתאר. הגבול הזה אומר את זה במקום להיאבק בו.
+"""
 WEB_DIR = Path(__file__).resolve().parents[3] / "web"
 
 app = FastAPI(
@@ -537,7 +551,14 @@ async def upload(file: UploadFile = File(...)) -> dict:
 
     payload = await file.read()
     if len(payload) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="הקובץ גדול מ-10MB.")
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"הקובץ גדול מ-{MAX_UPLOAD_BYTES // (1024 * 1024)}MB. "
+                "תוכנית שלמה אינה חלק — ייצא מהתוכנית את המתאר של החלק בלבד "
+                "(בלי ריהוט, מידות וטקסט) ושלח אותו."
+            ),
+        )
     if not payload:
         raise HTTPException(status_code=400, detail="הקובץ ריק.")
 
