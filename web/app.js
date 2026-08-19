@@ -138,6 +138,8 @@ function addPart(data) {
     material_key: first ? first.key : '',
     thickness_mm: first ? first.thicknesses[0] : 0,
     quantity: 1,
+    bend_count: 0,
+    bend_length_mm: 0,
   });
   if (data.warnings && data.warnings.length) {
     showBanner('warn', `${data.name}: ${data.warnings.join(' · ')}`);
@@ -208,6 +210,12 @@ function renderParts() {
             <div style="max-width:90px"><label>כמות</label>
               <input type="number" min="1" step="1" value="${p.quantity}" data-field="quantity">
             </div>
+            <div style="max-width:90px"><label>כיפופים</label>
+              <input type="number" min="0" step="1" value="${p.bend_count}" data-field="bend_count">
+            </div>
+            <div style="max-width:120px"><label>אורך כיפוף (מ"מ)</label>
+              <input type="number" min="0" step="1" value="${p.bend_length_mm || ''}" placeholder="לא חובה" data-field="bend_length_mm">
+            </div>
             <div style="max-width:60px"><button class="ghost" data-action="remove">הסר</button></div>
           </div>
         </div>
@@ -229,6 +237,10 @@ function renderParts() {
           renderParts();
         } else if (field === 'thickness_mm') {
           part.thickness_mm = parseFloat(input.value);
+        } else if (field === 'bend_count') {
+          part.bend_count = Math.max(0, parseInt(input.value || '0', 10));
+        } else if (field === 'bend_length_mm') {
+          part.bend_length_mm = Math.max(0, parseFloat(input.value || '0'));
         } else {
           part.quantity = Math.max(1, parseInt(input.value || '1', 10));
         }
@@ -292,6 +304,8 @@ $('#calc').addEventListener('click', async () => {
         material_key: p.material_key,
         thickness_mm: p.thickness_mm,
         quantity: p.quantity,
+        bend_count: p.bend_count || 0,
+        bend_length_mm: p.bend_length_mm || 0,
       })),
     };
     const quote = await api('/api/quote', {
@@ -346,7 +360,7 @@ function renderQuote(q) {
           <th class="num detail">אורך חיתוך</th><th class="num detail">ניקובים</th><th class="num detail">משקל</th>
           <th class="num detail">בזבוז</th><th class="detail">מדרגה</th>
           <th class="num detail">חומר</th><th class="num detail">חיתוך</th><th class="num detail">ניקוב</th>
-          <th class="num detail">ריתוך</th>
+          <th class="num detail">ריתוך</th><th class="num detail">כיפוף</th>
           <th class="num">ליחידה</th><th class="num">סה"כ</th>
         </tr></thead>
         <tbody>${q.lines.map((l) => `
@@ -367,6 +381,7 @@ function renderQuote(q) {
             <td class="num detail">${cur}${fmt(l.cutting_cost)}</td>
             <td class="num detail">${cur}${fmt(l.piercing_cost)}</td>
             <td class="num detail">${cur}${fmt(l.welding_cost)}${l.weld_length_mm ? ` <span class="muted">(${fmt(l.weld_length_mm / 1000, 2)} מ')</span>` : ''}</td>
+            <td class="num detail">${cur}${fmt(l.bending_cost)}${l.bend_count ? ` <span class="muted">(${int(l.bend_count)} כיפופים)</span>` : ''}</td>
             <td class="num">${cur}${fmt(l.unit_price)}${l.min_charge_applied ? ' <span class="pill warn">מינימום</span>' : ''}</td>
             <td class="num"><b>${cur}${fmt(l.line_total)}</b></td>
           </tr>`).join('')}

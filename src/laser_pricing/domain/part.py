@@ -32,6 +32,15 @@ class Part:
     quantity: int = 1
     source: PartSource = PartSource.MANUAL
     notes: str = ""
+    bend_count: int = 0
+    """כמה כיפופים בחלק — **הצהרה של המזמין**, לא מסקנה מהגיאומטריה.
+
+    קובץ DXF שטוח אינו יודע שהוא הולך להתכופף, ולכן אין שום דרך לחלץ
+    את זה מהמידות. עד שתהיה פרישה אוטומטית ממודל תלת-ממד, מי שיודע
+    כמה כיפופים יש הוא מי שמזמין — והוא מקליד את המספר.
+    """
+    bend_length_mm: float = 0.0
+    """אורך קווי הכיפוף הכולל. 0 = לא הוצהר, ולכן לא מחויב לפי אורך."""
 
     def __post_init__(self) -> None:
         if self.quantity < 1:
@@ -40,6 +49,10 @@ class Part:
             raise ValueError("עובי חייב להיות חיובי")
         if not self.material_key:
             raise ValueError("חובה לציין סוג חומר")
+        if self.bend_count < 0:
+            raise ValueError("מספר כיפופים לא יכול להיות שלילי")
+        if self.bend_length_mm < 0:
+            raise ValueError("אורך כיפוף לא יכול להיות שלילי")
 
     @property
     def bbox(self) -> BoundingBox:

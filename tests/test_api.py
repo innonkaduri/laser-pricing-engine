@@ -382,6 +382,73 @@ class TestSimplePriceForm:
         assert client.put("/api/prices", json=form).status_code == 422
 
 
+class TestBendsThroughTheApi:
+    """הכיפופים נכנסים מהממשק ולא מהקובץ — ולכן הם עוברים בבקשה."""
+
+    @pytest.fixture
+    def bent_client(self, client):
+        tariff = {
+            **TEST_TARIFF,
+            "rates": [{**TEST_TARIFF["rates"][0], "bend_price": 12.0, "bend_rate_per_m": 30.0}],
+        }
+        assert client.put("/api/tariff", json=tariff).status_code == 200
+        return client
+
+    def _quote(self, client, **extra) -> dict:
+        part = _manual(client, width_mm=400, height_mm=250)
+        body = {
+            "parts": [
+                {
+                    "geometry_id": part["geometry_id"],
+                    "material_key": "st37",
+                    "thickness_mm": 3.0,
+                    **extra,
+                }
+            ]
+        }
+        response = client.post("/api/quote", json=body)
+        assert response.status_code == 200, response.text
+        return response.json()["lines"][0]
+
+    def test_declared_bends_are_charged_from_the_table(self, bent_client):
+        line = self._quote(bent_client, bend_count=3, bend_length_mm=1000)
+        assert line["bend_count"] == 3
+        assert line["bending_cost"] == pytest.approx(3 * 12.0 + 30.0)
+
+    def test_the_same_part_without_bends_costs_the_same_as_before(self, bent_client):
+        plain = self._quote(bent_client)
+        assert plain["bending_cost"] == 0.0
+        assert plain["bend_count"] == 0
+
+    def test_negative_bend_count_is_refused_by_the_api(self, bent_client):
+        part = _manual(bent_client, width_mm=400, height_mm=250)
+        body = {
+            "parts": [
+                {
+                    "geometry_id": part["geometry_id"],
+                    "material_key": "st37",
+                    "thickness_mm": 3.0,
+                    "bend_count": -2,
+                }
+            ]
+        }
+        assert bent_client.post("/api/quote", json=body).status_code == 422
+
+    def test_dad_can_enter_the_bend_price_in_his_form(self, client):
+        """המסלול המלא: הטופס של אבא → הטבלה → ההצעה."""
+        form = client.get("/api/prices").json()["form"]
+        assert any(lbl["field"] == "bend_price" for lbl in form["labels"]["money"])
+        for material in form["materials"]:
+            for row in material["rows"]:
+                row["plate_price"] = 500.0
+                row["cut_rate_per_m"] = 12.0
+                row["bend_price"] = 8.0
+        assert client.put("/api/prices", json=form).status_code == 200
+
+        line = self._quote(client, bend_count=2)
+        assert line["bending_cost"] == pytest.approx(16.0)
+
+
 class TestEditorKeyIsScoped:
     """הסיסמה הפשוטה פותחת את טופס המחירים בלבד."""
 

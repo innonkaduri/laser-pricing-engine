@@ -141,6 +141,9 @@ class PartRequest(BaseModel):
     material_key: str
     thickness_mm: float = Field(gt=0)
     quantity: int = Field(default=1, ge=1)
+    bend_count: int = Field(default=0, ge=0)
+    """כמה כיפופים — הצהרה של המזמין. DXF שטוח לא יודע שהוא יתכופף."""
+    bend_length_mm: float = Field(default=0.0, ge=0)
 
 
 class QuoteRequest(BaseModel):
@@ -328,6 +331,8 @@ def quote(request: QuoteRequest) -> dict:
                     thickness_mm=item.thickness_mm,
                     quantity=item.quantity,
                     source=PartSource(stored.source),
+                    bend_count=item.bend_count,
+                    bend_length_mm=item.bend_length_mm,
                 )
             )
         except ValueError as exc:

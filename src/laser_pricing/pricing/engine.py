@@ -7,7 +7,7 @@
   4. הפחתת שארית שמישה מהבזבוז — מה שחוזר למלאי אינו בזבוז.
   5. מדרגת הבזבוז של ינון → מכפיל שטח מחויב.
   6. רצפת פלטה — אי אפשר לחייב על פחות חומר ממה שנצרך בפועל.
-  7. חומר + חיתוך + ניקוב + ריתוך + הקמה → מרווח → מע"מ.
+  7. חומר + חיתוך + ניקוב + ריתוך + כיפוף + הקמה → מרווח → מע"מ.
 
 כל מספר כספי בשרשרת הזאת מגיע מהטבלה. המנוע קובע רק *כמה* יחידות
 של כל דבר צריך, לא *מה מחירן*.
@@ -82,6 +82,7 @@ class QuoteLine:
     cutting_cost: float
     piercing_cost: float
     welding_cost: float
+    bending_cost: float
     setup_cost: float
     min_charge_applied: bool
     net_area_mm2: float
@@ -96,6 +97,8 @@ class QuoteLine:
     pieces: int = 1
     weld_length_mm: float = 0.0
     plate_floor_applied: bool = False
+    bend_count: int = 0
+    bend_length_mm: float = 0.0
 
     @property
     def is_split(self) -> bool:
@@ -360,6 +363,8 @@ class _Draft:
     cut_length_mm: float
     pierces: int
     weld_length_mm: float
+    bend_count: int
+    bend_length_mm: float
 
 
 def _draft_part(
@@ -376,6 +381,11 @@ def _draft_part(
         cut_length_mm=part.cut_length_mm + plan.extra_cut_length_mm,
         pierces=part.pierce_count + plan.extra_pierces,
         weld_length_mm=plan.seam_length_mm,
+        # הכיפופים מגיעים מהצהרת המזמין ולא מהגיאומטריה, ולכן הם עוברים
+        # דרך החלק כמו שהם. הפיצול לא נוגע בהם: חלק שנחתך לשתיים ומולחם
+        # עדיין מתכופף אותו מספר פעמים.
+        bend_count=part.bend_count,
+        bend_length_mm=part.bend_length_mm,
     )
 
 
@@ -395,9 +405,16 @@ def _finalize_line(
     cutting_unit = (draft.cut_length_mm / MM_PER_M) * rate.cut_rate_per_m
     piercing_unit = draft.pierces * rate.pierce_price
     welding_unit = (draft.weld_length_mm / MM_PER_M) * rate.weld_rate_per_m
+    # כיפוף: מספר ההכאות ואורך הקו מתחברים. מי שמתמחר רק באחת מהשיטות
+    # משאיר את השדה השני 0, וכך הרכיב שלו פשוט לא קיים.
+    bending_unit = draft.bend_count * rate.bend_price + (
+        draft.bend_length_mm / MM_PER_M
+    ) * rate.bend_rate_per_m
     setup_unit = tariff.setup_fee_per_part
 
-    unit_price = material_unit + cutting_unit + piercing_unit + welding_unit + setup_unit
+    unit_price = (
+        material_unit + cutting_unit + piercing_unit + welding_unit + bending_unit + setup_unit
+    )
 
     min_charge_applied = False
     if rate.min_charge_per_part > 0 and unit_price < rate.min_charge_per_part:
@@ -423,6 +440,7 @@ def _finalize_line(
         cutting_cost=_money(cutting_unit * qty),
         piercing_cost=_money(piercing_unit * qty),
         welding_cost=_money(welding_unit * qty),
+        bending_cost=_money(bending_unit * qty),
         setup_cost=_money(setup_unit * qty),
         min_charge_applied=min_charge_applied,
         net_area_mm2=round(draft.net_area_mm2, 2),
@@ -437,6 +455,8 @@ def _finalize_line(
         pieces=draft.plan.piece_count,
         weld_length_mm=round(draft.weld_length_mm, 2),
         plate_floor_applied=floor_applied,
+        bend_count=draft.bend_count,
+        bend_length_mm=round(draft.bend_length_mm, 2),
     )
 
 
@@ -455,6 +475,17 @@ def _collect_group_warnings(
             f"{label}: הופעלה רצפת פלטה — החיוב הועלה לשטח החומר שנצרך בפועל "
             f"({group.consumed_area_mm2 / MM2_PER_M2:.2f} מ\"ר), כי מכפיל הבזבוז לבדו "
             f"חייב על פחות מזה."
+        )
+
+    # כיפוף שהוצהר ולא תומחר הוא בדיוק המקרה של הריתוך: העבודה תיעשה
+    # במפעל, והלקוח לא ישלם עליה — ואף אחד לא יראה את זה בהצעה, כי
+    # רכיב של 0 נראה בדיוק כמו רכיב שלא קיים.
+    bent = [part for part, _ in entries if part.bend_count > 0 or part.bend_length_mm > 0]
+    if bent and rate.bend_price <= 0 and rate.bend_rate_per_m <= 0:
+        names = ", ".join(part.name for part in bent)
+        warnings.append(
+            f"{label}: {names} הוצהרו עם כיפופים, ומחיר הכיפוף בטבלה הוא 0 — "
+            f"הכיפוף אינו מחויב. הוסף bend_price (או bend_rate_per_m) לשורת החומר."
         )
 
     split_parts = [(part, plan) for part, plan in entries if plan.is_split]

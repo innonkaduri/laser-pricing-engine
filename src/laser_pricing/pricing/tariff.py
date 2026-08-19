@@ -42,6 +42,15 @@ class MaterialRate:
     נשאר 0 עד שינון יזין אותו — ואז המנוע מדווח על כך במפורש במקום
     להלחים בחינם בשקט.
     """
+    bend_price: float = 0.0
+    """מחיר כיפוף בודד (הכאה אחת במכופפת), לחומר ולעובי הזה."""
+    bend_rate_per_m: float = 0.0
+    """תוספת לפי אורך קו הכיפוף, למטר.
+
+    שני השדות מתחברים זה לזה ולא מחליפים זה את זה: מי שמתמחר לפי מספר
+    כיפופים בלבד משאיר את השני 0, ומי שמתמחר לפי אורך משאיר את הראשון 0.
+    כך אף אחד מהם אינו כופה שיטת תמחור על מי שלא עובד בה.
+    """
 
     def __post_init__(self) -> None:
         if self.thickness_mm <= 0:
@@ -52,6 +61,8 @@ class MaterialRate:
             ("מחיר ניקוב", self.pierce_price),
             ("מינימום לחלק", self.min_charge_per_part),
             ("מחיר ריתוך למטר", self.weld_rate_per_m),
+            ("מחיר כיפוף", self.bend_price),
+            ("מחיר כיפוף למטר", self.bend_rate_per_m),
         ):
             if value < 0:
                 raise InvalidTariffError(f"{label} שלילי ב-{self.material_key} {self.thickness_mm}")

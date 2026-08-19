@@ -22,6 +22,8 @@ MONEY_FIELDS = (
     ("pierce_price", "מחיר ניקוב"),
     ("min_charge_per_part", "מינימום לחלק"),
     ("weld_rate_per_m", "מחיר ריתוך למטר"),
+    ("bend_price", "מחיר כיפוף אחד"),
+    ("bend_rate_per_m", "תוספת כיפוף למטר"),
 )
 
 GENERAL_FIELDS = (

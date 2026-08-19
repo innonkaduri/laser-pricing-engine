@@ -51,7 +51,13 @@ BASE_TARIFF = {
 def make_tariff(**overrides):
     raw = json.loads(json.dumps(BASE_TARIFF))
     # שדות ברמת שורת החומר מנותבים לשורה, לא לשורש הטבלה.
-    for rate_field in ("weld_rate_per_m", "min_charge_per_part", "pierce_price"):
+    for rate_field in (
+        "weld_rate_per_m",
+        "min_charge_per_part",
+        "pierce_price",
+        "bend_price",
+        "bend_rate_per_m",
+    ):
         if rate_field in overrides:
             raw["rates"][0][rate_field] = overrides.pop(rate_field)
     raw.update(overrides)
@@ -136,9 +142,15 @@ class TestArithmetic:
         """500x500, פלטה אחת, בזבוז גבוה => מדרגה עליונה."""
         quote = price_order([square_part()], make_tariff())
         line = quote.lines[0]
-        assert line.material_cost + line.cutting_cost + line.piercing_cost + line.setup_cost == pytest.approx(
-            line.line_total, abs=0.02
+        components = (
+            line.material_cost
+            + line.cutting_cost
+            + line.piercing_cost
+            + line.welding_cost
+            + line.bending_cost
+            + line.setup_cost
         )
+        assert components == pytest.approx(line.line_total, abs=0.02)
 
     def test_cutting_cost_follows_cut_length(self):
         """היקף 2 מטר בתעריף 10 ש"ח/מטר = 20 ש"ח."""
@@ -325,6 +337,72 @@ class TestOversizedPartsAreSplitNotRejected:
         tariff = make_tariff(max_pieces_per_part=1)
         with pytest.raises(PricingError, match="חתיכות"):
             price_order([square_part(name="תקין"), giant_part()], tariff, strict=True)
+
+
+class TestDeclaredBends:
+    """כיפוף מוצהר: המזמין אומר כמה, הטבלה אומרת כמה זה עולה.
+
+    הכיפופים אינם נגזרים מהקובץ בכוונה — DXF שטוח אינו יודע שהוא עומד
+    להתכופף, וניחוש כאן היה בדיוק ההמצאה שהמנוע כולו נבנה למנוע.
+    """
+
+    def _bent(self, bends: int = 4, length_mm: float = 0.0, qty: int = 1) -> Part:
+        return Part(
+            name="מדף מכופף",
+            geometry=PartGeometry([rectangle(500, 500)]),
+            material_key="st37",
+            thickness_mm=3.0,
+            quantity=qty,
+            bend_count=bends,
+            bend_length_mm=length_mm,
+        )
+
+    def test_a_part_without_bends_is_priced_exactly_as_before(self):
+        """הרגרסיה החשובה: מי שלא מכופף לא משלם על התוספת הזאת."""
+        tariff = make_tariff(bend_price=12.0, bend_rate_per_m=30.0)
+        line = price_order([square_part()], tariff).lines[0]
+        assert line.bending_cost == 0.0
+        assert line.unit_price == pytest.approx(price_order([square_part()], make_tariff()).lines[0].unit_price)
+
+    def test_price_per_bend_comes_from_the_table(self):
+        quote = price_order([self._bent(bends=4)], make_tariff(bend_price=12.0))
+        assert quote.lines[0].bending_cost == pytest.approx(48.0)
+        assert quote.lines[0].bend_count == 4
+
+    def test_price_per_meter_of_bend_line(self):
+        """2 מטר קו כיפוף בתעריף 30 ש"ח/מטר = 60 ש"ח."""
+        quote = price_order([self._bent(bends=2, length_mm=2000)], make_tariff(bend_rate_per_m=30.0))
+        assert quote.lines[0].bending_cost == pytest.approx(60.0)
+
+    def test_the_two_methods_add_up_and_do_not_replace_each_other(self):
+        tariff = make_tariff(bend_price=12.0, bend_rate_per_m=30.0)
+        quote = price_order([self._bent(bends=4, length_mm=2000)], tariff)
+        assert quote.lines[0].bending_cost == pytest.approx(48.0 + 60.0)
+
+    def test_bending_multiplies_with_quantity(self):
+        quote = price_order([self._bent(bends=3, qty=5)], make_tariff(bend_price=10.0))
+        assert quote.lines[0].bending_cost == pytest.approx(150.0)
+
+    def test_declared_bends_with_no_price_are_announced_not_silently_free(self):
+        """אותו כלל של הריתוך: 0 בהצעה נראה בדיוק כמו רכיב שלא קיים."""
+        quote = price_order([self._bent(bends=4)], make_tariff())
+        assert quote.lines[0].bending_cost == 0.0
+        assert any("bend_price" in w for w in quote.warnings)
+
+    def test_no_warning_when_nothing_was_declared(self):
+        quote = price_order([square_part()], make_tariff())
+        assert not any("כיפוף" in w for w in quote.warnings)
+
+    def test_bending_enters_the_price_before_the_minimum_per_part(self):
+        """המינימום הוא רצפה על החלק כולו, ולכן הכיפוף נספר לתוכו."""
+        tariff = make_tariff(bend_price=12.0, min_charge_per_part=10_000.0)
+        line = price_order([self._bent(bends=4)], tariff).lines[0]
+        assert line.min_charge_applied is True
+        assert line.unit_price == pytest.approx(10_000.0)
+
+    def test_negative_bend_count_is_refused(self):
+        with pytest.raises(ValueError, match="שלילי"):
+            self._bent(bends=-1)
 
 
 class TestFullPlateFloor:

@@ -72,6 +72,9 @@ button:disabled{background:#c9ced4; border-color:#c9ced4; cursor:not-allowed}
   th,td{padding:6px 3px}
   input{padding:8px 6px; font-size:16px}
   td.thk{width:58px}
+  /* טבלה שנדחסת לרוחב המסך משאירה שדות של 30 פיקסלים שאי אפשר להקליד
+     בהם. עדיף שתגלוש הצדה בתוך העטיפה שלה — שם יש overflow-x. */
+  table{min-width:600px}
 }
 </style>
 </head>
@@ -176,7 +179,7 @@ function render(data) {
   $('#materials').innerHTML = FORM.materials.map((m, mi) => `
     <div class="card">
       <h2>${esc(m.name)}</h2>
-      <p class="sub">מחיר לכל עובי. המחירים בשקלים.</p>
+      <p class="sub">מחיר לכל עובי. המחירים בשקלים. בטלפון אפשר להחליק את הטבלה הצדה.</p>
       <div style="overflow-x:auto"><table>
         <thead><tr>
           <th>עובי מ"מ</th>
