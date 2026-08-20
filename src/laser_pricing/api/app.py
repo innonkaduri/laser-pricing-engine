@@ -58,6 +58,43 @@ MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_MB", "25")) * 1024 * 1024
 המתאר. הגבול הזה אומר את זה במקום להיאבק בו.
 """
 WEB_DIR = Path(__file__).resolve().parents[3] / "web"
+REPO_DIR = Path(__file__).resolve().parents[3]
+
+
+def _running_commit() -> str | None:
+    """איזה commit באמת טעון בתהליך הזה.
+
+    נקרא פעם אחת, בזמן הייבוא, ובכוונה: זו הגרסה של הקוד **שרץ**, לא
+    זו שיושבת על הדיסק ברגע ששואלים. ההבחנה אינה תיאורטית — פריסה
+    שנכשלה כאן פעם אחת החזירה קבצים ישנים והשאירה את `git log` מדווח
+    SHA חדש, ואי אפשר היה לראות את זה מבחוץ.
+
+    קריאה ישירה מ-`.git` ולא `git rev-parse`: אין תהליך-בן, אין תלות
+    ב-`safe.directory`, ואין מה להיכשל.
+    """
+    try:
+        head = (REPO_DIR / ".git" / "HEAD").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not head.startswith("ref:"):
+        return head[:40] or None
+
+    ref = head.split(" ", 1)[1].strip()
+    try:
+        return (REPO_DIR / ".git" / ref).read_text(encoding="utf-8").strip()[:40]
+    except OSError:
+        pass
+    try:  # ref ארוז (git gc)
+        for line in (REPO_DIR / ".git" / "packed-refs").read_text(encoding="utf-8").splitlines():
+            if line.endswith(" " + ref):
+                return line.split(" ", 1)[0][:40]
+    except OSError:
+        pass
+    return None
+
+
+RUNNING_COMMIT = _running_commit()
+"""ה-SHA שנטען עם התהליך. `None` כשאין `.git` (פריסה מתוך ארכיון)."""
 
 app = FastAPI(
     title="מנוע תמחור לייזר",
@@ -266,6 +303,9 @@ def health() -> dict:
 
     return {
         "status": "ok",
+        # לא סוד: הריפו ציבורי, וה-SHA הוא בדיוק מה שמאפשר לאמת מבחוץ
+        # *מה* פרוס — בלי SSH ובלי חשבון.
+        "commit": RUNNING_COMMIT[:12] if RUNNING_COMMIT else None,
         "gate_on": gate_on,
         "tariff_ready": ready,
         "tariff_source": STATE.origin,

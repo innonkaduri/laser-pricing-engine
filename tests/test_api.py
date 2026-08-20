@@ -916,3 +916,33 @@ class TestOpenLinesAreAQuestionNotAGuess:
             json={"parts": [{"geometry_id": part["geometry_id"], "material_key": "st37", "thickness_mm": 3.0}]},
         ).json()
         assert not any("קווים פתוחים" in w for w in quote["warnings"])
+
+
+class TestHealthReportsWhatIsRunning:
+    """מבחוץ, בלי SSH ובלי חשבון, אפשר לשאול איזה קוד רץ.
+
+    הצורך נולד מפריסה שנכשלה והשאירה קבצים ישנים תחת `git log` חדש —
+    מצב שאי אפשר היה לראות אלא מהקופסה עצמה.
+    """
+
+    def test_health_carries_the_running_commit(self, client):
+        commit = client.get("/health").json()["commit"]
+        # בסביבת פיתוח יש .git; בפריסה מארכיון הערך יהיה None וזה תקין.
+        assert commit is None or (len(commit) == 12 and all(c in "0123456789abcdef" for c in commit))
+
+    def test_it_matches_what_git_says(self, client):
+        import subprocess
+
+        commit = client.get("/health").json()["commit"]
+        if commit is None:
+            pytest.skip("אין .git — פריסה מארכיון")
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=Path(__file__).parent.parent
+        ).stdout.strip()
+        assert head.startswith(commit)
+
+    def test_it_stays_open_and_leaks_nothing_else(self, client, monkeypatch):
+        monkeypatch.setenv("APP_PASSWORD", "sod")
+        body = client.get("/health").json()
+        assert "commit" in body
+        assert not any(k in body for k in ("materials", "rates", "prices"))
