@@ -212,6 +212,8 @@ class PartRequest(BaseModel):
     bend_count: int = Field(default=0, ge=0)
     """כמה כיפופים — הצהרה של המזמין. DXF שטוח לא יודע שהוא יתכופף."""
     bend_length_mm: float = Field(default=0.0, ge=0)
+    cut_open_lines: bool = False
+    """האם הקווים הפתוחים בשרטוט הם חיתוך. ברירת מחדל: לא — סימון."""
 
 
 class QuoteRequest(BaseModel):
@@ -632,6 +634,7 @@ def quote(request: QuoteRequest) -> dict:
                     source=PartSource(stored.source),
                     bend_count=item.bend_count,
                     bend_length_mm=item.bend_length_mm,
+                    cut_open_lines=item.cut_open_lines,
                 )
             )
         except ValueError as exc:

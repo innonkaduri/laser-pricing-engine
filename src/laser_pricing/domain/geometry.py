@@ -181,8 +181,27 @@ class PartGeometry:
 
     @property
     def cut_length(self) -> float:
-        """סך אורך החיתוך — כל מתאר סגור ועוד קווים פתוחים (שריטה/סימון)."""
-        return sum(c.length for c in self.contours) + sum(c.length for c in self.open_contours)
+        """אורך החיתוך של המתארים הסגורים בלבד.
+
+        **קווים פתוחים אינם כאן, וזו החלטה מ-20.8.2026.** קודם הם נספרו
+        כחיתוך בשקט, ואז קו כיפוף אחד על מלבן 250x150 ניפח את אורך
+        החיתוך ב-31% — מספר תקין לגמרי שאיש לא יכול לעמוד מאחוריו.
+        קו פתוח בשרטוט פח הוא לרוב סימון: קו כיפוף, ציר, או הערה
+        גיאומטרית. לפעמים הוא באמת חיתוך (חריץ, שריטה מכוונת).
+
+        המנוע אינו יודע להבחין, ולכן הוא **אינו מנחש**: האורך יושב
+        בנפרד ב-`open_length`, ומי שמזמין אומר אם זה חיתוך.
+        """
+        return sum(c.length for c in self.contours)
+
+    @property
+    def open_length(self) -> float:
+        """אורך הקווים הפתוחים. חיתוך או סימון — המזמין מכריע."""
+        return sum(c.length for c in self.open_contours)
+
+    @property
+    def has_open_lines(self) -> bool:
+        return bool(self.open_contours)
 
     @property
     def pierce_count(self) -> int:

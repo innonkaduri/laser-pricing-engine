@@ -44,6 +44,8 @@ def geometry_to_json(geometry: PartGeometry) -> dict:
         "net_area_mm2": round(geometry.net_area, 2),
         "gross_area_mm2": round(geometry.gross_area, 2),
         "cut_length_mm": round(geometry.cut_length, 2),
+        "open_length_mm": round(geometry.open_length, 2),
+        "open_line_count": len(geometry.open_contours),
         "pierces": geometry.pierce_count,
         "holes": geometry.hole_count,
         "bodies": geometry.body_count,

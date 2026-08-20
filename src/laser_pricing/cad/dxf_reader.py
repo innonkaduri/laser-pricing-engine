@@ -98,10 +98,16 @@ def read_dxf(
     geometry = PartGeometry(contours=contours, open_contours=open_contours)
 
     if open_contours:
+        # האזהרה הזאת קדמה להתנהגות: היא אמרה "תומחרו כסימון" בזמן
+        # שהקוד ספר אותם כחיתוך. מ-20.8.2026 הקוד עושה מה שהיא אומרת.
         total_open = sum(c.length for c in open_contours)
+        open_layers = sorted({c.layer for c in open_contours if c.layer})
+        detail = f", שכבות: {', '.join(open_layers)}" if open_layers else ""
         warnings.append(
-            f"נמצאו {len(open_contours)} קווים פתוחים באורך כולל {total_open:.1f} מ\"מ. "
-            f"תומחרו כסימון/שריטה ולא כמתאר חתוך — ודא שזו הכוונה."
+            f"נמצאו {len(open_contours)} קווים פתוחים באורך כולל "
+            f"{total_open:.1f} מ\"מ{detail}. הם אינם מחויבים כחיתוך — קו פתוח "
+            f"בשרטוט פח הוא לרוב קו כיפוף או סימון. אם זה חיתוך אמיתי, "
+            f"סמן זאת בחלק."
         )
 
     return CadExtraction(

@@ -41,6 +41,14 @@ class Part:
     """
     bend_length_mm: float = 0.0
     """אורך קווי הכיפוף הכולל. 0 = לא הוצהר, ולכן לא מחויב לפי אורך."""
+    cut_open_lines: bool = False
+    """האם הקווים הפתוחים בשרטוט הם חיתוך.
+
+    ברירת המחדל היא **לא**: קו פתוח בשרטוט פח הוא לרוב סימון — קו
+    כיפוף, ציר או הערה. עד 20.8.2026 הם נספרו כחיתוך בשקט, וקו כיפוף
+    אחד ניפח אורך חיתוך ב-31%. המנוע אינו יודע להבחין, ולכן הוא שואל
+    במקום להחליט.
+    """
 
     def __post_init__(self) -> None:
         if self.quantity < 1:
@@ -64,7 +72,11 @@ class Part:
 
     @property
     def cut_length_mm(self) -> float:
-        return self.geometry.cut_length
+        """אורך החיתוך שמחויב בפועל, לפי הכרעת המזמין על הקווים הפתוחים."""
+        length = self.geometry.cut_length
+        if self.cut_open_lines:
+            length += self.geometry.open_length
+        return length
 
     @property
     def pierce_count(self) -> int:
@@ -86,6 +98,7 @@ class Part:
             "height_mm": round(box.height, 2),
             "net_area_mm2": round(self.net_area_mm2, 2),
             "cut_length_mm": round(self.cut_length_mm, 2),
+            "open_length_mm": round(self.geometry.open_length, 2),
             "pierces": self.pierce_count,
             "holes": self.geometry.hole_count,
             "bodies": self.geometry.body_count,

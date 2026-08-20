@@ -257,6 +257,7 @@ function addPart(data) {
     quantity: 1,
     bend_count: 0,
     bend_length_mm: 0,
+    cut_open_lines: false,
   });
   if (data.warnings && data.warnings.length) {
     showBanner('warn', `${data.name}: ${data.warnings.join(' · ')}`);
@@ -304,6 +305,7 @@ function renderParts() {
               ? `<span class="pill warn">${pieces} חתיכות + ריתוך</span>`
               : `<span class="pill ok">${d.rotated_to_fit ? 'נכנס בסיבוב' : 'נכנס בפלטה'}</span>`}
             <span class="pill">${d.source === 'dxf' ? 'DXF' : 'ידני'}</span>
+            ${d.open_line_count ? `<span class="pill warn">${int(d.open_line_count)} קווים פתוחים</span>` : ''}
           </div>
           <div class="meta">
             ${fmt(d.bbox.width_mm, 1)} × ${fmt(d.bbox.height_mm, 1)} מ"מ ·
@@ -333,6 +335,14 @@ function renderParts() {
             <div style="max-width:120px"><label>אורך כיפוף (מ"מ)</label>
               <input type="number" min="0" step="1" value="${p.bend_length_mm || ''}" placeholder="לא חובה" data-field="bend_length_mm">
             </div>
+            ${d.open_line_count ? `
+            <div style="min-width:190px">
+              <label>${int(d.open_line_count)} קווים פתוחים (${fmt(d.open_length_mm / 1000, 2)} מ')</label>
+              <label class="toggle" style="margin-top:2px">
+                <input type="checkbox" data-field="cut_open_lines" ${p.cut_open_lines ? 'checked' : ''}>
+                אלה חיתוך, לא כיפוף
+              </label>
+            </div>` : ''}
             <div style="max-width:60px"><button class="ghost" data-action="remove">הסר</button></div>
           </div>
         </div>
@@ -358,6 +368,10 @@ function renderParts() {
           part.bend_count = Math.max(0, parseInt(input.value || '0', 10));
         } else if (field === 'bend_length_mm') {
           part.bend_length_mm = Math.max(0, parseFloat(input.value || '0'));
+        } else if (field === 'cut_open_lines') {
+          /* ברירת המחדל היא "סימון". מי שיודע שזה חיתוך אומר זאת כאן,
+             והמחיר משתנה — במקום שהמנוע ינחש בשקט לכיוון אחד. */
+          part.cut_open_lines = input.checked;
         } else {
           part.quantity = Math.max(1, parseInt(input.value || '1', 10));
         }
@@ -423,6 +437,7 @@ $('#calc').addEventListener('click', async () => {
         quantity: p.quantity,
         bend_count: p.bend_count || 0,
         bend_length_mm: p.bend_length_mm || 0,
+        cut_open_lines: Boolean(p.cut_open_lines),
       })),
     };
     const quote = await api('/api/quote', {

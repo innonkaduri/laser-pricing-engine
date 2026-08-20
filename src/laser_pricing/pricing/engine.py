@@ -477,6 +477,22 @@ def _collect_group_warnings(
             f"חייב על פחות מזה."
         )
 
+    # קווים פתוחים שלא חויבו. ההצעה נכונה לפי ההכרעה שהתקבלה, אבל
+    # ההכרעה עצמה נעשתה בברירת מחדל — ומי שמאשר את ההצעה צריך לדעת
+    # שנשארה כאן שאלה פתוחה ולא עובדה.
+    unresolved = [
+        part
+        for part, _ in entries
+        if part.geometry.has_open_lines and not part.cut_open_lines
+    ]
+    if unresolved:
+        names = ", ".join(part.name for part in unresolved)
+        total_open = sum(part.geometry.open_length for part in unresolved)
+        warnings.append(
+            f"{label}: ב-{names} יש קווים פתוחים ({total_open:.0f} מ\"מ) שאינם מחויבים כחיתוך. "
+            f"אם אלה קווי כיפוף או סימון — זה נכון. אם זה חיתוך, סמן זאת בחלק."
+        )
+
     # כיפוף שהוצהר ולא תומחר הוא בדיוק המקרה של הריתוך: העבודה תיעשה
     # במפעל, והלקוח לא ישלם עליה — ואף אחד לא יראה את זה בהצעה, כי
     # רכיב של 0 נראה בדיוק כמו רכיב שלא קיים.

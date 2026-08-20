@@ -850,3 +850,69 @@ class TestUploadCeiling:
         from laser_pricing.api.app import MAX_UPLOAD_BYTES
 
         assert MAX_UPLOAD_BYTES == 25 * 1024 * 1024
+
+
+class TestOpenLinesAreAQuestionNotAGuess:
+    """קו פתוח בשרטוט פח הוא לרוב כיפוף או סימון, לא חיתוך.
+
+    עד 20.8.2026 הוא נספר כחיתוך בשקט: קו כיפוף אחד על מלבן 250x150
+    ניפח את אורך החיתוך מ-800 ל-1,050 מ"מ — 31% מחיר חיתוך פנטום,
+    בלי שום סימן. עכשיו הוא אינו מחויב כברירת מחדל, מוכרז, ומי
+    שמזמין יכול לומר שזה כן חיתוך.
+    """
+
+    @pytest.fixture
+    def bent(self, client, tmp_path):
+        import ezdxf
+
+        doc = ezdxf.new("R2010")
+        doc.units = 4
+        msp = doc.modelspace()
+        msp.add_lwpolyline([(0, 0), (250, 0), (250, 150), (0, 150)], close=True, dxfattribs={"layer": "CUT"})
+        msp.add_line((0, 75), (250, 75), dxfattribs={"layer": "BEND"})
+        path = tmp_path / "bent.dxf"
+        doc.saveas(path)
+        with open(path, "rb") as handle:
+            return client.post("/api/upload", files={"file": ("bent.dxf", handle)}).json()
+
+    def test_the_open_line_is_reported_separately(self, bent):
+        assert bent["cut_length_mm"] == pytest.approx(800.0)  # ההיקף בלבד
+        assert bent["open_line_count"] == 1
+        assert bent["open_length_mm"] == pytest.approx(250.0)
+
+    def test_the_upload_says_so_and_names_the_layer(self, bent):
+        text = " ".join(bent["warnings"])
+        assert "קווים פתוחים" in text
+        assert "BEND" in text  # שם השכבה, כדי שאפשר יהיה לזהות מה זה
+        assert "אינם מחויבים כחיתוך" in text
+
+    def test_by_default_the_bend_line_is_not_charged(self, priced_client, bent):
+        body = {"parts": [{"geometry_id": bent["geometry_id"], "material_key": "st37", "thickness_mm": 3.0}]}
+        quote = priced_client.post("/api/quote", json=body).json()
+        assert quote["lines"][0]["cut_length_mm"] == pytest.approx(800.0)
+        assert any("קווים פתוחים" in w for w in quote["warnings"])
+
+    def test_the_customer_can_say_it_really_is_a_cut(self, priced_client, bent):
+        body = {
+            "parts": [
+                {
+                    "geometry_id": bent["geometry_id"],
+                    "material_key": "st37",
+                    "thickness_mm": 3.0,
+                    "cut_open_lines": True,
+                }
+            ]
+        }
+        quote = priced_client.post("/api/quote", json=body).json()
+        assert quote["lines"][0]["cut_length_mm"] == pytest.approx(1050.0)
+        # הוכרע — ולכן אין יותר שאלה פתוחה להכריז עליה.
+        assert not any("קווים פתוחים" in w for w in quote["warnings"])
+
+    def test_a_part_without_open_lines_is_untouched(self, priced_client):
+        part = _manual(priced_client, width_mm=400, height_mm=250)
+        assert part["open_line_count"] == 0
+        quote = priced_client.post(
+            "/api/quote",
+            json={"parts": [{"geometry_id": part["geometry_id"], "material_key": "st37", "thickness_mm": 3.0}]},
+        ).json()
+        assert not any("קווים פתוחים" in w for w in quote["warnings"])
