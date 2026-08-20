@@ -9,7 +9,15 @@ DXF או קלט ידני → גיאומטריה → תכנון פיצול → נ
 רצפת פלטה → הצעת מחיר מפורטת + הדמיית פריסה.
 **165 בדיקות עוברות · 5,639 שורות ב-`src/` וב-`web/`** (נספר 19.8.2026).
 
-### נמדד מבחוץ ב-19.8.2026, דרך `--interface en0`
+### נמדד מבחוץ ב-20.8.2026, דרך `--interface en0`
+- `/health` → `commit: 658ae38f1234`, זהה ל-HEAD המקומי. **זו הדרך
+  לאמת פריסה מבחוץ בלי SSH ובלי חשבון.**
+- `gate_on: true` · `tariff_ready: false` · `priced_rows: 0` —
+  האזהרה היחידה היא הטבלה הריקה.
+- **`SERVICE_TOKEN` עדיין לא מוגדר בכוונה** (ראה DECISIONS): הוא סוד
+  דו-שירותי ויוגדר יחד עם חיווט ה-CRM.
+
+### נמדד ב-19.8.2026
 - `/health` → `tariff_ready:false`, `source:tariff.example.json`,
   `rate_rows:22`, `priced_rows:0`, `materials_count:4`,
   `disk_present:false`, אזהרה אחת: "הטבלה עדיין ריקה ממחירים".
