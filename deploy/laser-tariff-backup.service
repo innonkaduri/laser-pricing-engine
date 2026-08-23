@@ -12,3 +12,9 @@ Environment=USERS_DB=/var/lib/laser/users.db
 Environment=BACKUP_STATUS_FILE=/var/lib/laser/backup-status.json
 Environment=BACKUP_DIR=/var/backups/laser-tariff
 Environment=KEEP=60
+# היעד שמוציא את הגיבוי מהקופסה. /var/backups יושב על אותו דיסק שהוא
+# מגבה, ולכן הוא מגן על האפליקציה ולא על אובדן המכונה. התיקייה הזאת
+# היא זו ש-`scripts/vps-backup-pull.sh` על המק של ינון מושך ממנה
+# ב-09:00 ושומר 60 יום. שייכת לצינור של adi — הסקריפט לא יוצר אותה,
+# ונכשל בקול אם היא נעלמה.
+Environment=OFFBOX_DIR=/opt/adi-backups
