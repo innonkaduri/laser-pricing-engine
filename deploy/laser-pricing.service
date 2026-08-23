@@ -1,0 +1,46 @@
+# יחידת השירות הראשית. **הייתה קיימת רק על הקופסה עד 23.8.2026** —
+# כלומר אם הקופסה נמחקת, אי אפשר לשחזר אותה מהריפו. זה בדיוק הפער
+# שהפיל את הגיבוי, ולכן היא כאן.
+#
+# `git pull` מושך את הקובץ הזה ואינו מתקין אותו:
+#   install -m 644 /opt/laser/deploy/laser-pricing.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl restart laser-pricing
+#
+# הסודות אינם כאן ולעולם לא יהיו — הריפו ציבורי. הם ב-
+# /etc/laser-pricing.env (600 root), שנטען דרך drop-in:
+#   /etc/systemd/system/laser-pricing.service.d/10-auth.conf
+#   [Service]
+#   EnvironmentFile=/etc/laser-pricing.env
+# שמות המשתנים שם: APP_USER, APP_PASSWORD, EDITOR_PASSWORD,
+# SESSION_SECRET, TARIFF_PATH, USERS_DB, BACKUP_STATUS_FILE,
+# ואופציונלי SIGNUP_MODE (open|approval|closed, ברירת מחדל open).
+
+[Unit]
+Description=Laser pricing engine — FastAPI, quotes for laser cutting
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=laser
+Group=laser
+WorkingDirectory=/opt/laser
+# מאזין ל-localhost בכוונה: nginx מחזיק 80/443 ומסיים TLS, וכל שירות
+# על הקופסה יוצא לעולם דרכו.
+ExecStart=/opt/laser/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8002
+Restart=on-failure
+RestartSec=3
+# הנתיב חייב להיות זהה לזה שב-EnvironmentFile. הוא נדרס על ידו בכל
+# מקרה (drop-in נטען אחרי), אבל ערך שונה כאן הוא שקר שמופיע ב-
+# `systemctl show -p Environment` — שמציג דווקא את השורה הזאת ומחביא
+# את זו שמנצחת. עד 23.8 היה כאן /opt/laser/config/tariff.json.
+Environment=TARIFF_PATH=/var/lib/laser/tariff.json
+# 2 ליבות משותפות לחמישה פרויקטים. **שים לב לאינטראקציה עם
+# MAX_UPLOAD_MB=25:** קובץ 11.4MB נמדד ב-221MB ו-56MB ב-823MB, כלומר
+# העלאה פנימית גדולה עלולה להיהרג כאן ולהפיל איתה את כל הגיאומטריות
+# שבזיכרון. התקרה הציבורית (MAX_PUBLIC_UPLOAD_MB=5) בטוחה.
+MemoryHigh=400M
+MemoryMax=600M
+
+[Install]
+WantedBy=multi-user.target
