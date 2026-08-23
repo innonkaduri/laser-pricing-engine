@@ -37,7 +37,7 @@ from ..nesting.splitting import plan_split
 from ..pricing.engine import PricingError, price_order
 from ..pricing.tariff import InvalidTariffError, MissingTariffError
 from . import identity
-from .serialize import geometry_to_json, quote_to_json
+from .serialize import geometry_to_json, public_quote_to_json, quote_to_json
 from .simple_tariff import MONEY_FIELDS, apply_form, to_form
 from .store import STORE, GeometryExpired, StoredGeometry
 from .tariff_store import STATE
@@ -105,10 +105,10 @@ app = FastAPI(
 
 # ---- נעילה ----
 
-OPEN_PATHS = frozenset({"/health", "/login", "/api/login"})
-"""מה שנפתח בלי זהות. `/login` ו-`/api/login` הם המסך שבו משיגים זהות,
-ו-`/health` הוא בדיקת הפלטפורמה — ולכן שלושתם מחזירים בוליאנים ומסכים
-בלבד, ולעולם לא מחירים."""
+OPEN_PATHS = frozenset({"/health", "/login", "/api/login", "/signup", "/api/signup"})
+"""מה שנפתח בלי זהות. `/login`, `/signup` ו-ה-API שלהם הם המסכים שבהם
+משיגים זהות, ו-`/health` הוא בדיקת הפלטפורמה — ולכן כולם מחזירים
+בוליאנים ומסכים בלבד, ולעולם לא מחירים."""
 
 EDITOR_PATHS = ("/prices", "/api/prices")
 """המסלולים היחידים ש-EDITOR_PASSWORD פותח.
@@ -129,11 +129,34 @@ def _editor_key(request: Request) -> str:
     return request.headers.get("x-editor-key") or request.query_params.get("k", "")
 
 
+EDITOR_ATTEMPTS_PER_IP = 20
+EDITOR_WINDOW_SECONDS = 3600
+_EDITOR_ATTEMPTS: dict[str, list[float]] = {}
+"""הגבלת קצב על ניסיונות כושלים במפתח העריכה.
+
+`EDITOR_PASSWORD` הוא בכוונה קוד קצר שאפשר להכתיב בטלפון, והוא עובר
+כפרמטר בכתובת. עד היום מה שהגן עליו היה שהכתובת לא פורסמה —
+**וההרשמה הציבורית מסירה בדיוק את ההגנה הזאת.** ניסיון כושל נספר
+לפי כתובת; מפתח נכון אינו נספר, ולכן אבא יכול לרענן כמה שירצה.
+זה מקטין את הנזק, **ואינו מחליף את החלפת הקוד למפתח ארוך.**
+"""
+
+
 PRICE_TABLE_PATHS = ("/prices", "/api/prices", "/api/tariff")
 """מה שדורש `prices:edit`: טופס אבא ועורך ה-JSON הגולמי.
 
 עורך ה-JSON נכנס לרשימה הזאת ולא לרשימת המשתמשים הרגילים, כי `PUT`
 עליו מחליף את הטבלה **כולה** — כולל הכיול שאף אחד לא רואה בטופס.
+"""
+
+INTERNAL_PATHS = ("/api/dashboard",)
+"""מה שדורש `quote:use` — כלומר פנימי, אבל לא בהכרח עורך מחירים.
+
+הדשבורד מדווח אילו שדות בטבלה ריקים, מה מצב השער, מתי גובה לאחרונה
+וכמה משתמשים יש: מפת המערכת מבפנים. כל עוד `quote:use` הייתה היכולת
+היחידה שפותחת את המנוע, "כל מי שנכנס" ו"פנימי" היו אותו דבר והוא ישב
+עם שאר המסלולים. מאז ההרשמה הציבורית הם נפרדו — ולכן הוא נזכר כאן
+במפורש, ולא נשאר בברירת המחדל שנפתחה לרחוב.
 """
 
 
@@ -146,12 +169,21 @@ ANY_USER_PATHS = ("/api/me", "/api/logout")
 """
 
 
-def _required_capability(path: str) -> str | None:
-    if path in ANY_USER_PATHS:
+def _required_capabilities(path: str) -> frozenset[str] | None:
+    """אילו יכולות פותחות את המסלול. **אחת מהן מספיקה.**
+
+    החזרת קבוצה ולא מחרוזת יחידה היא מה שאִפשר את ההרשמה הציבורית:
+    המנוע נפתח גם ל-`quote:total` וגם ל-`quote:use`, וההבדל ביניהן
+    אינו בשאלה *אם* מותר לתמחר אלא *מה חוזר* — וזה נקבע בשכבת
+    התשובה, לא בשער.
+    """
+    if path in ANY_USER_PATHS or path.startswith("/static/"):
         return None
     if any(path == p or path.startswith(p + "/") for p in PRICE_TABLE_PATHS):
-        return identity.CAP_PRICES_EDIT
-    return identity.CAP_QUOTE_USE
+        return frozenset({identity.CAP_PRICES_EDIT})
+    if any(path == p or path.startswith(p + "/") for p in INTERNAL_PATHS):
+        return frozenset({identity.CAP_QUOTE_USE})
+    return identity.QUOTE_CAPABILITIES
 
 
 def _gate_is_on() -> bool:
@@ -195,6 +227,14 @@ async def auth_gate(request: Request, call_next):
         editor_password = os.environ.get("EDITOR_PASSWORD", "")
         if editor_password and hmac.compare_digest(_editor_key(request), editor_password):
             user = identity.EDITOR_LINK_USER
+        elif not _rate_ok(
+            _EDITOR_ATTEMPTS, _client_ip(request), EDITOR_ATTEMPTS_PER_IP, EDITOR_WINDOW_SECONDS
+        ):
+            return Response(
+                status_code=429,
+                content="יותר מדי ניסיונות. נסה שוב בעוד כמה דקות.",
+                media_type="text/plain; charset=utf-8",
+            )
 
     if user is None:
         if _is_editor_path(path):
@@ -209,16 +249,86 @@ async def auth_gate(request: Request, call_next):
             return RedirectResponse(f"/login?next={quote_plus(path)}", status_code=303)
         return Response(status_code=401, content="נדרשת התחברות")
 
-    required = _required_capability(path)
-    if required is not None and not user.can(required):
+    required = _required_capabilities(path)
+    if required is not None and not user.can_any(required):
         return Response(
             status_code=403,
-            content=f"אין לך הרשאה ל-{required}. בקש מינון.",
+            content=f"אין לך הרשאה ל-{' או '.join(sorted(required))}. בקש מינון.",
             media_type="text/plain; charset=utf-8",
         )
 
     request.state.user = user
     return await call_next(request)
+
+
+# ---- מה שמשתמש ציבורי מקבל, ומה שהוא לא ----
+
+MAX_PUBLIC_UPLOAD_BYTES = int(os.environ.get("MAX_PUBLIC_UPLOAD_MB", "5")) * 1024 * 1024
+"""תקרת העלאה נמוכה יותר למי שנרשם מהרחוב.
+
+המספרים מ-`MAX_UPLOAD_BYTES` הם הסיבה: 56MB נמדדו ב-41 שניות ו-823MB
+על מק מהיר, והקופסה היא **שתי ליבות המשותפות לחמישה פרויקטים**. 25MB
+הם מרווח סביר למי שיושב במשרד ומעלה תוכנית כבדה פעם ביום; הם גם דרך
+של שורה אחת בטרמינל להשבית את המנוע ואת ה-CRM יחד. ההפרדה נותנת
+לפנימיים את המרווח ולציבור את מה שחלק אמיתי צריך.
+"""
+
+PUBLIC_ENGINE_CALLS = 40
+PUBLIC_ENGINE_WINDOW_SECONDS = 3600
+_ENGINE_CALLS: dict[str, list[float]] = {}
+
+
+def _current(request: Request) -> identity.User | None:
+    return getattr(request.state, "user", None)
+
+
+def _sees_breakdown(request: Request) -> bool:
+    """האם לפונה הזה מותר לראות את פירוק העלויות.
+
+    בלי זהות (פיתוח מקומי, שער כבוי) — כן. זו אינה פרצה: כשהשער כבוי
+    אין בכלל הפרדה לאכוף, ו-`/health` צועק על המצב הזה בקול.
+    """
+    user = _current(request)
+    return user is None or user.sees_cost_breakdown
+
+
+def _owner_key(request: Request) -> str:
+    """למי שייכות הגיאומטריות שהועלו בבקשה הזאת."""
+    user = _current(request)
+    return user.username if user is not None else ""
+
+
+def _guard_public_engine(request: Request) -> None:
+    """שני התנאים שחלים על מי שאין לו `quote:use`, ועל אף אחד אחר.
+
+    1. **טבלה ריקה = אין הצעה.** הוראת האב (23.8.2026): "הרשמה ציבורית
+       למערכת שמחזירה אפס גרועה מאין הרשמה". פנימי שרואה 0 יודע בדיוק
+       מה זה אומר, כי המסך אומר לו; מבקר מבחוץ פשוט למד שהמחיר אצל
+       ינון הוא אפס. **החסימה היא על ההעלאה ולא רק על התמחור**, כדי
+       שהמנוע לא ישרוף שתי ליבות על קובץ שממילא לא יחזיר מספר.
+    2. **הגבלת קצב.** נקודה ציבורית שמפענחת DXF היא הדרך הזולה ביותר
+       להפיל את הקופסה, ואיתה את ה-CRM.
+    """
+    user = _current(request)
+    if user is None or user.sees_cost_breakdown:
+        return
+
+    if not STATE.is_ready:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "המערכת בהרצה: טבלת המחירים עדיין נטענת, ולכן אי אפשר להוציא הצעה. "
+                "החשבון שלך פעיל — נסה שוב בקרוב."
+            ),
+        )
+
+    if not _rate_ok(
+        _ENGINE_CALLS, user.username, PUBLIC_ENGINE_CALLS, PUBLIC_ENGINE_WINDOW_SECONDS
+    ):
+        raise HTTPException(
+            status_code=429,
+            detail="הגעת למכסת התמחורים לשעה. נסה שוב מאוחר יותר.",
+        )
 
 
 # ---- מודלים של הבקשות ----
@@ -307,6 +417,9 @@ def health() -> dict:
         # *מה* פרוס — בלי SSH ובלי חשבון.
         "commit": RUNNING_COMMIT[:12] if RUNNING_COMMIT else None,
         "gate_on": gate_on,
+        # אינו סוד, והוא בדיוק מה שמאפשר לאמת מבחוץ שההרשמה אכן פתוחה
+        # (או שנסגרה) בלי להירשם ובלי SSH.
+        "signup_mode": SIGNUP_MODE,
         "tariff_ready": ready,
         "tariff_source": STATE.origin,
         "tariff_error": bool(STATE.error),
@@ -367,8 +480,13 @@ def login(body: LoginRequest, request: Request) -> JSONResponse:
 
     # מי שיש לו רק prices:edit יקבל 403 על המנוע, והמסך הראשי ייפתח
     # על שגיאה. אבא ממלא מחירים — שיגיע לטופס ולא לדף שבור.
+    #
+    # **התנאי הוא "יש לו prices:edit" ולא "אין לו quote:use".** כשהיו
+    # שתי יכולות בלבד השניים היו זהים; מאז `quote:total` הם אינם, ומי
+    # שנרשם מהרחוב נשלח לטופס המחירים של אבא וקיבל 403 מיד אחרי
+    # הרשמה מוצלחת. נמצא בבדיקה בדפדפן, 23.8.2026.
     target = body.next if body.next.startswith("/") else "/"
-    if target == "/" and not user.can(identity.CAP_QUOTE_USE):
+    if target == "/" and user.can(identity.CAP_PRICES_EDIT) and not user.can(identity.CAP_QUOTE_USE):
         target = "/prices"
 
     response = JSONResponse(
@@ -387,6 +505,123 @@ def login(body: LoginRequest, request: Request) -> JSONResponse:
         samesite="lax",
         # Secure רק כשבאמת ב-HTTPS: אחרת פיתוח מקומי על http לא יעבוד
         # והמפתח יכבה את הדגל לגמרי — וזה נגמר בפרודקשן בלי Secure.
+        secure=request.url.scheme == "https",
+        path="/",
+    )
+    return response
+
+
+# ---- הרשמה עצמית ----
+
+SIGNUP_MODE = os.environ.get("SIGNUP_MODE", "open").strip().lower()
+"""`open` (ברירת מחדל) · `approval` · `closed`.
+
+משתנה סביבה ולא קבוע בקוד, מסיבה אחת: ההרשמה נפתחה לאינטרנט כולו,
+וסגירתה בשעת צרה חייבת להיות `systemctl restart` ולא פריסה. ב-
+`approval` נוצר משתמש חסום, ואבא או ינון משחררים אותו ב-
+`laser-user.py enable`; העמודה `disabled` הייתה קיימת בטבלה מהיום
+הראשון, ולכן זה לא עלה כלום.
+"""
+
+SIGNUPS_PER_IP = 5
+SIGNUP_WINDOW_SECONDS = 3600
+_SIGNUPS: dict[str, list[float]] = {}
+
+
+def _client_ip(request: Request) -> str:
+    """הכתובת של הפונה, מאחורי nginx.
+
+    `X-Forwarded-For` נלקח מהכותרת הראשונה, ורק כשמוגדר `TRUST_PROXY` —
+    כותרת שאפשר לזייף היא הגבלת קצב שאפשר לעקוף.
+    """
+    if os.environ.get("TRUST_PROXY", "").strip():
+        forwarded = request.headers.get("x-forwarded-for", "")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "?"
+
+
+def _rate_ok(bucket: dict[str, list[float]], key: str, limit: int, window: int) -> bool:
+    """דלי אסימונים פשוט בזיכרון התהליך.
+
+    לא Redis ולא מסד: תהליך אחד על קופסה עם שתי ליבות. המחיר הוא
+    שהמונה מתאפס בהפעלה מחדש, וזה מחיר מקובל מול תלות חדשה.
+    """
+    now = time.time()
+    recent = [t for t in bucket.get(key, []) if now - t < window]
+    if len(recent) >= limit:
+        bucket[key] = recent
+        return False
+    recent.append(now)
+    bucket[key] = recent
+    return True
+
+
+class SignupRequest(BaseModel):
+    username: str
+    password: str
+    display_name: str = ""
+
+
+@app.post("/api/signup")
+def signup(body: SignupRequest, request: Request) -> JSONResponse:
+    """הרשמה עצמית ציבורית.
+
+    **מה שנשמר:** שם משתמש, שם לתצוגה וסיסמה. **מה שלא נשמר:** אימייל,
+    טלפון וכל דרך אחרת ליצור קשר — לפי קו הגבול מול ה-CRM ("כל דבר
+    שיש עליו שם של לקוח שייך ל-CRM"). המשמעות המעשית שצריך לומר בקול:
+    **אין שחזור סיסמה.** מי ששוכח, אבא או ינון מאפסים לו ב-CLI.
+
+    היכולת שמונפקת היא `quote:total` בלבד — מספר אחד, בלי פירוק.
+    """
+    if SIGNUP_MODE == "closed":
+        raise HTTPException(status_code=403, detail="ההרשמה סגורה כרגע.")
+
+    if not _rate_ok(_SIGNUPS, _client_ip(request), SIGNUPS_PER_IP, SIGNUP_WINDOW_SECONDS):
+        raise HTTPException(
+            status_code=429, detail="נפתחו יותר מדי חשבונות מהכתובת הזאת. נסה שוב בעוד שעה."
+        )
+
+    try:
+        user = identity.create_user(
+            body.username,
+            body.password,
+            body.display_name,
+            set(identity.PUBLIC_SIGNUP_CAPABILITIES),
+            disabled=SIGNUP_MODE == "approval",
+        )
+    except identity.UserError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if SIGNUP_MODE == "approval":
+        return JSONResponse(
+            {
+                "username": user.username,
+                "pending": True,
+                "message": "החשבון נוצר וממתין לאישור. נעדכן כשייפתח.",
+            },
+            status_code=201,
+        )
+
+    response = JSONResponse(
+        {
+            "username": user.username,
+            "display_name": user.display_name,
+            "capabilities": sorted(user.capabilities),
+            "pending": False,
+            "tariff_ready": STATE.is_ready,
+            "next": "/",
+        },
+        status_code=201,
+    )
+    # נכנס ישר פנימה. מסך הרשמה שמסתיים ב"עכשיו תתחבר" הוא טופס שנשלח
+    # פעמיים על אותו מידע.
+    response.set_cookie(
+        identity.SESSION_COOKIE,
+        identity.issue_session(user.username),
+        max_age=identity.SESSION_TTL_SECONDS,
+        httponly=True,
+        samesite="lax",
         secure=request.url.scheme == "https",
         path="/",
     )
@@ -536,25 +771,31 @@ def dashboard() -> dict:
 
 
 @app.get("/api/config")
-def config() -> dict:
-    """כל מה שהממשק צריך כדי להיפתח: פלטה, חומרים ומצב הטבלה."""
+def config(request: Request) -> dict:
+    """כל מה שהממשק צריך כדי להיפתח: פלטה, חומרים ומצב הטבלה.
+
+    **למשתמש ציבורי חוזר פחות.** `margin_pct` הוא אחוז הרווח של ינון,
+    ו-`waste_tiers` הם מכפילי החיוב על בזבוז — שני מספרים שאפשר לקרוא
+    ישירות מהתשובה בלי לתמחר בכלל. מידות הפלטה, שמות החומרים והעוביים
+    כן יוצאים: בלעדיהם אין מה לבחור במסך, והם ממילא מה שכל ספק פח
+    מפרסם.
+    """
+    detailed = _sees_breakdown(request)
     tariff = STATE.tariff
     if tariff is None:
         return {
             "tariff_ready": False,
-            "tariff_error": STATE.error,
-            "tariff_source": STATE.origin,
+            "tariff_error": STATE.error if detailed else "",
+            "tariff_source": STATE.origin if detailed else "",
             "materials": [],
+            "detailed": detailed,
         }
     plate = tariff.plate
-    return {
+    body = {
         "tariff_ready": STATE.is_ready,
-        "tariff_error": STATE.error,
-        "tariff_source": STATE.origin,
         "currency": tariff.currency,
+        # מע"מ הוא שיעור חוקי ופומבי, ומי שרואה סכום חייב לדעת אם הוא כלול.
         "vat_pct": tariff.vat_pct,
-        "margin_pct": tariff.margin_pct,
-        "part_gap_mm": tariff.part_gap_mm,
         "plate": {
             "width_mm": plate.width_mm,
             "height_mm": plate.height_mm,
@@ -564,6 +805,15 @@ def config() -> dict:
             "label": plate.label,
         },
         "materials": tariff.materials,
+        "detailed": detailed,
+    }
+    if not detailed:
+        return body
+    return body | {
+        "tariff_error": STATE.error,
+        "tariff_source": STATE.origin,
+        "margin_pct": tariff.margin_pct,
+        "part_gap_mm": tariff.part_gap_mm,
         "waste_tiers": [
             {"max_waste_pct": t.max_waste_pct, "multiplier": t.multiplier, "label": t.label}
             for t in tariff.waste_tiers
@@ -575,11 +825,12 @@ def config() -> dict:
 
 
 @app.post("/api/upload")
-async def upload(file: UploadFile = File(...)) -> dict:
+async def upload(request: Request, file: UploadFile = File(...)) -> dict:
     """מעלה קובץ ייצור ומחלץ ממנו את הגיאומטריה.
 
     הקובץ עצמו לא נשמר ולא נשלח לשום מקום — הוא מפוענח מקומית ונמחק.
     """
+    _guard_public_engine(request)
     name = file.filename or "upload.dxf"
     suffix = Path(name).suffix.lower()
 
@@ -592,11 +843,12 @@ async def upload(file: UploadFile = File(...)) -> dict:
         raise HTTPException(status_code=415, detail=f"סוג קובץ לא נתמך: {suffix or 'ללא סיומת'}. נדרש DXF.")
 
     payload = await file.read()
-    if len(payload) > MAX_UPLOAD_BYTES:
+    ceiling = MAX_UPLOAD_BYTES if _sees_breakdown(request) else MAX_PUBLIC_UPLOAD_BYTES
+    if len(payload) > ceiling:
         raise HTTPException(
             status_code=413,
             detail=(
-                f"הקובץ גדול מ-{MAX_UPLOAD_BYTES // (1024 * 1024)}MB. "
+                f"הקובץ גדול מ-{ceiling // (1024 * 1024)}MB. "
                 "תוכנית שלמה אינה חלק — ייצא מהתוכנית את המתאר של החלק בלבד "
                 "(בלי ריהוט, מידות וטקסט) ושלח אותו."
             ),
@@ -622,7 +874,8 @@ async def upload(file: UploadFile = File(...)) -> dict:
             source=PartSource.DXF.value,
             units_detected=extraction.units_detected,
             warnings=tuple(extraction.warnings),
-        )
+        ),
+        owner=_owner_key(request),
     )
     return _geometry_response(key, stem, PartSource.DXF.value, extraction.geometry) | {
         "units_detected": extraction.units_detected,
@@ -634,15 +887,17 @@ async def upload(file: UploadFile = File(...)) -> dict:
 
 
 @app.post("/api/manual")
-def manual(spec: ManualPartSpec) -> dict:
+def manual(spec: ManualPartSpec, request: Request) -> dict:
     """בונה גיאומטריה ממידות שהוקלדו — אותו טיפוס בדיוק כמו מ-DXF."""
+    _guard_public_engine(request)
     try:
         geometry = _build_manual_geometry(spec)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     key = STORE.put(
-        StoredGeometry(geometry=geometry, name=spec.name, source=PartSource.MANUAL.value)
+        StoredGeometry(geometry=geometry, name=spec.name, source=PartSource.MANUAL.value),
+        owner=_owner_key(request),
     )
     return _geometry_response(key, spec.name, PartSource.MANUAL.value, geometry)
 
@@ -651,13 +906,16 @@ def manual(spec: ManualPartSpec) -> dict:
 
 
 @app.post("/api/quote")
-def quote(request: QuoteRequest) -> dict:
+def quote(body: QuoteRequest, request: Request) -> dict:
+    """מתמחר. **צורת התשובה תלויה במי ששאל** — ראה `serialize`."""
+    _guard_public_engine(request)
     tariff = _require_tariff()
+    owner = _owner_key(request)
 
     parts: list[Part] = []
-    for item in request.parts:
+    for item in body.parts:
         try:
-            stored = STORE.get(item.geometry_id)
+            stored = STORE.get(item.geometry_id, owner=owner)
         except GeometryExpired as exc:
             raise HTTPException(
                 status_code=410,
@@ -688,7 +946,7 @@ def quote(request: QuoteRequest) -> dict:
     except PricingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    return quote_to_json(result)
+    return quote_to_json(result) if _sees_breakdown(request) else public_quote_to_json(result)
 
 
 # ---- טבלת התמחור ----
@@ -860,14 +1118,26 @@ def _hole_segments(radius: float) -> int:
 if WEB_DIR.exists():
 
     @app.get("/")
-    def index() -> FileResponse:
-        return FileResponse(WEB_DIR / "index.html")
+    def index(request: Request) -> FileResponse:
+        """שני מסכים שונים על אותה כתובת, לפי מי שנכנס.
+
+        זה לא "אותו מסך עם עמודות מוסתרות". הגיליון הפנימי מציג פירוק
+        עלויות, פריסה על הפלטה, אחוזי בזבוז ולשוניות של הטבלה ומצב
+        המערכת — שום דבר מזה אינו רלוונטי למי שרוצה לדעת כמה עולה
+        החלק שלו, ורובו גם אסור לו. `quote.html` הוא מוצר אחר.
+        """
+        return FileResponse(WEB_DIR / ("index.html" if _sees_breakdown(request) else "quote.html"))
 
     @app.get("/login")
     def login_page() -> FileResponse:
         """מסך הכניסה. עצמאי לחלוטין, מאותה סיבה כמו טופס המחירים:
         דף שנטען לפני שיש זהות לא יכול להסתמך על /static שמאחורי השער."""
         return FileResponse(WEB_DIR / "login.html")
+
+    @app.get("/signup")
+    def signup_page() -> FileResponse:
+        """מסך ההרשמה. עצמאי מאותה סיבה בדיוק כמו מסך הכניסה."""
+        return FileResponse(WEB_DIR / "signup.html")
 
     @app.get("/prices")
     def prices_form() -> FileResponse:

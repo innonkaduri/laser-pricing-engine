@@ -1,23 +1,29 @@
 #!/usr/bin/env python3
 """ניהול המשתמשים של מנוע התמחור — משורת הפקודה בלבד.
 
-**אין מסך ניהול משתמשים, וזו החלטה ולא חוסר.** ארבעה משתמשים פנימיים,
-בלי הרשמה עצמית ובלי אזור לקוחות (הלקוח מקבל הצעה מאושרת מה-CRM ואינו
-נכנס לשום מסך). מסך ניהול היה משטח תקיפה שלם עבור פעולה שקורית
-פעם ברבעון.
+**אין מסך ניהול משתמשים, וזו החלטה ולא חוסר.** מאז 23.8.2026 יש
+הרשמה עצמית ציבורית (`/signup`), אבל היא מנפיקה `quote:total` בלבד —
+תמחור בלי פירוק עלויות. **הענקת `prices:edit` או `quote:use`, איפוס
+סיסמה, חסימה ושחרור — כאן ורק כאן.** מסך ניהול היה משטח תקיפה שלם
+עבור פעולה שקורית פעם בחודש, ועכשיו, כשלכל אחד יש חשבון, הוא היה גם
+המטרה הראשונה.
 
 **על השרת מריצים עם הפייתון של הסביבה הווירטואלית**, לא עם זה של
 המערכת — `python3` המערכתי אינו רואה את התלויות ונופל על
 `ModuleNotFoundError: No module named 'fastapi'`:
 
   cd /opt/laser
-  sudo -u laser .venv/bin/python3 scripts/laser-user.py list
-  sudo -u laser .venv/bin/python3 scripts/laser-user.py add itai --caps quote:use
-  sudo -u laser .venv/bin/python3 scripts/laser-user.py add aba  --caps prices:edit
-  sudo -u laser .venv/bin/python3 scripts/laser-user.py passwd itai
-  sudo -u laser .venv/bin/python3 scripts/laser-user.py disable itai
+  sudo -u laser env USERS_DB=/var/lib/laser/users.db .venv/bin/python3 \\
+      scripts/laser-user.py list
 
-הסקריפט מוסיף את `src/` ל-`sys.path` בעצמו, ולכן אין צורך ב-PYTHONPATH.
+**`USERS_DB` מפורש, תמיד.** `sudo -u laser` אינו טוען את ה-
+`EnvironmentFile` של היחידה, ובלי המשתנה הסקריפט כותב ל-
+`/opt/laser/config/users.db` — קובץ שהתהליך אינו קורא. הוא קיים על
+הקופסה מ-19.8, מת, ומופיע בדיוק במקום שאליו הסקריפט ייפול. הסקריפט
+מדפיס את הנתיב בכל ריצה; **קרא אותו לפני שאתה מאמין להודעת ההצלחה.**
+הנתיב המדויק נשלף מהיחידה עצמה:
+
+  systemctl show laser-pricing -p Environment | tr ' ' '\\n' | grep USERS_DB
 
 הסיסמה לעולם אינה ארגומנט בשורת הפקודה: היא נשארת בהיסטוריית המעטפת
 ונראית ב-`ps`. הסקריפט מבקש אותה, או קורא אותה מ-LASER_USER_PASSWORD.

@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>הרשמה — מנוע תמחור לייזר</title>
+<meta name="description" content="תמחור מיידי לחיתוך לייזר: מעלים DXF או מקלידים מידות, ומקבלים מחיר.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>⚙️</text></svg>">
+<style>
+/* עצמאי לחלוטין, בכוונה: הדף נטען לפני שיש זהות, ו-/static יושב
+   מאחורי השער. דף שתלוי בקובץ חיצוני היה נטען שבור בדיוק כאן. */
+:root{
+  --bg:#f4f5f7; --card:#fff; --text:#1b1f24; --muted:#6b7280;
+  --line:#e3e6ea; --accent:#d9541e; --accent-dark:#b8441420;
+  --bad:#b3261e; --bad-bg:#fdeceb; --ok:#1e7a45; --ok-bg:#e9f6ee;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; min-height:100vh; background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Rubik,Arial,sans-serif;
+  display:flex; align-items:center; justify-content:center; padding:24px 20px;
+}
+.wrap{width:100%; max-width:940px; display:grid; grid-template-columns:1fr 380px; gap:28px; align-items:center}
+@media (max-width:820px){
+  .wrap{grid-template-columns:1fr; gap:22px}
+  .pitch{order:2; text-align:center}
+}
+.pitch h1{margin:0 0 12px; font-size:30px; line-height:1.25; letter-spacing:-.4px}
+.pitch h1 span{color:var(--accent)}
+.pitch p{margin:0 0 20px; color:var(--muted); font-size:15.5px; line-height:1.75; max-width:44ch}
+.pitch ul{margin:0; padding:0; list-style:none; display:grid; gap:11px; max-width:44ch}
+.pitch li{display:flex; gap:10px; align-items:flex-start; font-size:14.5px; line-height:1.55}
+.pitch li b{font-weight:600}
+.tick{
+  flex:none; width:21px; height:21px; border-radius:50%; background:var(--accent);
+  color:#fff; font-size:12px; display:flex; align-items:center; justify-content:center; margin-top:1px;
+}
+@media (max-width:820px){ .pitch ul, .pitch p{margin-inline:auto} .pitch li{text-align:right} }
+
+.card{
+  background:var(--card); border:1px solid var(--line); border-radius:16px;
+  padding:26px 24px; box-shadow:0 1px 2px rgba(16,22,26,.04), 0 8px 24px rgba(16,22,26,.05);
+}
+h2{margin:0 0 3px; font-size:19px}
+p.sub{margin:0 0 20px; color:var(--muted); font-size:13.5px}
+label{display:block; font-size:13px; color:var(--muted); margin:0 0 5px}
+input{
+  width:100%; padding:11px 12px; font-size:16px; font-family:inherit; margin:0 0 4px;
+  border:1px solid var(--line); border-radius:9px; background:#fff; color:var(--text);
+}
+input:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(217,84,30,.12)}
+.help{margin:0 0 15px; font-size:12px; color:var(--muted); min-height:15px}
+.help.bad{color:var(--bad)}
+button{
+  width:100%; padding:12px; font-size:16px; font-family:inherit; font-weight:600; margin-top:6px;
+  border:none; border-radius:9px; background:var(--accent); color:#fff; cursor:pointer;
+}
+button[disabled]{opacity:.55; cursor:default}
+.note{
+  border-radius:9px; padding:11px 12px; font-size:13.5px; margin:0 0 16px; line-height:1.6;
+}
+.note.bad{background:var(--bad-bg); color:var(--bad); border:1px solid #f2c5c0}
+.note.ok{background:var(--ok-bg); color:var(--ok); border:1px solid #bfe3cd}
+.note.warn{background:#fdf6e3; color:#8a6100; border:1px solid #ecd9a4}
+.hidden{display:none}
+.foot{margin:16px 0 0; font-size:12.5px; color:var(--muted); line-height:1.7; text-align:center}
+.foot a{color:var(--accent)}
+.small-print{margin:14px 0 0; font-size:11.5px; color:var(--muted); line-height:1.6}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <div class="pitch">
+    <h1>כמה עולה <span>החלק שלך</span>?</h1>
+    <p>
+      מעלים קובץ DXF או מקלידים מידות, בוחרים חומר ועובי — ומקבלים מחיר.
+      בלי טלפונים, בלי להמתין להצעה במייל.
+    </p>
+    <ul>
+      <li><span class="tick">✓</span><div><b>מדידה אמיתית מהשרטוט</b> — שטח, אורך חיתוך ומספר ניקובים נמדדים מהקובץ עצמו.</div></li>
+      <li><span class="tick">✓</span><div><b>פריסה על הפלטה</b> — המחיר מביא בחשבון כמה חומר באמת נצרך, ולא רק את שטח החלק.</div></li>
+      <li><span class="tick">✓</span><div><b>הקובץ שלך לא נשמר</b> — הוא מפוענח בשרת ונמחק מיד.</div></li>
+    </ul>
+  </div>
+
+  <form class="card" id="form">
+    <h2>פתיחת חשבון</h2>
+    <p class="sub">חינם. לוקח פחות מדקה.</p>
+
+    <div class="note bad hidden" id="error"></div>
+    <div class="note ok hidden" id="done"></div>
+
+    <div id="fields">
+      <label for="name">שם מלא</label>
+      <input id="name" autocomplete="name" required>
+      <p class="help">כך תופיע בכותרת המסך.</p>
+
+      <label for="u">שם משתמש</label>
+      <input id="u" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" required>
+      <p class="help" id="u-help">אותיות באנגלית, ספרות, נקודה או מקף. 3–32 תווים.</p>
+
+      <label for="p">סיסמה</label>
+      <input id="p" type="password" autocomplete="new-password" required>
+      <p class="help" id="p-help">לפחות 8 תווים.</p>
+
+      <button id="go" type="submit">פתח חשבון</button>
+
+      <p class="small-print">
+        אנחנו לא מבקשים אימייל ולא טלפון, ולכן <b>אין שחזור סיסמה אוטומטי</b> —
+        שמור אותה. הצעות המחיר כאן הן הערכה ואינן מסמך מחייב.
+      </p>
+    </div>
+
+    <p class="foot" id="foot">כבר יש לך חשבון? <a href="/login">כניסה</a></p>
+  </form>
+
+</div>
+
+<script>
+const errorBox = document.getElementById('error');
+const doneBox = document.getElementById('done');
+
+function fail(message) {
+  errorBox.textContent = message;
+  errorBox.classList.remove('hidden');
+}
+
+/* אותם כללים בדיוק כמו בשרת. הבדיקה כאן היא נימוס ולא אבטחה: השרת
+   דוחה בכל מקרה, וכפילות שנופלת מהסנכרון מסוכנת רק אם מאמינים לצד
+   הזה. לכן ההודעה מהשרת היא זו שמוצגת כשהיא מגיעה. */
+function localComplaint(username, password) {
+  if (username.length < 3 || username.length > 32) return 'שם המשתמש חייב להיות באורך 3–32 תווים.';
+  if (!/^[a-z0-9][a-z0-9._-]*$/.test(username)) return 'שם משתמש: אותיות באנגלית קטנות, ספרות, נקודה, מקף וקו תחתון.';
+  if (password.length < 8) return 'הסיסמה חייבת להיות באורך 8 תווים לפחות.';
+  return '';
+}
+
+document.getElementById('u').addEventListener('input', (event) => {
+  event.target.value = event.target.value.toLowerCase().trim();
+});
+
+document.getElementById('form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const button = document.getElementById('go');
+  const username = document.getElementById('u').value.trim().toLowerCase();
+  const password = document.getElementById('p').value;
+  const displayName = document.getElementById('name').value.trim();
+
+  errorBox.classList.add('hidden');
+  const complaint = localComplaint(username, password);
+  if (complaint) { fail(complaint); return; }
+
+  button.disabled = true;
+  button.textContent = 'פותח…';
+  try {
+    const response = await fetch('/api/signup', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username, password, display_name: displayName}),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || 'ההרשמה נכשלה.');
+
+    if (data.pending) {
+      /* מצב אישור: אין סשן, ואין לאן להעביר. */
+      document.getElementById('fields').classList.add('hidden');
+      document.getElementById('foot').classList.add('hidden');
+      doneBox.textContent = data.message || 'החשבון נוצר וממתין לאישור.';
+      doneBox.classList.remove('hidden');
+      return;
+    }
+    location.href = data.next || '/';
+  } catch (err) {
+    fail(err.message);
+    button.disabled = false;
+    button.textContent = 'פתח חשבון';
+  }
+});
+</script>
+
+</body>
+</html>

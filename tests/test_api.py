@@ -18,7 +18,13 @@ from fastapi.testclient import TestClient
 from laser_pricing.api import identity, tariff_store
 # היבוא הפרטי מכוון: מונה הניסיונות הכושלים הוא מצב של התהליך, ובדיקה
 # חייבת לאפס אותו כדי לא לחסום את הבדיקה הבאה.
-from laser_pricing.api.app import _LOGIN_FAILURES, app
+from laser_pricing.api.app import (
+    _EDITOR_ATTEMPTS,
+    _ENGINE_CALLS,
+    _LOGIN_FAILURES,
+    _SIGNUPS,
+    app,
+)
 
 # `from laser_pricing.api import app` מחזיר את אובייקט ה-FastAPI ולא את
 # המודול, כי החבילה מייצאת אותו. למי שצריך לשנות משתנה ברמת המודול
@@ -79,10 +85,14 @@ def isolated_users(tmp_path, monkeypatch):
     """מסד המשתמשים גם הוא מצב גלובלי — ובדיקה לא תיצור אותו בריפו.
 
     גם מונה הניסיונות הכושלים מתאפס: הוא חי בזיכרון התהליך בכוונה, ולכן
-    בדיקה שממצה אותו הייתה חוסמת את הבדיקה הבאה (וזה בדיוק מה שקרה).
+    בדיקה שממצה אותו הייתה חוסמת את הבדיקה הבאה (וזה בדיוק מה שקרה) —
+    ומאז ההרשמה הציבורית זה נכון גם למונה ההרשמות ולמונה התמחורים.
     """
     monkeypatch.setattr(identity, "DB_PATH", tmp_path / "users.db")
     _LOGIN_FAILURES.clear()
+    _SIGNUPS.clear()
+    _ENGINE_CALLS.clear()
+    _EDITOR_ATTEMPTS.clear()
     yield
 
 
@@ -946,3 +956,237 @@ class TestHealthReportsWhatIsRunning:
         body = client.get("/health").json()
         assert "commit" in body
         assert not any(k in body for k in ("materials", "rates", "prices"))
+
+
+class TestPublicSignup:
+    """הרשמה עצמית ציבורית — והגבול שהיא לא חוצה.
+
+    ההכרעה (ינון, דרך האב, 23.8.2026): כל אחד יכול להירשם, ומי שנרשם
+    רואה **מחיר סופי אחד**. כל מה שנבדק כאן הוא הגבול הזה: שהמנוע
+    נפתח, שהפירוק לא יוצא, ושטבלת המחירים של אבא נשארת סגורה.
+    """
+
+    @pytest.fixture
+    def gated(self, monkeypatch):
+        monkeypatch.delenv("APP_PASSWORD", raising=False)
+        identity.create_user(
+            "ynon", "sod-arok-1", "ינון", {identity.CAP_PRICES_EDIT, identity.CAP_QUOTE_USE}
+        )
+        return TestClient(app)
+
+    def _signup(self, client, username="orach", password="sisma-arukah"):
+        return client.post(
+            "/api/signup", json={"username": username, "password": password, "display_name": "אורח"}
+        )
+
+    def _public_client(self, gated):
+        assert self._signup(gated).status_code == 201
+        return gated
+
+    # ---- שההרשמה בכלל עובדת ----
+
+    def test_the_signup_screen_is_reachable_without_identity(self, gated):
+        assert gated.get("/signup").status_code == 200
+        assert gated.get("/login").status_code == 200
+
+    def test_signing_up_creates_a_public_user_and_logs_them_in(self, gated):
+        response = self._signup(gated)
+        assert response.status_code == 201, response.text
+        assert response.json()["capabilities"] == [identity.CAP_QUOTE_TOTAL]
+        # נכנס ישר פנימה — מסך שמסתיים ב"עכשיו תתחבר" הוא אותו טופס פעמיים.
+        assert gated.get("/api/me").json()["username"] == "orach"
+
+    def test_a_taken_name_is_refused_and_says_so(self, gated):
+        self._signup(gated)
+        second = self._signup(gated)
+        assert second.status_code == 400
+        assert "כבר קיים" in second.json()["detail"]
+
+    def test_names_that_impersonate_the_system_are_reserved(self, gated):
+        for taken in ("crm", "admin", "editor-link"):
+            assert self._signup(gated, username=taken).status_code == 400
+
+    def test_a_short_password_is_refused_at_the_door(self, gated):
+        assert self._signup(gated, password="1234").status_code == 400
+
+    def test_signup_is_rate_limited_per_address(self, gated):
+        codes = [self._signup(gated, username=f"orach{i}").status_code for i in range(9)]
+        assert 429 in codes, "נקודת הרשמה ציבורית בלי הגבלת קצב היא יצירת חשבונות חופשית"
+
+    def test_it_can_be_closed_without_a_deploy(self, gated, monkeypatch):
+        monkeypatch.setattr(app_module, "SIGNUP_MODE", "closed")
+        assert self._signup(gated).status_code == 403
+
+    def test_approval_mode_creates_a_blocked_account(self, gated, monkeypatch):
+        monkeypatch.setattr(app_module, "SIGNUP_MODE", "approval")
+        response = self._signup(gated)
+        assert response.status_code == 201 and response.json()["pending"] is True
+        assert identity.list_users()[0]["disabled"] is True
+        # ובלי סשן: אין מה לפתוח עד שמשחררים.
+        assert gated.get("/api/config").status_code == 401
+
+    # ---- הגבול: מחיר סופי אחד ----
+
+    def test_a_public_quote_is_one_number_and_nothing_else(self, gated):
+        client = self._public_client(gated)
+        assert client.put("/api/tariff", json=TEST_TARIFF).status_code == 403
+        # הטבלה מוזנת בידי מי שרשאי, דרך אותו תהליך.
+        tariff_store.STATE.replace(TEST_TARIFF)
+
+        part = client.post(
+            "/api/manual", json={"shape": "rect", "width_mm": 200, "height_mm": 100}
+        ).json()
+        body = client.post(
+            "/api/quote",
+            json={
+                "parts": [
+                    {
+                        "geometry_id": part["geometry_id"],
+                        "material_key": "st37",
+                        "thickness_mm": 3.0,
+                        "quantity": 3,
+                    }
+                ]
+            },
+        ).json()
+
+        assert body["total"] > 0
+        assert body["detailed"] is False
+        # **המדידה שהולידה את ההכרעה.** מ-material_cost לצד billed_area_mm2
+        # משחזרים את מחיר הפלטה של אבא בחילוק אחד, ומ-margin_amount חלקי
+        # subtotal את אחוז המרווח. אף אחד מהם לא נשלח.
+        forbidden = (
+            "lines", "groups", "material_cost", "cutting_cost", "piercing_cost",
+            "billed_area_mm2", "cut_length_mm", "margin_amount", "subtotal",
+            "parts_subtotal", "total_before_vat", "vat_amount", "unit_price",
+            "tariff_source", "warnings",
+        )
+        leaked = [key for key in forbidden if key in body]
+        assert not leaked, f"דלפו שדות פירוק למשתמש ציבורי: {leaked}"
+
+    def test_the_same_quote_is_fully_detailed_for_an_internal_user(self, gated):
+        tariff_store.STATE.replace(TEST_TARIFF)
+        assert gated.post(
+            "/api/login", json={"username": "ynon", "password": "sod-arok-1"}
+        ).status_code == 200
+        part = gated.post(
+            "/api/manual", json={"shape": "rect", "width_mm": 200, "height_mm": 100}
+        ).json()
+        body = gated.post(
+            "/api/quote",
+            json={
+                "parts": [
+                    {
+                        "geometry_id": part["geometry_id"],
+                        "material_key": "st37",
+                        "thickness_mm": 3.0,
+                        "quantity": 3,
+                    }
+                ]
+            },
+        ).json()
+        assert body["detailed"] is True
+        assert body["lines"][0]["material_cost"] > 0
+
+    def test_the_margin_is_not_in_the_public_config_either(self, gated):
+        client = self._public_client(gated)
+        tariff_store.STATE.replace(TEST_TARIFF)
+        body = client.get("/api/config").json()
+        # החומרים והעוביים חייבים לצאת — בלעדיהם אין מה לבחור במסך.
+        assert body["materials"] and body["detailed"] is False
+        assert "margin_pct" not in body and "waste_tiers" not in body
+
+    def test_a_public_user_cannot_read_the_price_table_or_the_dashboard(self, gated):
+        client = self._public_client(gated)
+        assert client.get("/api/prices").status_code == 403
+        assert client.get("/api/tariff").status_code == 403
+        assert client.get("/prices").status_code == 403
+        # הדשבורד הוא מפת המערכת מבפנים: מה ריק בטבלה, מצב השער, כמה משתמשים.
+        assert client.get("/api/dashboard").status_code == 403
+
+    def test_a_public_user_lands_on_the_engine_and_not_on_dads_form(self, gated):
+        """הכלל היה "אין לו quote:use → לטופס", וזה נכון רק לאבא.
+
+        מאז `quote:total` מי שנרשם מהרחוב נפל באותו תנאי ונשלח ל-
+        `/prices` — 403 מיד אחרי הרשמה מוצלחת. נמצא בבדיקה בדפדפן.
+        """
+        self._signup(gated)
+        landing = gated.post(
+            "/api/login", json={"username": "orach", "password": "sisma-arukah"}
+        ).json()["next"]
+        assert landing == "/"
+
+    def test_the_public_screen_is_a_different_screen(self, gated):
+        client = self._public_client(gated)
+        public = client.get("/", headers={"accept": "text/html"}).text
+        assert "פירוט ההצעה" not in public and "טבלת התמחור" not in public
+
+    # ---- השער של הטבלה הריקה ----
+
+    def test_while_the_table_is_empty_a_public_user_gets_no_quote_at_all(self, gated):
+        """הוראת האב: מערכת שמחזירה 0 למבקר גרועה מאין הרשמה."""
+        client = self._public_client(gated)
+        assert tariff_store.STATE.is_ready is False
+        blocked = client.post("/api/manual", json={"shape": "rect", "width_mm": 200, "height_mm": 100})
+        assert blocked.status_code == 503
+        assert "בהרצה" in blocked.json()["detail"]
+
+    def test_but_an_internal_user_still_sees_the_zeros(self, gated):
+        """אבא וינון חייבים להמשיך לעבוד על טבלה ריקה — זה כל הבידוד."""
+        assert gated.post(
+            "/api/login", json={"username": "ynon", "password": "sod-arok-1"}
+        ).status_code == 200
+        assert gated.post(
+            "/api/manual", json={"shape": "rect", "width_mm": 200, "height_mm": 100}
+        ).status_code == 200
+
+    # ---- בידוד הגיאומטריות ----
+
+    def test_one_user_cannot_price_another_users_drawing(self, gated):
+        """המפתחות היו g1, g2, g3 — רצף, ולכן שרטוט של אחר במרחק ניחוש."""
+        tariff_store.STATE.replace(TEST_TARIFF)
+        assert gated.post(
+            "/api/login", json={"username": "ynon", "password": "sod-arok-1"}
+        ).status_code == 200
+        mine = gated.post(
+            "/api/manual", json={"shape": "rect", "width_mm": 200, "height_mm": 100}
+        ).json()["geometry_id"]
+        assert not mine.startswith("g"), "מפתח שאפשר לנחש הוא רשימת הקבצים של כל השאר"
+
+        gated.post("/api/logout")
+        self._signup(gated)
+        stolen = gated.post(
+            "/api/quote",
+            json={
+                "parts": [
+                    {"geometry_id": mine, "material_key": "st37", "thickness_mm": 3.0, "quantity": 1}
+                ]
+            },
+        )
+        assert stolen.status_code == 410
+
+
+class TestBasicAuthFallsThroughToTheTable:
+    """שם משתמש ששווה ל-APP_USER לא נסגר מול הסביבה בלבד.
+
+    הפער: לינון יש גם `APP_PASSWORD` בסביבה וגם שורה במסד. הגרסה
+    הקודמת עצרה מול הסביבה והחזירה None — כלומר מסך הכניסה עבד (הוא
+    קורא ישירות ל-`authenticate`) ו-`curl -u ynon:…` נכשל, עם אותה
+    סיסמה בדיוק. תוקן 23.8.2026 באישור האב.
+    """
+
+    @pytest.fixture
+    def both(self, monkeypatch):
+        monkeypatch.setenv("APP_USER", "ynon")
+        monkeypatch.setenv("APP_PASSWORD", "sisma-mehasviva")
+        identity.create_user("ynon", "sisma-mehatavla", "ינון", {identity.CAP_QUOTE_USE})
+        return TestClient(app)
+
+    def test_the_environment_password_still_works(self, both):
+        assert both.get("/api/config", auth=("ynon", "sisma-mehasviva")).status_code == 200
+
+    def test_and_so_does_his_own_row_in_the_table(self, both):
+        assert both.get("/api/config", auth=("ynon", "sisma-mehatavla")).status_code == 200
+
+    def test_a_password_that_is_neither_is_still_refused(self, both):
+        assert both.get("/api/config", auth=("ynon", "lo-nachon-bichlal")).status_code == 401

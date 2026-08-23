@@ -4,13 +4,16 @@
 ואינו יודע מאיפה הגיעה הזהות. היום היא מגיעה מטבלה מקומית קטנה, ומחר
 מטוקן שה-CRM מנפיק. החלפה כזאת נוגעת בקובץ הזה בלבד.
 
-**מה שהמודול הזה במפורש אינו מחזיק:** לקוחות, הצעות כמסמך, מספור,
-והרשמה עצמית. הגבול שסוכם: כל דבר שיש עליו שם של לקוח שייך ל-CRM,
-והמנוע לא לומד מי הלקוח. ארבעת המשתמשים כאן הם פנימיים בלבד.
+**מה שהמודול הזה במפורש אינו מחזיק:** לקוחות, הצעות כמסמך, ומספור.
+הגבול שסוכם: כל דבר שיש עליו שם של לקוח שייך ל-CRM, והמנוע לא לומד
+מי הלקוח. **הרשמה עצמית נכנסה 23.8.2026** (הכרעת ינון דרך האב), והיא
+נשמרת בתוך הגבול הזה: שם משתמש, שם לתצוגה וסיסמה — ולא אימייל, לא
+טלפון ולא שום דרך ליצור קשר. מי שנרשם כאן הוא מבקר שמתמחר לעצמו,
+ולא לקוח שהמנוע מנהל.
 
-**יכולות ולא תפקידים.** למנוע יש שתי יכולות בסך הכל. ארבעת התפקידים
-של ה-CRM (מזכיר, בונה הצעות, מאשר, בעלים) ימופו אליהן כשהזהות תעבור
-לשם — ולא ישוכפלו לכאן, כי תפקיד שמשוכפל בשני מקומות מתפצל בשקט.
+**יכולות ולא תפקידים.** ארבעת התפקידים של ה-CRM (מזכיר, בונה הצעות,
+מאשר, בעלים) ימופו אליהן כשהזהות תעבור לשם — ולא ישוכפלו לכאן, כי
+תפקיד שמשוכפל בשני מקומות מתפצל בשקט.
 """
 
 from __future__ import annotations
@@ -33,9 +36,31 @@ CAP_PRICES_EDIT = "prices:edit"
 """מילוי טבלת המחירים ועריכת ה-JSON הגולמי. של אבא, ושל מי שמכייל."""
 
 CAP_QUOTE_USE = "quote:use"
-"""העלאת קובץ, תמחור וצפייה בהצעה. של כל מי שנכנס למערכת."""
+"""העלאה, תמחור, **ופירוק העלויות המלא**. פנימי בלבד."""
 
-ALL_CAPABILITIES = frozenset({CAP_PRICES_EDIT, CAP_QUOTE_USE})
+CAP_QUOTE_TOTAL = "quote:total"
+"""העלאה, תמחור, וסכום סופי אחד. ברירת המחדל של מי שנרשם מהרחוב.
+
+**זו לא אותה יכולת מוקטנת — זו הפרדה שנולדה ממדידה.** תשובת ההצעה
+המלאה מחזירה `material_cost` לצד `billed_area_mm2` ו-`cutting_cost`
+לצד `cut_length_mm`; חילוק אחד לכל שדה משחזר את מחיר הפלטה, את מחיר
+החיתוך למטר ואת אחוז המרווח — כלומר *השימוש* במנוע חשף את טבלת
+המחירים של אבא, גם בלי גישה לטופס. הכרעת ינון (23.8.2026): משתמש
+ציבורי מקבל מספר אחד, והשדות האחרים **אינם נשלחים** — לא מוסתרים
+במסך.
+"""
+
+QUOTE_CAPABILITIES = frozenset({CAP_QUOTE_USE, CAP_QUOTE_TOTAL})
+"""מי רשאי להפעיל את המנוע בכלל. אחת מהן מספיקה."""
+
+ALL_CAPABILITIES = frozenset({CAP_PRICES_EDIT, CAP_QUOTE_USE, CAP_QUOTE_TOTAL})
+
+PUBLIC_SIGNUP_CAPABILITIES = frozenset({CAP_QUOTE_TOTAL})
+"""מה שהרשמה עצמית מנפיקה. במקום אחד, כדי שלא ייפול לשם עוד משהו."""
+
+USERNAME_MAX = 32
+USERNAME_MIN = 3
+PASSWORD_MIN = 8
 
 SESSION_COOKIE = "laser_session"
 SESSION_TTL_SECONDS = 12 * 3600
@@ -68,6 +93,18 @@ class User:
 
     def can(self, capability: str) -> bool:
         return capability in self.capabilities
+
+    def can_any(self, capabilities: frozenset[str]) -> bool:
+        return bool(self.capabilities & capabilities)
+
+    @property
+    def sees_cost_breakdown(self) -> bool:
+        """האם מותר לו לראות **איך** התקבל המחיר, ולא רק כמה.
+
+        זו השאלה היחידה שקובעת את צורת תשובת ההצעה, ולכן היא נשאלת
+        כאן ולא בכל נתיב בנפרד. מי שאין לו — מקבל מספר אחד.
+        """
+        return CAP_QUOTE_USE in self.capabilities or CAP_PRICES_EDIT in self.capabilities
 
 
 EDITOR_LINK_USER = User(
@@ -142,33 +179,77 @@ def _row_to_user(row: sqlite3.Row, source: str) -> User:
     )
 
 
-def create_user(
-    username: str, password: str, display_name: str = "", capabilities: set[str] | None = None
-) -> User:
+def normalize_username(username: str) -> str:
+    """שם משתמש חוקי, או `UserError` עם הסיבה.
+
+    האכיפה יושבת כאן ולא במסך ההרשמה בכוונה: מאז שההרשמה ציבורית יש
+    שני מסלולים לאותה טבלה (הטופס וה-CLI), וכלל שנאכף רק באחד מהם
+    אינו כלל. `unicodedata` לא נדרש — האלפבית מצומצם לכוונה, כי שם
+    משתמש נכנס לכתובות ולוגים.
+    """
     username = username.strip().lower()
     if not username:
         raise UserError("שם משתמש ריק.")
+    if not (USERNAME_MIN <= len(username) <= USERNAME_MAX):
+        raise UserError(f"שם המשתמש חייב להיות באורך {USERNAME_MIN}–{USERNAME_MAX} תווים.")
+    if not all(c.isascii() and (c.isalnum() or c in "._-") for c in username):
+        raise UserError("שם משתמש יכול להכיל אותיות באנגלית, ספרות, נקודה, מקף וקו תחתון בלבד.")
+    if not username[0].isalnum():
+        raise UserError("שם משתמש חייב להתחיל באות או בספרה.")
+    if username in RESERVED_USERNAMES:
+        raise UserError("שם המשתמש הזה שמור.")
+    return username
+
+
+RESERVED_USERNAMES = frozenset(
+    {"admin", "root", "crm", "editor-link", "system", "laser", "api", "support"}
+)
+"""שמות שהמערכת עצמה משתמשת בהם או שמתחזים לה.
+
+`crm` ו-`editor-link` אינם שרירותיים: הם השמות שהמנוע מנפיק לטוקן
+השירות ולקישור של אבא, ומשתמש רשום באותו שם היה קורא לבלבול בלוגים
+בדיוק במקום שבו צריך לדעת מי עשה מה.
+"""
+
+
+def create_user(
+    username: str,
+    password: str,
+    display_name: str = "",
+    capabilities: set[str] | None = None,
+    disabled: bool = False,
+) -> User:
+    username = normalize_username(username)
+    if len(password) < PASSWORD_MIN:
+        raise UserError(f"סיסמה קצרה מ-{PASSWORD_MIN} תווים. זו כתובת פומבית.")
     caps = set(capabilities or {CAP_QUOTE_USE})
     unknown = caps - ALL_CAPABILITIES
     if unknown:
         raise UserError(f"יכולת לא מוכרת: {', '.join(sorted(unknown))}")
+    # שם לתצוגה נכנס לכותרת של כל מסך, ומאז ההרשמה הציבורית הוא מוקלד
+    # בידי זרים. חיתוך אורך ושורה אחת — בלי לשפוט את התוכן.
+    display = " ".join((display_name or username).split())[:60] or username
+
     with _connect() as conn:
         if conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
             raise UserError(f"המשתמש {username} כבר קיים.")
         conn.execute(
-            "INSERT INTO users VALUES (?, ?, ?, ?, 0, ?)",
+            "INSERT INTO users VALUES (?, ?, ?, ?, ?, ?)",
             (
                 username,
-                display_name or username,
+                display,
                 hash_password(password),
                 json.dumps(sorted(caps)),
+                1 if disabled else 0,
                 time.strftime("%Y-%m-%dT%H:%M:%S"),
             ),
         )
-    return User(username, display_name or username, frozenset(caps), source="created")
+    return User(username, display, frozenset(caps), source="created")
 
 
 def set_password(username: str, password: str) -> None:
+    if len(password) < PASSWORD_MIN:
+        raise UserError(f"סיסמה קצרה מ-{PASSWORD_MIN} תווים. זו כתובת פומבית.")
     with _connect() as conn:
         changed = conn.execute(
             "UPDATE users SET password_hash = ? WHERE username = ?",
@@ -317,12 +398,20 @@ def _from_basic_auth(request) -> User | None:
 
     # הסיסמה ההיסטורית מהסביבה. היא קדמה לטבלת המשתמשים, ינון וסקריפטים
     # משתמשים בה, והיא מקבלת את שתי היכולות.
+    #
+    # **סיסמה שגויה כאן אינה עוצרת, אלא ממשיכה לטבלה.** `APP_USER` הוא
+    # "ynon", ולינון יש גם שורה משלו במסד עם סיסמה משלו. הגרסה הקודמת
+    # החזירה כאן None וסגרה בפניו את Basic לנצח: מסך הכניסה עבד (הוא
+    # קורא ישירות ל-`authenticate`) ו-`curl -u ynon:…` נכשל — אותה
+    # סיסמה, שתי תשובות. נמצא ותוקן 23.8.2026 באישור האב.
     app_password = os.environ.get("APP_PASSWORD", "")
     app_user = os.environ.get("APP_USER", "ynon")
-    if app_password and hmac.compare_digest(username, app_user):
-        if hmac.compare_digest(password, app_password):
-            return User(app_user, app_user, ALL_CAPABILITIES, source="basic-env")
-        return None
+    if (
+        app_password
+        and hmac.compare_digest(username, app_user)
+        and hmac.compare_digest(password, app_password)
+    ):
+        return User(app_user, app_user, ALL_CAPABILITIES, source="basic-env")
 
     if user_count() == 0:
         return None

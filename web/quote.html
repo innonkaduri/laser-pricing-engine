@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>תמחור חיתוך לייזר</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>⚙️</text></svg>">
+<style>
+/* עצמאי לחלוטין כמו שאר המסכים הציבוריים.
+   **המסך הזה אינו הגיליון הפנימי עם עמודות מוסתרות.** הוא מקבל מהשרת
+   מספר אחד ואין לו מה להסתיר — וזו בדיוק הנקודה: אילו היה מסתיר, די
+   היה בפתיחת כלי המפתחים כדי לראות את טבלת המחירים של אבא. */
+:root{
+  --bg:#f4f5f7; --card:#fff; --text:#1b1f24; --muted:#6b7280;
+  --line:#e3e6ea; --accent:#d9541e; --bad:#b3261e; --bad-bg:#fdeceb;
+  --warn:#8a6100; --warn-bg:#fdf6e3; --ok:#1e7a45;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--text); padding:0 0 60px;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Rubik,Arial,sans-serif;
+}
+header{
+  background:var(--card); border-bottom:1px solid var(--line); padding:14px 22px;
+  display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+}
+header h1{margin:0; font-size:17px; font-weight:650}
+header .spacer{flex:1}
+header .who{font-size:13px; color:var(--muted)}
+header .who a{color:var(--accent); margin-inline-start:6px}
+main{max-width:860px; margin:0 auto; padding:22px 20px 0}
+.card{
+  background:var(--card); border:1px solid var(--line); border-radius:14px;
+  padding:22px; margin:0 0 18px;
+}
+h2{margin:0 0 4px; font-size:17px}
+.hint{margin:0 0 16px; color:var(--muted); font-size:13.5px; line-height:1.6}
+.note{border-radius:10px; padding:13px 15px; font-size:14px; line-height:1.65; margin:0 0 18px}
+.note.warn{background:var(--warn-bg); color:var(--warn); border:1px solid #ecd9a4}
+.note.bad{background:var(--bad-bg); color:var(--bad); border:1px solid #f2c5c0}
+.hidden{display:none !important}
+
+.drop{
+  border:2px dashed #cbd2da; border-radius:12px; padding:30px 16px; text-align:center;
+  color:var(--muted); cursor:pointer; font-size:14.5px; background:#fbfcfd;
+}
+.drop.hot{border-color:var(--accent); background:#fff6f2; color:var(--accent)}
+.or{display:flex; align-items:center; gap:12px; color:var(--muted); font-size:12.5px; margin:18px 0 14px}
+.or::before,.or::after{content:""; height:1px; background:var(--line); flex:1}
+.row{display:flex; gap:12px; flex-wrap:wrap}
+.row>div{flex:1; min-width:110px}
+label{display:block; font-size:12.5px; color:var(--muted); margin:0 0 5px}
+input,select{
+  width:100%; padding:9px 10px; font-size:15px; font-family:inherit;
+  border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--text);
+}
+input:focus,select:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(217,84,30,.12)}
+button{
+  padding:10px 20px; font-size:15px; font-family:inherit; font-weight:600;
+  border:none; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer;
+}
+button.ghost{background:var(--card); color:var(--text); border:1px solid var(--line); font-weight:500}
+button[disabled]{opacity:.55; cursor:default}
+
+.part{display:flex; gap:14px; align-items:flex-start; padding:14px 0; border-bottom:1px solid var(--line)}
+.part:last-child{border-bottom:none}
+.thumb{flex:none; border:1px solid var(--line); border-radius:8px; background:#fbfcfd}
+.part .name{font-weight:600; font-size:14.5px; margin-bottom:3px}
+.part .meta{font-size:12.5px; color:var(--muted); line-height:1.6}
+.part .controls{display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; align-items:flex-end}
+.pill{
+  display:inline-block; font-size:11px; padding:2px 8px; border-radius:20px;
+  background:#eef1f4; color:var(--muted); font-weight:500; margin-inline-start:6px;
+}
+.pill.warn{background:var(--warn-bg); color:var(--warn)}
+.empty{color:var(--muted); font-size:14px; margin:0; padding:8px 0}
+
+.price{
+  text-align:center; padding:34px 20px;
+  background:linear-gradient(180deg,#fff 0%,#fff8f5 100%);
+  border:1px solid #f0d6c9; border-radius:14px;
+}
+.price .k{font-size:13.5px; color:var(--muted); margin-bottom:8px}
+.price .v{font-size:46px; font-weight:700; letter-spacing:-1.5px; line-height:1}
+.price .vat{font-size:12.5px; color:var(--muted); margin-top:10px}
+.price .disclaimer{font-size:12px; color:var(--muted); margin-top:16px; line-height:1.6; max-width:46ch; margin-inline:auto}
+.rejects{margin:0; padding-inline-start:20px; font-size:13.5px; line-height:1.75; color:var(--bad)}
+footer{max-width:860px; margin:26px auto 0; padding:0 20px; font-size:12px; color:var(--muted); line-height:1.7; text-align:center}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>תמחור חיתוך לייזר</h1>
+  <span class="spacer"></span>
+  <span class="who" id="whoami"></span>
+</header>
+
+<main>
+
+  <div class="note warn hidden" id="trial">
+    <b>המערכת בהרצה.</b>
+    טבלת המחירים עדיין נטענת, ולכן אי אפשר להוציא הצעה כרגע.
+    החשבון שלך פעיל — חזור לכאן בקרוב.
+  </div>
+
+  <div class="note bad hidden" id="error"></div>
+
+  <div id="workspace">
+    <div class="card">
+      <h2>החלק שלך</h2>
+      <p class="hint">קובץ DXF של המתאר, או מידות שתקליד. הקובץ מפוענח בשרת ונמחק מיד — הוא לא נשמר אצלנו.</p>
+
+      <div class="drop" id="drop">
+        גרור לכאן קובץ DXF, או לחץ לבחירה
+        <input type="file" id="file" accept=".dxf" hidden multiple>
+      </div>
+
+      <div class="or">או הקלד מידות</div>
+
+      <div class="row">
+        <div>
+          <label for="m-shape">צורה</label>
+          <select id="m-shape">
+            <option value="rect">מלבן</option>
+            <option value="circle">עיגול</option>
+          </select>
+        </div>
+        <div id="m-w-wrap"><label for="m-w">רוחב (מ"מ)</label><input type="number" id="m-w" value="400" min="1" step="0.1"></div>
+        <div id="m-h-wrap"><label for="m-h">גובה (מ"מ)</label><input type="number" id="m-h" value="250" min="1" step="0.1"></div>
+        <div id="m-d-wrap" class="hidden"><label for="m-d">קוטר (מ"מ)</label><input type="number" id="m-d" value="200" min="1" step="0.1"></div>
+        <div><label for="m-holes">כמות חורים</label><input type="number" id="m-holes" value="0" min="0" step="1"></div>
+        <div><label for="m-hole-d">קוטר חור (מ"מ)</label><input type="number" id="m-hole-d" value="20" min="0.1" step="0.1"></div>
+      </div>
+      <div style="margin-top:14px"><button class="ghost" id="m-add">הוסף חלק</button></div>
+    </div>
+
+    <div class="card">
+      <h2>ההזמנה <span class="pill" id="part-count">0</span></h2>
+      <div id="parts"><p class="empty">עדיין לא הוספת חלקים.</p></div>
+      <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap">
+        <button id="calc" disabled>חשב מחיר</button>
+        <button class="ghost" id="clear">נקה</button>
+      </div>
+    </div>
+
+    <div id="result"></div>
+  </div>
+
+</main>
+
+<footer>
+  המחיר הוא הערכה מיידית ואינו מסמך מחייב. חלק חריג במידות או בחומר עשוי לקבל תמחור שונה לאחר בדיקה.
+</footer>
+
+<script>
+'use strict';
+
+const state = {config: null, parts: [], seq: 0};
+const $ = (sel) => document.querySelector(sel);
+const fmt = (n, d = 2) => Number(n).toLocaleString('he-IL', {minimumFractionDigits: d, maximumFractionDigits: d});
+const int = (n) => Number(n).toLocaleString('he-IL');
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c]);
+
+async function api(path, options = {}) {
+  const res = await fetch(path, options);
+  const text = await res.text();
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch { body = null; }
+  if (!res.ok) throw new Error((body && body.detail) || text || `שגיאה ${res.status}`);
+  return body;
+}
+
+function showError(message) {
+  const box = $('#error');
+  box.textContent = message;
+  box.classList.remove('hidden');
+}
+function clearError() { $('#error').classList.add('hidden'); }
+
+/* ---------- אתחול ---------- */
+
+async function boot() {
+  try {
+    const me = await api('/api/me');
+    if (me.authenticated) {
+      $('#whoami').innerHTML = `${esc(me.display_name)} · <a href="#" id="out">יציאה</a>`;
+      $('#out').addEventListener('click', async (event) => {
+        event.preventDefault();
+        await fetch('/api/logout', {method: 'POST'});
+        location.href = '/login';
+      });
+    }
+  } catch { /* הכותרת אינה שווה באנר שגיאה */ }
+
+  try {
+    state.config = await api('/api/config');
+  } catch (err) {
+    showError('לא ניתן לטעון את הגדרות המערכת: ' + err.message);
+    $('#workspace').classList.add('hidden');
+    return;
+  }
+
+  /* הוראת האב: כל עוד אין מחירים, מבקר אינו מקבל מסך תמחור בכלל.
+     מספר שיוצא 0 אינו "מחיר נמוך" — הוא אומר למי שלא יודע שהמחיר
+     אצל ינון הוא אפס. */
+  if (!state.config.tariff_ready) {
+    $('#trial').classList.remove('hidden');
+    $('#workspace').classList.add('hidden');
+    return;
+  }
+  renderParts();
+}
+
+/* ---------- קלט ---------- */
+
+const drop = $('#drop');
+const fileInput = $('#file');
+drop.addEventListener('click', () => fileInput.click());
+drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('hot'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('hot'));
+drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('hot'); handleFiles(e.dataTransfer.files); });
+fileInput.addEventListener('change', () => { handleFiles(fileInput.files); fileInput.value = ''; });
+
+async function handleFiles(files) {
+  clearError();
+  for (const file of files) {
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      addPart(await api('/api/upload', {method: 'POST', body: form}));
+    } catch (err) {
+      showError(`${file.name}: ${err.message}`);
+    }
+  }
+}
+
+$('#m-shape').addEventListener('change', () => {
+  const isCircle = $('#m-shape').value === 'circle';
+  $('#m-w-wrap').classList.toggle('hidden', isCircle);
+  $('#m-h-wrap').classList.toggle('hidden', isCircle);
+  $('#m-d-wrap').classList.toggle('hidden', !isCircle);
+});
+
+$('#m-add').addEventListener('click', async () => {
+  clearError();
+  const shape = $('#m-shape').value;
+  const count = Math.max(0, parseInt($('#m-holes').value || '0', 10));
+  const spec = {
+    name: shape === 'circle' ? 'דיסקית' : 'לוח',
+    shape,
+    holes: Array.from({length: count}, () => ({diameter_mm: parseFloat($('#m-hole-d').value || '0')})),
+  };
+  if (shape === 'circle') spec.diameter_mm = parseFloat($('#m-d').value);
+  else { spec.width_mm = parseFloat($('#m-w').value); spec.height_mm = parseFloat($('#m-h').value); }
+  try {
+    addPart(await api('/api/manual', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(spec),
+    }));
+  } catch (err) {
+    showError(err.message);
+  }
+});
+
+/* ---------- החלקים ---------- */
+
+function addPart(data) {
+  const materials = state.config.materials || [];
+  const first = materials[0];
+  state.parts.push({
+    uid: ++state.seq,
+    data,
+    material_key: first ? first.key : '',
+    thickness_mm: first ? first.thicknesses[0] : 0,
+    quantity: 1,
+  });
+  renderParts();
+}
+
+$('#clear').addEventListener('click', () => {
+  state.parts = [];
+  $('#result').innerHTML = '';
+  renderParts();
+});
+
+function thumbSvg(d, size = 62) {
+  const w = d.bbox.width_mm || 1;
+  const h = d.bbox.height_mm || 1;
+  const scale = (size - 10) / Math.max(w, h);
+  const paths = (d.contours || []).map((c) => {
+    const pts = c.points
+      .map(([x, y]) => `${((x - d.bbox.min_x) * scale + 5).toFixed(2)},${((h - (y - d.bbox.min_y)) * scale + 5).toFixed(2)}`)
+      .join(' ');
+    const color = c.hole ? '#d9541e' : '#3f74a8';
+    return c.closed
+      ? `<polygon points="${pts}" fill="none" stroke="${color}" stroke-width="1.2"/>`
+      : `<polyline points="${pts}" fill="none" stroke="#9aa3ae" stroke-width="1" stroke-dasharray="3 2"/>`;
+  }).join('');
+  return `<svg class="thumb" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${paths}</svg>`;
+}
+
+function renderParts() {
+  const host = $('#parts');
+  const materials = (state.config && state.config.materials) || [];
+  $('#part-count').textContent = state.parts.length;
+
+  if (!state.parts.length) {
+    host.innerHTML = '<p class="empty">עדיין לא הוספת חלקים.</p>';
+    $('#calc').disabled = true;
+    return;
+  }
+  $('#calc').disabled = !materials.length;
+
+  host.innerHTML = state.parts.map((p) => {
+    const d = p.data;
+    const mat = materials.find((m) => m.key === p.material_key) || materials[0];
+    const thicknesses = mat ? mat.thicknesses : [];
+    const pieces = d.pieces || 1;
+    return `
+      <div class="part" data-uid="${p.uid}">
+        ${thumbSvg(d)}
+        <div style="flex:1; min-width:0">
+          <div class="name">${esc(d.name)}
+            ${pieces > 1 ? `<span class="pill warn">${pieces} חתיכות + ריתוך</span>` : ''}
+          </div>
+          <div class="meta">
+            ${fmt(d.bbox.width_mm, 1)} × ${fmt(d.bbox.height_mm, 1)} מ"מ ·
+            ${fmt(d.cut_length_mm / 1000, 2)} מ' חיתוך · ${int(d.holes)} חורים
+          </div>
+          <div class="controls">
+            <div style="min-width:140px"><label>חומר</label>
+              <select data-field="material_key">
+                ${materials.map((m) => `<option value="${esc(m.key)}" ${m.key === p.material_key ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}
+              </select>
+            </div>
+            <div style="max-width:100px"><label>עובי (מ"מ)</label>
+              <select data-field="thickness_mm">
+                ${thicknesses.map((t) => `<option value="${t}" ${t === p.thickness_mm ? 'selected' : ''}>${t}</option>`).join('')}
+              </select>
+            </div>
+            <div style="max-width:90px"><label>כמות</label>
+              <input type="number" min="1" step="1" value="${p.quantity}" data-field="quantity">
+            </div>
+            <div><button class="ghost" data-action="remove">הסר</button></div>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  host.querySelectorAll('.part').forEach((el) => {
+    const uid = Number(el.dataset.uid);
+    const part = state.parts.find((p) => p.uid === uid);
+    el.querySelectorAll('[data-field]').forEach((input) => {
+      input.addEventListener('change', () => {
+        const field = input.dataset.field;
+        if (field === 'material_key') {
+          part.material_key = input.value;
+          const mat = materials.find((m) => m.key === part.material_key);
+          if (mat && !mat.thicknesses.includes(part.thickness_mm)) part.thickness_mm = mat.thicknesses[0];
+          renderParts();
+        } else if (field === 'thickness_mm') {
+          part.thickness_mm = parseFloat(input.value);
+        } else {
+          part.quantity = Math.max(1, parseInt(input.value || '1', 10));
+        }
+      });
+    });
+    el.querySelector('[data-action="remove"]').addEventListener('click', () => {
+      state.parts = state.parts.filter((p) => p.uid !== uid);
+      renderParts();
+    });
+  });
+}
+
+/* ---------- המחיר ---------- */
+
+$('#calc').addEventListener('click', async () => {
+  const btn = $('#calc');
+  btn.disabled = true;
+  btn.textContent = 'מחשב…';
+  clearError();
+  try {
+    const quote = await api('/api/quote', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        parts: state.parts.map((p) => ({
+          geometry_id: p.data.geometry_id,
+          name: p.data.name,
+          material_key: p.material_key,
+          thickness_mm: p.thickness_mm,
+          quantity: p.quantity,
+        })),
+      }),
+    });
+    renderPrice(quote);
+  } catch (err) {
+    $('#result').innerHTML = '';
+    showError(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'חשב מחיר';
+  }
+});
+
+function renderPrice(q) {
+  const cur = q.currency === 'ILS' ? '₪' : q.currency;
+  const rejected = q.rejected && q.rejected.length ? `
+    <div class="card">
+      <h2>חלקים שלא נכללו</h2>
+      <p class="hint">אלה מגבלות ייצור ולא שאלת מחיר.</p>
+      <ul class="rejects">${q.rejected.map((r) => `<li><b>${esc(r.part_name)}</b> — ${esc(r.reason)}</li>`).join('')}</ul>
+    </div>` : '';
+
+  $('#result').innerHTML = `
+    <div class="price">
+      <div class="k">מחיר להזמנה</div>
+      <div class="v">${cur}${fmt(q.total)}</div>
+      <div class="vat">${q.vat_included ? 'כולל מע"מ' : ''}</div>
+      <div class="disclaimer">
+        הערכה מיידית לפי המידות שהוזנו. אינה מסמך מחייב.
+      </div>
+    </div>` + rejected;
+  $('#result').scrollIntoView({behavior: 'smooth', block: 'nearest'});
+}
+
+boot();
+</script>
+
+</body>
+</html>

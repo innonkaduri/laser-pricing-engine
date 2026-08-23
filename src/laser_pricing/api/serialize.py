@@ -148,8 +148,46 @@ def line_to_json(line: QuoteLine) -> dict:
     }
 
 
-def quote_to_json(quote: Quote) -> dict:
+def public_quote_to_json(quote: Quote) -> dict:
+    """ההצעה כפי שמשתמש ציבורי רואה אותה: **מספר אחד**.
+
+    זו לא אותה תשובה עם שדות מוסתרים — השדות אינם נשלחים. ההבדל אינו
+    סגנוני: מ-`material_cost` לצד `billed_area_mm2` אפשר לחלק ולקבל את
+    מחיר הפלטה של אבא, מ-`cutting_cost` לצד `cut_length_mm` את מחיר
+    החיתוך למטר, ומ-`margin_amount` חלקי `subtotal` את אחוז המרווח —
+    שחזור מדויק, מהצעה אחת. הכרעת ינון (23.8.2026).
+
+    **מה שכן יוצא, ולמה:** `rejected` הוא אי-אפשרות פיזית ולא מחיר —
+    מי שמעלה חלק גדול מפלטה חייב לדעת למה לא קיבל מספר. אזהרות המנוע
+    **אינן** יוצאות: הן מצטטות מינימום הזמנה, שטח מחויב במ"ר ושמות
+    שדות מהטבלה.
+    """
     return {
+        "detailed": False,
+        "total": quote.total,
+        "currency": quote.currency,
+        "vat_included": True,
+        "rejected": [
+            {
+                "part_name": r.part_name,
+                "reason": r.reason,
+                "width_mm": round(r.width_mm, 2),
+                "height_mm": round(r.height_mm, 2),
+            }
+            for r in quote.rejected
+        ],
+        "has_rejections": quote.has_rejections,
+        "is_quotable": quote.is_quotable,
+    }
+
+
+def quote_to_json(quote: Quote) -> dict:
+    """ההצעה המלאה, לבעלי `quote:use` או `prices:edit` בלבד.
+
+    ראה `public_quote_to_json`: הפירוק שכאן **הוא** טבלת המחירים.
+    """
+    return {
+        "detailed": True,
         "lines": [line_to_json(line) for line in quote.lines],
         "groups": [group_to_json(g) for g in quote.groups],
         "rejected": [
