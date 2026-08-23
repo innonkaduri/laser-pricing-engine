@@ -239,7 +239,16 @@ tariff.json` מוטבע **וגם** `EnvironmentFile=/etc/laser-pricing.env`
   ברגע שהמשתנים קיימים. הם יושבים ב-`/etc/laser-pricing.env` (600
   root) ונטענים דרך drop-in `EnvironmentFile`, ולא בתוך היחידה
   שכל משתמש קורא ב-`systemctl cat`.
-- **גיבוי:** `laser-tariff-backup.timer` שעתי → `/var/backups/laser-tariff`,
+- **הגיבוי יוצא מהקופסה מ-23.8.2026.** `/var/backups` יושב על אותו
+  דיסק שהוא מגבה. הסקריפט מניח עכשיו גם
+  `/opt/adi-backups/laser-<תאריך>.tar.gz` (טבלה + משתמשים +
+  `MANIFEST.txt`), ומשם `scripts/vps-backup-pull.sh` על המק של ינון
+  מושך ב-09:00 ושומר 60 יום. **אומת מקצה לקצה:** `sha256` על המק
+  זהה לזה שעל הקופסה, `users.db` שבחבילה עובר `integrity_check`
+  ומכיל `aba` ו-`ynon`, ואף ערך מ-`/etc/laser-pricing.env` אינו
+  מופיע בחבילה. הצינור מחזיק: adi · arena · crm-db · laser ·
+  sia-db · sia-files.
+- **גיבוי מקומי:** `laser-tariff-backup.timer` שעתי → `/var/backups/laser-tariff`,
   מחוץ לעץ ה-git כי `git clean -fd` מוחק תיקייה לא-מנוטרת שתשב בו.
   `config/tariff.json` ב-`.gitignore` מאותה סיבה בדיוק.
 - **`/health` מדווח את ה-commit שרץ (20.8.2026).** בלי SSH ובלי חשבון
