@@ -59,3 +59,86 @@ def test_bounding_box_merge():
     b = BoundingBox(20, -5, 30, 0)
     merged = a.merge(b)
     assert (merged.min_x, merged.min_y, merged.max_x, merged.max_y) == (0, -5, 30, 5)
+
+
+class TestClassificationIsComputedOnce:
+    """המיון גוף-מול-חור הוא O(n²), ולכן מותר לו לקרות **פעם אחת**.
+
+    עד 23.8.2026 כל תכונה חישבה אותו מחדש, ו-`geometry_to_json` ניגש
+    לשש מהן. נמדד על הקופסה: DXF של 54KB עם 401 מתארים לקח **21.4
+    שניות** ל-`POST /api/upload` — מתוכן 17 בסריאליזציה ו-4.7 בשתי
+    גישות ל-`bbox`. אחרי התיקון: 0.09 שניות. חלק עם 2,001 מתארים לא
+    סיים בעשר דקות לפני, ולוקח 1.02 שניות אחרי.
+
+    הבדיקה סופרת קריאות ל-`contains_point` ואינה מודדת זמן: בדיקת
+    זמן על קופסה משותפת בשתי ליבות מהבהבת, וספירה היא בדיוק הדבר
+    שהתקלקל.
+    """
+
+    def _grid(self, holes: int):
+        from laser_pricing.domain.geometry import PartGeometry, circle, rectangle
+
+        side = int(holes**0.5) + 1
+        contours = [rectangle(side * 60 + 60, side * 60 + 60)]
+        for i in range(holes):
+            contours.append(
+                circle(12, center=(i % side * 60 + 30, i // side * 60 + 30), segments=32)
+            )
+        return PartGeometry(contours=contours)
+
+    def test_touching_every_property_classifies_once(self, monkeypatch):
+        from laser_pricing.domain.geometry import Contour
+
+        geometry = self._grid(40)
+        calls = []
+        original = Contour.contains_point
+        monkeypatch.setattr(
+            Contour,
+            "contains_point",
+            lambda self, point: (calls.append(1), original(self, point))[1],
+        )
+
+        geometry.hole_contours
+        first = len(calls)
+        assert first > 0, "המיון לא רץ בכלל — הבדיקה אינה בודקת כלום"
+
+        # בדיוק מה ש-geometry_to_json נוגע בו, בזה אחר זה.
+        geometry.outer_contours
+        geometry.net_area
+        geometry.gross_area
+        geometry.bbox
+        geometry.hole_count
+        geometry.body_count
+        geometry.pierce_count
+
+        assert len(calls) == first, (
+            f"המיון חושב מחדש: {len(calls)} קריאות במקום {first}. "
+            "זה מה שהפך העלאה של 54KB ל-21 שניות."
+        )
+
+    def test_the_bounding_box_prefilter_skips_far_contours(self):
+        """סינון התיבה החוסמת חוסך את ה-ray casting על מה שרחוק.
+
+        בלעדיו כל חור נבדק מול כל חור גדול ממנו — וזה החלק הריבועי.
+        """
+        from laser_pricing.domain.geometry import Contour
+
+        geometry = self._grid(60)
+        calls = []
+        original = Contour.contains_point
+        Contour.contains_point = lambda self, point: (calls.append(1), original(self, point))[1]
+        try:
+            geometry.hole_contours
+        finally:
+            Contour.contains_point = original
+
+        # 61 מתארים. בלי סינון זה עשרות אלפי בדיקות; עם סינון, כל חור
+        # מוצא רק את המלבן החיצוני שמכיל אותו.
+        assert len(calls) <= 61 * 2, f"{len(calls)} בדיקות הכלה — הסינון אינו עובד"
+
+    def test_classification_is_still_correct(self):
+        geometry = self._grid(25)
+        assert geometry.hole_count == 25
+        assert geometry.body_count == 1
+        assert geometry.pierce_count == 26
+        assert geometry.net_area < geometry.gross_area

@@ -1012,6 +1012,38 @@ class TestPublicSignup:
     def test_signup_is_rate_limited_per_address(self, gated):
         codes = [self._signup(gated, username=f"orach{i}").status_code for i in range(9)]
         assert 429 in codes, "נקודת הרשמה ציבורית בלי הגבלת קצב היא יצירת חשבונות חופשית"
+        # פתיחת חשבונות היא המכפיל שעוקף כל תקרה אישית, ולכן היא הנמוכה.
+        assert app_module.SIGNUPS_PER_IP <= app_module.PUBLIC_ENGINE_CALLS
+
+    def test_a_generous_real_session_fits_under_the_engine_cap(self, gated):
+        """התקרה נמדדת מול השימוש ולא מול ההתקפה — היא ממילא לא עוצרת אותה.
+
+        `web/quote.html` שולח קריאה אחת לכל "הוסף חלק" ואחת לכל
+        "חשב מחיר". ביקור נדיב הוא שלושה חלקים ושמונה חישובים = 11.
+        """
+        tariff_store.STATE.replace(TEST_TARIFF)
+        client = self._public_client(gated)
+        gids = []
+        for _ in range(3):
+            r = client.post("/api/manual", json={"shape": "rect", "width_mm": 200, "height_mm": 100})
+            assert r.status_code == 200, "משתמש אמיתי נחסם באמצע הוספת חלקים"
+            gids.append(r.json()["geometry_id"])
+        for i in range(8):
+            r = client.post(
+                "/api/quote",
+                json={"parts": [{"geometry_id": gids[i % 3], "material_key": "st37",
+                                 "thickness_mm": 3.0, "quantity": i + 1}]},
+            )
+            assert r.status_code == 200, f"משתמש אמיתי נחסם בחישוב מספר {i + 1}"
+
+    def test_but_bulk_scraping_hits_the_wall(self, gated):
+        tariff_store.STATE.replace(TEST_TARIFF)
+        client = self._public_client(gated)
+        codes = [
+            client.post("/api/manual", json={"shape": "rect", "width_mm": 200, "height_mm": 100}).status_code
+            for _ in range(app_module.PUBLIC_ENGINE_CALLS + 4)
+        ]
+        assert 429 in codes
 
     def test_it_can_be_closed_without_a_deploy(self, gated, monkeypatch):
         monkeypatch.setattr(app_module, "SIGNUP_MODE", "closed")
