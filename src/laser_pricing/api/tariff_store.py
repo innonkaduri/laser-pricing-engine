@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 from pathlib import Path
 
 from ..pricing.tariff import InvalidTariffError, Tariff, tariff_from_dict
@@ -46,6 +47,17 @@ class TariffState:
         self.origin: str = "none"
         self.error: str = ""
         self.memory_hash: str = ""
+        self.source_mtime: float | None = None
+        """מתי נכתב הקובץ שנטען. `None` כשאין קובץ (TARIFF_JSON או תבנית).
+
+        **נולד מתרגיל שחזור, 23.8.2026.** החבילה שיוצאת מהקופסה נושאת
+        את גיבוי הטבלה **האחרון שקיים** — ואם אבא עוד לא הזין מחירים,
+        זה הניסוי של 18.8 עם שורה מתומחרת אחת מתוך 22. שחזור עיוור היה
+        מעלה מנוע עם `tariff_ready=true` על מחירי ניסוי בני שבוע,
+        כלומר הצעות שיוצאות ללקוח במחיר שגוי **בשקט**. `cp -p` ו-`tar`
+        שומרים את זמן השינוי, ולכן הגיל הוא מידע שכבר קיים — הוא פשוט
+        לא נשאל.
+        """
         # חתימת הקובץ שכבר גיבבנו: (גודל, זמן שינוי). כל עוד היא לא
         # השתנתה, אין שום סיבה לקרוא את הקובץ שוב.
         self._disk_stat: tuple[int, int] | None = None
@@ -55,7 +67,8 @@ class TariffState:
     # ---- טעינה ----
 
     def reload(self) -> None:
-        raw, origin = _read_raw()
+        raw, origin, mtime = _read_raw()
+        self.source_mtime = mtime
         self._apply(raw, origin)
 
     def _apply(self, raw: dict, origin: str) -> None:
@@ -78,6 +91,8 @@ class TariffState:
         self.tariff = tariff
         self.raw = raw
         self.origin = "עריכה בממשק"
+        # מישהו בדיוק ערך — הטבלה בת אפס שניות, ולא בגיל הקובץ שנטען.
+        self.source_mtime = time.time()
         self.error = ""
         self.memory_hash = _digest(_serialize(raw))
         return tariff
@@ -128,6 +143,22 @@ class TariffState:
         return (True, bool(self.memory_hash) and self._disk_hash == self.memory_hash)
 
     @property
+    def age_days(self) -> float | None:
+        """בני כמה ימים המחירים שנטענו. `None` כשאין קובץ מקור."""
+        if self.source_mtime is None:
+            return None
+        return max(0.0, (time.time() - self.source_mtime) / 86400.0)
+
+    @property
+    def coverage(self) -> tuple[int, int]:
+        """(שורות עם מחיר, סך השורות). ההבדל בין "מלאה" ל"התחילו למלא"."""
+        if self.tariff is None:
+            return (0, 0)
+        rates = list(self.tariff.rates.values())
+        priced = sum(1 for r in rates if r.plate_price > 0 or r.cut_rate_per_m > 0)
+        return (priced, len(rates))
+
+    @property
     def is_ready(self) -> bool:
         """האם יש כאן מחירים אמיתיים, או רק שלד."""
         if self.tariff is None:
@@ -141,17 +172,21 @@ class TariffState:
         return self.tariff
 
 
-def _read_raw() -> tuple[dict, str]:
+def _read_raw() -> tuple[dict, str, float | None]:
+    """(הטבלה, מאיפה, מתי נכתבה). זמן השינוי הוא `None` כשאין קובץ."""
     env = os.environ.get("TARIFF_JSON", "").strip()
     if env:
         try:
-            return json.loads(env), "TARIFF_JSON"
+            return json.loads(env), "TARIFF_JSON", None
         except json.JSONDecodeError as exc:
             raise InvalidTariffError(f"TARIFF_JSON אינו JSON תקין: {exc}") from exc
 
     for path, label in ((LIVE_PATH, str(LIVE_PATH.name)), (EXAMPLE_PATH, EXAMPLE_PATH.name)):
         if path.exists():
-            return json.loads(path.read_text(encoding="utf-8")), label
+            # התבנית מגיעה מ-git ולכן זמן השינוי שלה הוא זמן ה-clone —
+            # מספר חסר משמעות שהיה מדווח כ"טבלה טרייה".
+            mtime = path.stat().st_mtime if path is LIVE_PATH else None
+            return json.loads(path.read_text(encoding="utf-8")), label, mtime
 
     raise InvalidTariffError("לא נמצאה טבלת תמחור ולא תבנית.")
 

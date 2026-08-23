@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -67,6 +68,7 @@ def isolated_tariff(tmp_path, monkeypatch):
         state.memory_hash,
         state._disk_stat,
         state._disk_hash,
+        state.source_mtime,
     )
     yield
     (
@@ -77,6 +79,7 @@ def isolated_tariff(tmp_path, monkeypatch):
         state.memory_hash,
         state._disk_stat,
         state._disk_hash,
+        state.source_mtime,
     ) = before
 
 
@@ -1222,3 +1225,72 @@ class TestBasicAuthFallsThroughToTheTable:
 
     def test_a_password_that_is_neither_is_still_refused(self, both):
         assert both.get("/api/config", auth=("ynon", "lo-nachon-bichlal")).status_code == 401
+
+
+class TestHealthSaysHowOldTheTableIs:
+    """`tariff_ready: true` לבדו הוא מדד גרוע, וזה נמצא בתרגיל שחזור.
+
+    החבילה שיוצאת מהקופסה נושאת את גיבוי הטבלה **האחרון שקיים**. כל
+    עוד אבא לא הזין מחירים, זה הניסוי של 18.8 עם שורה מתומחרת אחת
+    מתוך 22. שחזור עיוור היה מעלה מנוע שמכריז "מוכן" ומתמחר לפי מחירי
+    ניסוי בני שבוע — הצעה שגויה שיוצאת בשקט.
+    """
+
+    def _load_from_disk(self, tmp_path, monkeypatch, raw, age_days):
+        import os
+
+        path = tmp_path / "tariff.json"
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        old = time.time() - age_days * 86400
+        os.utime(path, (old, old))
+        monkeypatch.setattr(tariff_store, "LIVE_PATH", path)
+        tariff_store.STATE.reload()
+        return TestClient(app)
+
+    def test_a_fresh_table_reports_its_date_and_says_nothing_more(self, tmp_path, monkeypatch):
+        client = self._load_from_disk(tmp_path, monkeypatch, TEST_TARIFF, age_days=0)
+        body = client.get("/health").json()
+        assert body["tariff_ready"] is True
+        assert body["tariff_updated_at"] == datetime.now().strftime("%Y-%m-%d")
+        assert body["tariff_age_days"] == 0.0
+        assert not any("שחזור" in w for w in body["warnings"])
+
+    def test_an_old_table_is_announced_with_its_date(self, tmp_path, monkeypatch):
+        client = self._load_from_disk(tmp_path, monkeypatch, TEST_TARIFF, age_days=40)
+        body = client.get("/health").json()
+        # עדיין 200 ועדיין ready — זה דיווח, לא חסימה. /health הוא
+        # healthCheckPath, ופלטפורמה שרואה "לא בריא" מפעילה מחדש.
+        assert body["tariff_ready"] is True
+        assert body["tariff_age_days"] == pytest.approx(40.0, abs=0.1)
+        stale = [w for w in body["warnings"] if "שחזור" in w]
+        assert stale, f"טבלה בת 40 יום עברה בשקט: {body['warnings']}"
+        assert body["tariff_updated_at"] in stale[0], "האזהרה חייבת לשאת את התאריך עצמו"
+
+    def test_a_barely_filled_table_is_called_partial(self, tmp_path, monkeypatch):
+        """בדיוק המקרה של 18.8: שורה אחת מתומחרת מתוך רבות."""
+        raw = json.loads(json.dumps(TEST_TARIFF))
+        for thickness in (4.0, 5.0, 6.0, 8.0, 10.0):
+            raw["rates"].append(
+                {
+                    "material_key": "st37",
+                    "material_name": "פלדה שחורה",
+                    "thickness_mm": thickness,
+                    "plate_price": 0.0,
+                    "cut_rate_per_m": 0.0,
+                }
+            )
+        client = self._load_from_disk(tmp_path, monkeypatch, raw, age_days=0)
+        body = client.get("/health").json()
+        assert body["tariff_ready"] is True
+        assert body["priced_rows"] == 1 and body["rate_rows"] == 6
+        assert any("חלקית" in w for w in body["warnings"]), body["warnings"]
+
+    def test_the_template_carries_no_date_at_all(self, client):
+        """התבנית מגיעה מ-git — זמן השינוי שלה הוא זמן ה-clone."""
+        body = client.get("/health").json()
+        assert body["tariff_updated_at"] is None
+        assert body["tariff_age_days"] is None
+
+    def test_editing_in_the_ui_resets_the_age(self, priced_client):
+        body = priced_client.get("/health").json()
+        assert body["tariff_age_days"] == 0.0

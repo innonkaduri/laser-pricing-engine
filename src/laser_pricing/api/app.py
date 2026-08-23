@@ -409,11 +409,39 @@ def health() -> dict:
     rates = list(STATE.tariff.rates.values()) if STATE.tariff else []
     ready = STATE.is_ready
 
+    priced_rows, rate_rows = STATE.coverage
+    age_days = STATE.age_days
+    updated_at = (
+        datetime.fromtimestamp(STATE.source_mtime).strftime("%Y-%m-%d")
+        if STATE.source_mtime
+        else None
+    )
+
     warnings: list[str] = []
     if STATE.error:
         warnings.append("טעינת הטבלה נכשלה — ראה /api/config עם התחברות.")
     if not ready:
         warnings.append("הטבלה עדיין ריקה ממחירים — כל סכום ייצא 0.")
+
+    # ---- מה שנטען, בן כמה הוא, וכמה ממנו מלא ----
+    #
+    # **`tariff_ready: true` לבדו הוא מדד גרוע, וזה נמצא בתרגיל שחזור
+    # ב-23.8.2026.** החבילה שיוצאת מהקופסה נושאת את גיבוי הטבלה האחרון
+    # שקיים; כל עוד אבא לא הזין מחירים, זה הניסוי של 18.8 עם שורה
+    # מתומחרת אחת מתוך 22. שחזור עיוור היה מעלה מנוע שמכריז "מוכן"
+    # ומתמחר לפי מחירי ניסוי ישנים — הצעה שגויה שיוצאת בשקט, שהוא
+    # בדיוק הזן שהמערכת הזאת נבנתה למנוע. מי שמסתכל מבחוץ צריך לראות
+    # "טבלה מ-18.8, שורה אחת מתוך 22" ולא "מוכן".
+    if ready and age_days is not None and age_days > TARIFF_STALE_DAYS:
+        warnings.append(
+            f"הטבלה שנטענה היא מ-{updated_at} ({int(age_days)} ימים). "
+            "אם זה שחזור מגיבוי — ודא שאלה המחירים הנכונים לפני שמוציאים הצעה."
+        )
+    if ready and rate_rows and priced_rows / rate_rows < TARIFF_THIN_COVERAGE:
+        warnings.append(
+            f"רק {priced_rows} מתוך {rate_rows} שורות מתומחרות — הטבלה חלקית. "
+            "צירוף חומר+עובי שאינו מתומחר יחזיר 422, ומה שכן מתומחר עשוי להיות ניסוי."
+        )
     # TARIFF_JSON מגיע מהסביבה ושורד הפעלה מחדש בעצמו, ולכן מצב הדיסק
     # שם אינו מעיד על סכנה. האזהרה נכונה רק כשהדיסק הוא מה שאמור לשרוד.
     if ready and STATE.origin != "TARIFF_JSON":
@@ -440,6 +468,10 @@ def health() -> dict:
         "signup_mode": SIGNUP_MODE,
         "tariff_ready": ready,
         "tariff_source": STATE.origin,
+        # תאריך בלבד, בלי שעה: זה מספיק כדי לזהות שחזור מגיבוי ישן,
+        # ואינו מסגיר מתי בדיוק אבא יושב ועובד.
+        "tariff_updated_at": updated_at,
+        "tariff_age_days": round(age_days, 1) if age_days is not None else None,
         "tariff_error": bool(STATE.error),
         "rate_rows": len(rates),
         "priced_rows": sum(1 for r in rates if r.plate_price > 0 or r.cut_rate_per_m > 0),
@@ -682,6 +714,23 @@ BACKUP_STATUS_PATH = Path(
 )
 BACKUP_STALE_AFTER_MINUTES = 180
 """הטיימר שעתי. שלוש שעות בלי ריצה זו תקלה ולא איחור."""
+
+TARIFF_STALE_DAYS = float(os.environ.get("TARIFF_STALE_DAYS", "14"))
+"""מעל כמה ימים טבלה טעונה אישור לפני שמוציאים לפיה הצעה.
+
+14 ולא 30: מחירי פח זזים, אבל הסכנה האמיתית אינה "מחיר שהתיישן" אלא
+**שחזור מגיבוי** שמחזיר גרסה ישנה בשקט. שבועיים הם גבול שמבחין בין
+"אבא עדכן לאחרונה" לבין "הקובץ הזה בא מאיפשהו אחר".
+"""
+
+TARIFF_THIN_COVERAGE = 0.2
+"""מתחת לשיעור הזה של שורות מתומחרות, הטבלה מוכרזת חלקית.
+
+הטבלה של 18.8 שיושבת בגיבוי היא שורה אחת מתוך 22 — 4.5%. `is_ready`
+מחזיר True על שורה אחת מתומחרת בכוונה (אפשר לעבוד ככה, וזה בדיוק מה
+שאיפשר לאבא להתחיל), ולכן הוא לבדו אינו מבחין בין "התחילו למלא" לבין
+"שוחזר גיבוי ניסוי".
+"""
 
 
 def _backup_state() -> dict:
