@@ -268,7 +268,10 @@ function render(d) {
             <td class="num">${esc(String(r.at).replace('T', ' ').slice(5, 16))}</td>
             <td>${esc(r.by || '—')}${r.source === 'service' ? ' <span class="tag">ימיש</span>' : ''}</td>
             <td style="font-size:13.5px">${r.lines.map((l) =>
-              `${esc(l.material)} ${num(l.thickness_mm)}מ"מ × ${num(l.quantity)}`).join(' · ')}</td>
+              /* `<bdi>` סביב כל מספר: "St37 3מ"מ × 25" מתהפך בלי זה,
+                 אותה מחלקת באג שנתפסה בדף הנחיתה. */
+              `${esc(l.material)} · עובי <bdi>${num(l.thickness_mm)}</bdi> ·
+               <bdi>${num(l.quantity)}</bdi> יח׳`).join(' · ')}</td>
             <td class="num">${cur}${num(r.total)}${r.min_order_applied
               ? ' <span class="tag">מינימום</span>' : ''}</td></tr>`).join('')}
           </tbody></table></div>
