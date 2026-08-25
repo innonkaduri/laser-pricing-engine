@@ -123,6 +123,9 @@ class Quote:
     min_order_applied: bool
     warnings: list[str] = field(default_factory=list)
     tariff_source: str = ""
+    price_origin: str = ""
+    """מי קבע את המחירים שההצעה הזאת נשענת עליהם. נוסע עם ההצעה."""
+    price_low_confidence: list[str] = field(default_factory=list)
 
     @property
     def has_rejections(self) -> bool:
@@ -242,6 +245,8 @@ def price_order(
         min_order_applied=min_order_applied,
         warnings=warnings,
         tariff_source=tariff.source,
+        price_origin=tariff.price_origin,
+        price_low_confidence=list(tariff.price_low_confidence),
     )
 
 

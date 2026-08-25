@@ -121,6 +121,7 @@ button:disabled{background:#c9ced4; border-color:#c9ced4; cursor:not-allowed}
 
   <div id="app" class="hidden">
     <p id="banner" class="note warn"></p>
+    <p id="origin" class="note warn" style="display:none"></p>
 
     <!-- מסך ההתחלה. שתי תיבות, לא טבלה.
          הסיבה נמדדה: הצעת מחיר אמיתית לחלוטין יוצאת משני תאים מתוך 154
@@ -183,6 +184,17 @@ button:disabled{background:#c9ced4; border-color:#c9ced4; cursor:not-allowed}
 </div>
 
 <script>
+/* מי מילא את המספרים שאבא רואה. אם הם לא שלו — זה הדבר הראשון
+   שהוא צריך לקרוא, ולא משהו שמתגלה אחרי שהוא כבר סמך עליהם. */
+function showOrigin(origin) {
+  const box = document.getElementById('origin');
+  if (!box) return;
+  if (!origin) { box.style.display = 'none'; return; }
+  box.style.display = '';
+  box.innerHTML = '<b>המספרים שכאן אינם שלך.</b> ' + String(origin).replace(/[&<>"]/g, '') +
+    ' — כל שדה שתשנה הופך למחיר שלך, ומה שתשאיר נשאר הערכה.';
+}
+
 'use strict';
 
 const $ = (s) => document.querySelector(s);
@@ -320,6 +332,7 @@ $('#start-save').addEventListener('click', async () => {
 /* ---- ציור הטופס ---- */
 
 function render(data) {
+  showOrigin(data.price_origin);
   const banner = $('#banner');
   if (data.ready) {
     banner.className = 'note ok';

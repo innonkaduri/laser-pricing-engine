@@ -551,10 +551,21 @@ function renderQuote(q) {
       ${g.unplaced.length ? `<p class="small" style="color:var(--bad)">${g.unplaced.length} מופעים לא נכנסו לפריסה.</p>` : ''}
     </div>`).join('');
 
+  /* מקור המחירים על הגיליון עצמו, כולל בהדפסה: מי שמאשר הצעה צריך
+     לדעת אם היא נשענת על מחירי אבא או על הערכת שוק. */
+  const origin = q.price_origin ? `
+    <div class="card" style="border-color:#ecd9a4; background:#fdf6e3">
+      <b>מקור המחירון:</b> ${esc(q.price_origin)}
+      ${(q.price_low_confidence || []).length
+        ? `<div class="small" style="margin-top:6px">שדות בוודאות נמוכה במיוחד: ${esc(q.price_low_confidence.join(', '))}</div>`
+        : ''}
+      <div class="small" style="margin-top:6px">ההצעה הזאת היא הערכה עד לאישור.</div>
+    </div>` : '';
+
   const note = state.config.tariff_ready ? '' :
     `<p class="banner warn" style="border-radius:8px; border:1px solid #ecd9a4; margin:0 0 16px">הסכומים כאן 0 — טבלת התמחור עדיין ריקה.</p>`;
 
-  $('#quote-out').innerHTML = note + `<div class="card">${stats}</div>` + rejected + warnings + lines + groups;
+  $('#quote-out').innerHTML = note + origin + `<div class="card">${stats}</div>` + rejected + warnings + lines + groups;
 
   const printBtn = $('#print-sheet');
   if (printBtn) printBtn.addEventListener('click', () => window.print());

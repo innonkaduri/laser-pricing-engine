@@ -1294,3 +1294,61 @@ class TestHealthSaysHowOldTheTableIs:
     def test_editing_in_the_ui_resets_the_age(self, priced_client):
         body = priced_client.get("/health").json()
         assert body["tariff_age_days"] == 0.0
+
+
+class TestPricesCarryTheirOrigin:
+    """מי קבע את המספרים נוסע עם המחיר לכל מקום שהוא מגיע אליו.
+
+    **הכרעת ינון, 25.8.2026:** "תבדוק את המחירים בשוק ותמלא 10 אחוז
+    מעל". כלומר הטבלה מתמלאת בהערכת שוק ולא במחירי אבא. הצעה שנשענת
+    על הערכה נראית **זהה** להצעה שנשענת על מחיר אמיתי, ולכן ההצהרה
+    היא חלק מהתשובה ולא הערת שוליים במסך.
+    """
+
+    ORIGIN = "הערכת שוק 25.8.2026, אמצע טווח +10%. אינם מחירי אבא."
+
+    @pytest.fixture
+    def estimated(self, client):
+        raw = json.loads(json.dumps(TEST_TARIFF))
+        raw["price_origin"] = self.ORIGIN
+        raw["price_low_confidence"] = ["bend_rate_per_m"]
+        assert client.put("/api/tariff", json=raw).status_code == 200
+        return client
+
+    def test_health_announces_it_without_a_login(self, estimated):
+        body = estimated.get("/health").json()
+        assert body["price_origin"] == self.ORIGIN
+        assert body["price_low_confidence"] == ["bend_rate_per_m"]
+        assert any(self.ORIGIN in w for w in body["warnings"])
+        assert any("bend_rate_per_m" in w for w in body["warnings"])
+
+    def test_an_undeclared_table_is_itself_a_warning(self, priced_client):
+        body = priced_client.get("/health").json()
+        assert body["price_origin"] == ""
+        assert any("לא הוצהר מי קבע" in w for w in body["warnings"])
+
+    def test_the_public_quote_carries_it(self, estimated):
+        part = _manual(estimated, width_mm=400, height_mm=250)
+        body = estimated.post(
+            "/api/quote",
+            json={"parts": [{"geometry_id": part["geometry_id"], "material_key": "st37",
+                             "thickness_mm": 3.0, "quantity": 5}]},
+        ).json()
+        # התשובה הציבורית היא מספר אחד — ובכל זאת המקור נכנס אליה,
+        # כי לקוח שמקבל מחיר חייב לדעת שהוא הערכה.
+        assert body["price_origin"] == self.ORIGIN
+
+    def test_dads_form_says_the_numbers_are_not_his(self, estimated):
+        body = estimated.get("/api/prices").json()
+        assert body["price_origin"] == self.ORIGIN
+
+    def test_filling_the_table_by_hand_does_not_silently_keep_the_label(self, estimated):
+        """אבא ששומר מהטופס אינו מאשר בכך את ההערכה של כל השאר.
+
+        הטופס נוגע במחירים ולא ב-`price_origin`, ולכן ההצהרה שורדת
+        עד שמישהו משנה אותה במפורש. זה מכוון: שדה אחד שאבא תיקן אינו
+        הופך את השאר למחירים שלו.
+        """
+        form = estimated.get("/api/prices").json()["form"]
+        assert estimated.put("/api/prices", json=form).status_code == 200
+        assert estimated.get("/health").json()["price_origin"] == self.ORIGIN

@@ -165,6 +165,9 @@ def public_quote_to_json(quote: Quote) -> dict:
     return {
         "detailed": False,
         "total": quote.total,
+        # ההצעה נושאת את מקור המחירים איתה. **דרישת האב, 25.8.2026:**
+        # "לא באותיות קטנות — משפט שאומר שהמחיר הוא הערכה עד לאישור."
+        "price_origin": quote.price_origin,
         "currency": quote.currency,
         "vat_included": True,
         "rejected": [
@@ -210,6 +213,8 @@ def quote_to_json(quote: Quote) -> dict:
         "min_order_applied": quote.min_order_applied,
         "warnings": quote.warnings,
         "tariff_source": quote.tariff_source,
+        "price_origin": quote.price_origin,
+        "price_low_confidence": list(quote.price_low_confidence),
         "has_rejections": quote.has_rejections,
         "is_quotable": quote.is_quotable,
         "has_split_parts": quote.has_split_parts,

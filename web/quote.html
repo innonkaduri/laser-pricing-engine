@@ -403,6 +403,13 @@ $('#calc').addEventListener('click', async () => {
   }
 });
 
+/* מקור המחירים, כמשפט מלא ולא כהערת שוליים. דרישת האב 25.8.2026:
+   המחיר מולא מהערכת שוק ולא ממחירי אבא, וכל הצעה חייבת לומר את זה. */
+function originLine(q) {
+  const base = 'המחיר הוא <b>הערכה</b> ואינו הצעה מחייבת, עד לאישור מול בית המלאכה.';
+  return q.price_origin ? `${base}<br>מקור המחירון: ${esc(q.price_origin)}` : base;
+}
+
 function renderPrice(q) {
   const cur = q.currency === 'ILS' ? '₪' : q.currency;
   const rejected = q.rejected && q.rejected.length ? `
@@ -417,9 +424,7 @@ function renderPrice(q) {
       <div class="k">מחיר להזמנה</div>
       <div class="v">${cur}${fmt(q.total)}</div>
       <div class="vat">${q.vat_included ? 'כולל מע"מ' : ''}</div>
-      <div class="disclaimer">
-        הערכה מיידית לפי המידות שהוזנו. אינה מסמך מחייב.
-      </div>
+      <div class="disclaimer">${originLine(q)}</div>
     </div>` + rejected;
   $('#result').scrollIntoView({behavior: 'smooth', block: 'nearest'});
 }

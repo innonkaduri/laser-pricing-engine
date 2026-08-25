@@ -410,6 +410,8 @@ def health() -> dict:
     ready = STATE.is_ready
 
     priced_rows, rate_rows = STATE.coverage
+    price_origin = STATE.tariff.price_origin if STATE.tariff else ""
+    low_confidence = list(STATE.tariff.price_low_confidence) if STATE.tariff else []
     age_days = STATE.age_days
     updated_at = (
         datetime.fromtimestamp(STATE.source_mtime).strftime("%Y-%m-%d")
@@ -437,6 +439,18 @@ def health() -> dict:
             f"הטבלה שנטענה היא מ-{updated_at} ({int(age_days)} ימים). "
             "אם זה שחזור מגיבוי — ודא שאלה המחירים הנכונים לפני שמוציאים הצעה."
         )
+    # **מי קבע את המספרים.** הכרעת ינון 25.8.2026 מילאה את הטבלה
+    # בהערכת שוק ולא במחירי אבא, וההבדל אינו נראה בשום מקום אחר:
+    # הצעה שנשענת על הערכה נראית זהה להצעה שנשענת על מחיר אמיתי.
+    if ready and not price_origin:
+        warnings.append("לא הוצהר מי קבע את המחירים בטבלה הזאת.")
+    elif ready and price_origin:
+        warnings.append(f"מקור המחירים: {price_origin}")
+    if ready and low_confidence:
+        warnings.append(
+            "שדות בוודאות נמוכה במיוחד: " + ", ".join(low_confidence) + "."
+        )
+
     if ready and rate_rows and priced_rows / rate_rows < TARIFF_THIN_COVERAGE:
         warnings.append(
             f"רק {priced_rows} מתוך {rate_rows} שורות מתומחרות — הטבלה חלקית. "
@@ -471,6 +485,8 @@ def health() -> dict:
         # תאריך בלבד, בלי שעה: זה מספיק כדי לזהות שחזור מגיבוי ישן,
         # ואינו מסגיר מתי בדיוק אבא יושב ועובד.
         "tariff_updated_at": updated_at,
+        "price_origin": price_origin,
+        "price_low_confidence": low_confidence,
         "tariff_age_days": round(age_days, 1) if age_days is not None else None,
         "tariff_error": bool(STATE.error),
         "rate_rows": len(rates),
@@ -879,6 +895,9 @@ def config(request: Request) -> dict:
             "label": plate.label,
         },
         "materials": tariff.materials,
+        # יוצא **גם לציבור**: זו הדרישה של האב שההצעה תישא את מקורה
+        # ולא באותיות קטנות. מקור המחירים אינו מחיר, ולכן אינו מדליף.
+        "price_origin": tariff.price_origin,
         "detailed": detailed,
     }
     if not detailed:
@@ -1065,6 +1084,10 @@ def get_prices() -> dict:
         "form": to_form(STATE.raw or {}),
         "ready": STATE.is_ready,
         "source": STATE.origin,
+        # אבא פותח את הטופס ורואה מספרים. **הוא חייב לדעת מיד שהם לא
+        # שלו** — אחרת הוא יניח שמישהו כבר מילא במקומו, או גרוע מזה,
+        # יאשר אותם בשתיקה. הכרעת ינון מילאה הערכת שוק, לא מחירים.
+        "price_origin": STATE.tariff.price_origin if STATE.tariff else "",
     }
 
 
