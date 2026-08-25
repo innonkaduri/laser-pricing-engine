@@ -36,7 +36,7 @@ from ..nesting.plate import check_manufacturability
 from ..nesting.splitting import plan_split
 from ..pricing.engine import PricingError, price_order
 from ..pricing.tariff import InvalidTariffError, MissingTariffError
-from . import identity
+from . import identity, usage
 from .serialize import geometry_to_json, public_quote_to_json, quote_to_json
 from .simple_tariff import MONEY_FIELDS, apply_form, to_form
 from .store import STORE, GeometryExpired, StoredGeometry
@@ -942,18 +942,11 @@ def dashboard() -> dict:
                 for at, why in _UPLOAD_FAILURES[-8:][::-1]
             ],
         },
-        # **אין רישום הצעות במערכת, וזו החלטה ולא חוסר.** הגבול מול
-        # ה-CRM: "כל דבר שיש עליו שם של לקוח שייך ל-CRM, והמנוע לא
-        # לומד מי הלקוח". המסך מציג "לא נאסף" ולא אפס — אפס נראה כמו
-        # מדידה, ומי שמסתכל בדשבורד מחליט לפי מה שהוא רואה.
-        "quotes": {
-            "collected": False,
-            "reason": (
-                "המנוע אינו שומר הצעות. ההחלטה מ-19.8.2026: כל מסמך שיש עליו שם "
-                "של לקוח שייך ל-CRM, והמנוע מתמחר ואינו זוכר. אין מקור לספירה, "
-                "לסכום או לפילוח."
-            ),
-        },
+        # **טלמטריה על המנוע, לא היסטוריית הצעות.** אין ברשומות שם
+        # לקוח, מזהה לקוח ולא שם החלק — האחרון נגזר משם הקובץ, ושם
+        # קובץ הוא שם לקוח בתחפושת. הגבול מול ה-CRM נשמר.
+        # **אפס שורות מדווח כ"לא נאסף" ולא כאפס**, כי אפס נקרא כמדידה.
+        "quotes": usage.summary(),
     }
 
 
@@ -1207,6 +1200,9 @@ def quote(body: QuoteRequest, request: Request) -> dict:
     except PricingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    # הרישום קורה אחרי שהתמחור הצליח ולפני ההחזרה, ובאותו מקום לשתי
+    # צורות התשובה — כדי שלא ייווצר מסלול שמתמחר ואינו נרשם.
+    usage.record_quote(result, _current(request))
     return quote_to_json(result) if _sees_breakdown(request) else public_quote_to_json(result)
 
 

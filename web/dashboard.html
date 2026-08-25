@@ -225,23 +225,60 @@ function render(d) {
       ${todo.length ? `<ul class="todo">${todo.map((x) => `<li>${x}</li>`).join('')}</ul>` : ''}
     </div>`);
 
-  /* ---- 2. הצעות — אין מקור, ולכן כתוב שאין ---- */
-  parts.push(`
-    <div class="card">
-      <h2>הצעות שיצאו</h2>
-      <div class="none">
-        <b>לא נאסף.</b> ${esc(d.quotes.reason)}
+  /* ---- 2 ו-3. תמחורים שנרשמו ----
+     **אפס שורות ממשיך לומר "לא נאסף" ולא "0"** — אפס נקרא כמדידה
+     ("לא יצאו הצעות"), והוא אינו מדידה. הוראת האב. */
+  const q = d.quotes || {};
+  if (!q.collected) {
+    parts.push(`
+      <div class="card">
+        <h2>תמחורים שנרשמו</h2>
+        <div class="none"><b>לא נאסף.</b> ${esc(q.reason || '')}</div>
+        ${q.write_failures ? `<p class="quiet" style="color:var(--bad)">
+          ${count(q.write_failures, 'כתיבה', 'כתיבות')} לרישום נכשלו.</p>` : ''}
+      </div>`);
+  } else {
+    const cur = q.currency === 'ILS' ? '₪' : q.currency;
+    parts.push(`
+      <div class="card">
+        <h2>תמחורים שנרשמו</h2>
+        <p class="headline">${count(q.count, 'הצעה', 'הצעות')} · ${cur}${num(q.total_amount)}</p>
+        <p class="sub">מ-${esc(String(q.first_at).slice(0, 10))} · ${count(q.min_order_count, 'הצעה', 'הצעות')} הופעל בהן מינימום הזמנה</p>
+        <div class="scroll" style="margin-top:14px"><table>
+          <thead><tr><th>חומר</th><th class="num">עובי</th><th class="num">פעמים</th>
+            <th class="num">יחידות</th><th class="num">מ' חיתוך</th><th class="num">סכום</th></tr></thead>
+          <tbody>${q.by_material.map((m) => `<tr>
+            <td>${esc(m.material)}</td>
+            <td class="num">${num(m.thickness_mm)}</td>
+            <td class="num">${num(m.quotes)}</td>
+            <td class="num">${num(m.quantity)}</td>
+            <td class="num">${num(m.cut_length_m)}</td>
+            <td class="num">${cur}${num(m.amount)}</td></tr>`).join('')}
+          </tbody></table></div>
+        ${q.truncated ? `<p class="quiet">מוצגות ${num(q.max_lines_read)} השורות האחרונות בלבד.</p>` : ''}
+        ${q.write_failures ? `<p class="quiet" style="color:var(--bad)">
+          ${count(q.write_failures, 'כתיבה', 'כתיבות')} לרישום נכשלו — המספרים למעלה חסרים.</p>` : ''}
       </div>
-    </div>`);
 
-  /* ---- 3. אותו דבר, ובמפורש בנפרד ---- */
-  parts.push(`
-    <div class="card">
-      <h2>ההצעות האחרונות</h2>
-      <div class="none">
-        <b>לא נאסף.</b> אין רשימה להציג ואין פירוט לפתוח, מאותה סיבה.
-      </div>
-    </div>`);
+      <div class="card">
+        <h2>התמחורים האחרונים</h2>
+        <div class="scroll"><table>
+          <thead><tr><th class="num">מתי</th><th>מי</th><th>מה</th><th class="num">סכום</th></tr></thead>
+          <tbody>${q.recent.map((r) => `<tr>
+            <td class="num">${esc(String(r.at).replace('T', ' ').slice(5, 16))}</td>
+            <td>${esc(r.by || '—')}${r.source === 'service' ? ' <span class="tag">ימיש</span>' : ''}</td>
+            <td style="font-size:13.5px">${r.lines.map((l) =>
+              `${esc(l.material)} ${num(l.thickness_mm)}מ"מ × ${num(l.quantity)}`).join(' · ')}</td>
+            <td class="num">${cur}${num(r.total)}${r.min_order_applied
+              ? ' <span class="tag">מינימום</span>' : ''}</td></tr>`).join('')}
+          </tbody></table></div>
+        <p class="quiet">
+          נרשם מה שהמנוע חישב: חומר, עובי, כמות, אורך חיתוך וסכום.
+          <b>שם הלקוח ושם הקובץ אינם נרשמים</b> — זו טלמטריה על המנוע,
+          לא היסטוריית הצעות. מסמכי ההצעה יושבים ב-CRM.
+        </p>
+      </div>`);
+  }
 
   /* ---- 4. מי נרשם ---- */
   const pub = u.public || [], int = u.internal || [];

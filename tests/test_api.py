@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from laser_pricing.api import identity, tariff_store
+from laser_pricing.api import identity, tariff_store, usage
 # היבוא הפרטי מכוון: מונה הניסיונות הכושלים הוא מצב של התהליך, ובדיקה
 # חייבת לאפס אותו כדי לא לחסום את הבדיקה הבאה.
 from laser_pricing.api.store import STORE
@@ -93,6 +93,10 @@ def isolated_users(tmp_path, monkeypatch):
     ומאז ההרשמה הציבורית זה נכון גם למונה ההרשמות ולמונה התמחורים.
     """
     monkeypatch.setattr(identity, "DB_PATH", tmp_path / "users.db")
+    # רישום השימוש נכתב לדיסק, ובלי הבידוד הזה בדיקה הייתה יוצרת
+    # config/usage.jsonl אמיתי בריפו — בדיוק מה שקרה פעם עם הטבלה.
+    monkeypatch.setattr(usage, "LOG_PATH", tmp_path / "usage.jsonl")
+    usage.WRITE_FAILURES.clear()
     _LOGIN_FAILURES.clear()
     _SIGNUPS.clear()
     _ENGINE_CALLS.clear()
@@ -1423,13 +1427,17 @@ class TestTheOperationalScreen:
     def _login(self, client, u, p):
         assert client.post("/api/login", json={"username": u, "password": p}).status_code == 200
 
-    def test_quotes_are_declared_uncollected_and_never_zero(self, gated):
-        """אפס נראה כמו מדידה. "לא נאסף" הוא האמת."""
+    def test_zero_rows_still_says_not_collected_and_never_zero(self, gated):
+        """**אפס שורות ממשיך לומר "לא נאסף".**
+
+        הוראת האב, 25.8.2026: "אפס שורות ממשיך לומר 'לא נאסף' — לא
+        אפס. זה בדיוק ההבדל שדרשתי מלכתחילה." אפס במסך נקרא כמדידה
+        ("לא יצאו הצעות"), והוא אינו מדידה.
+        """
         self._login(gated, "itai", "sod-arok-2")
         body = gated.get("/api/dashboard").json()["quotes"]
         assert body["collected"] is False
-        assert "count" not in body and "total" not in body
-        assert "CRM" in body["reason"]
+        assert "count" not in body and "total_amount" not in body
 
     def test_unpriced_materials_are_named_because_that_is_the_pending_action(self, gated):
         self._login(gated, "itai", "sod-arok-2")
@@ -1622,3 +1630,119 @@ class TestTheLandingPagePromisesOnlyWhatExists:
         page = gated.get("/", headers={"accept": "text/html"})
         assert "פתיחת חשבון" not in page.text
         assert "פירוט ההצעה" in page.text or "חלקים בהזמנה" in page.text
+
+
+class TestUsageIsRecordedWithoutTheCustomer:
+    """טלמטריה על המנוע, לא מסמך הצעה.
+
+    **האישור וההגבלה (האב, 25.8.2026):** נרשמים חותמת, חומר, עובי,
+    כמות, סכום, אורך חיתוך, מי ביקש ומינימום הזמנה. **לא** נרשמים שם
+    לקוח, מזהה לקוח, ושם הקובץ — ואת האחרון קל לפספס, כי `part_name`
+    נגזר משם הקובץ שהועלה ואנשים קוראים לקבצים בשם הלקוח.
+    """
+
+    @pytest.fixture
+    def gated(self, monkeypatch):
+        monkeypatch.delenv("APP_PASSWORD", raising=False)
+        monkeypatch.setenv("SERVICE_TOKEN", "token-shel-yamish")
+        identity.create_user("itai", "sod-arok-1", "איתי", {identity.CAP_QUOTE_USE})
+        # הטבלה מוזנת ישירות: השער כבר דלוק, ו-PUT ללא כניסה יחזיר 401.
+        tariff_store.STATE.replace(TEST_TARIFF)
+        return TestClient(app)
+
+    def _quote(self, client, name="מדף-לברון", qty=25, **kw):
+        part = client.post(
+            "/api/manual", json={"shape": "rect", "name": name, "width_mm": 400, "height_mm": 250},
+            **kw,
+        ).json()
+        return client.post(
+            "/api/quote",
+            json={"parts": [{"geometry_id": part["geometry_id"], "name": name,
+                             "material_key": "st37", "thickness_mm": 3.0, "quantity": qty}]},
+            **kw,
+        )
+
+    def test_a_successful_quote_writes_exactly_one_row_to_disk(self, gated):
+        assert gated.post(
+            "/api/login", json={"username": "itai", "password": "sod-arok-1"}
+        ).status_code == 200
+        assert not usage.LOG_PATH.exists()
+        assert self._quote(gated).status_code == 200
+        lines = usage.LOG_PATH.read_text(encoding="utf-8").strip().splitlines()
+        assert len(lines) == 1
+        row = json.loads(lines[0])
+        assert row["by"] == "itai" and row["source"] == "session"
+        assert row["total"] > 0
+        assert row["lines"][0]["material"] == "פלדה שחורה"
+        assert row["lines"][0]["quantity"] == 25
+        assert row["lines"][0]["cut_length_mm"] > 0
+        assert row["min_order_applied"] is False
+
+    def test_the_part_name_is_never_written_because_it_is_the_file_name(self, gated):
+        """שם קובץ הוא שם לקוח בתחפושת."""
+        self._login(gated)
+        self._quote(gated, name="מדף-לברון")
+        blob = usage.LOG_PATH.read_text(encoding="utf-8")
+        assert "לברון" not in blob
+        assert "part_name" not in blob
+
+    def test_the_public_shape_is_recorded_too(self, gated):
+        """מי שרואה מספר אחד עדיין מייצר תמחור, והוא נספר."""
+        assert gated.post(
+            "/api/signup", json={"username": "orach", "password": "sisma-arukah"}
+        ).status_code == 201
+        assert self._quote(gated).status_code == 200
+        row = json.loads(usage.LOG_PATH.read_text(encoding="utf-8").strip())
+        assert row["by"] == "orach"
+
+    def test_the_crm_is_recorded_as_a_service(self, gated):
+        headers = {"x-service-token": "token-shel-yamish"}
+        assert self._quote(gated, headers=headers).status_code == 200
+        row = json.loads(usage.LOG_PATH.read_text(encoding="utf-8").strip())
+        assert row["by"] == "crm" and row["source"] == "service"
+
+    def test_a_failed_quote_writes_nothing(self, gated):
+        self._login(gated)
+        bad = gated.post(
+            "/api/quote",
+            json={"parts": [{"geometry_id": "lo-kayam", "material_key": "st37",
+                             "thickness_mm": 3.0, "quantity": 1}]},
+        )
+        assert bad.status_code == 410
+        assert not usage.LOG_PATH.exists()
+
+    def test_it_survives_a_restart_because_it_is_on_disk(self, gated):
+        """היסטוריה בזיכרון היא אובדן, וכל restart היה מאפס אותה בשקט."""
+        self._login(gated)
+        self._quote(gated)
+        # מופע חדש של האפליקציה קורא את אותו קובץ.
+        assert usage.summary()["count"] == 1
+        assert TestClient(app).get("/health").status_code == 200
+        assert usage.summary()["count"] == 1
+
+    def test_the_dashboard_aggregates_by_material_and_thickness(self, gated):
+        self._login(gated)
+        self._quote(gated, qty=10)
+        self._quote(gated, qty=5)
+        body = gated.get("/api/dashboard").json()["quotes"]
+        assert body["collected"] is True
+        assert body["count"] == 2
+        assert len(body["by_material"]) == 1
+        row = body["by_material"][0]
+        assert row["material"] == "פלדה שחורה" and row["thickness_mm"] == 3.0
+        assert row["quantity"] == 15 and row["quotes"] == 2
+        assert body["total_amount"] == pytest.approx(
+            sum(r["total"] for r in body["recent"]), abs=0.01
+        )
+
+    def test_a_write_failure_never_breaks_the_quote(self, gated, monkeypatch):
+        """ההצעה היא המוצר; הרישום הוא תצפית עליה."""
+        self._login(gated)
+        monkeypatch.setattr(usage, "LOG_PATH", Path("/proc/definitely/not/writable/x.jsonl"))
+        assert self._quote(gated).status_code == 200
+        assert len(usage.WRITE_FAILURES) == 1
+
+    def _login(self, client):
+        assert client.post(
+            "/api/login", json={"username": "itai", "password": "sod-arok-1"}
+        ).status_code == 200

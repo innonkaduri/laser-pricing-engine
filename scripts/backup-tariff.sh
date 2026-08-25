@@ -40,13 +40,14 @@
 #
 # שחזור מהעותק שמחוץ לקופסה:
 #   tar xzf ~/backups/vps/laser-<תאריך>.tar.gz -C /tmp
-#   ואז אותם שני `cp` מ-/tmp/laser-backup/.
+#   ואז אותם `cp` מ-/tmp/laser-backup/ — כולל usage.jsonl.
 
 set -euo pipefail
 
 SRC="${TARIFF_PATH:-/var/lib/laser/tariff.json}"
 DEST="${BACKUP_DIR:-/var/backups/laser-tariff}"
 OFFBOX_DIR="${OFFBOX_DIR:-/opt/adi-backups}"
+USAGE_LOG="${USAGE_LOG:-/var/lib/laser/usage.jsonl}"
 KEEP="${KEEP:-60}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 DAY="$(date +%Y-%m-%d)"
@@ -183,7 +184,7 @@ offbox_copy() {
   newest_tariff="$(find "$DEST" -maxdepth 1 -name 'tariff-*.json' -type f | sort | tail -1)"
   newest_users="$(find "$DEST" -maxdepth 1 -name 'users-*.db' -type f | sort | tail -1)"
 
-  if [[ -z "$newest_tariff" && -z "$newest_users" ]]; then
+  if [[ -z "$newest_tariff" && -z "$newest_users" && ! -f "$USAGE_LOG" ]]; then
     echo "אין עדיין מה להוציא מהקופסה."
     return 0
   fi
@@ -199,9 +200,19 @@ offbox_copy() {
   mkdir -p "$staging/laser-backup"
   [[ -n "$newest_tariff" ]] && cp -p "$newest_tariff" "$staging/laser-backup/tariff.json"
   [[ -n "$newest_users"  ]] && cp -p "$newest_users"  "$staging/laser-backup/users.db"
-  printf 'laser-pricing\nמקור: %s\nנוצר: %s\ntariff: %s\nusers: %s\n' \
+  # **רישום השימוש (25.8.2026).** הוא היסטוריה, ולכן אובדן הקופסה הוא
+  # אובדן שלו. מועתק מהקובץ החי ולא מגיבוי, כי אין לו גיבוי מקומי —
+  # הוא append-only, וקריאה של קובץ שנוספת אליו שורה נותנת עותק שלם
+  # עד לנקודה שנקראה. **אם הוא לא כאן, הוא לא מגיע למק.**
+  usage_lines=0
+  if [[ -f "$USAGE_LOG" ]]; then
+    cp -p "$USAGE_LOG" "$staging/laser-backup/usage.jsonl"
+    usage_lines="$(wc -l < "$staging/laser-backup/usage.jsonl" | tr -d ' ')"
+  fi
+  printf 'laser-pricing\nמקור: %s\nנוצר: %s\ntariff: %s\nusers: %s\nusage: %s שורות\n' \
     "$(hostname)" "$(date +%Y-%m-%dT%H:%M:%S)" \
     "$(basename "${newest_tariff:-אין}")" "$(basename "${newest_users:-אין}")" \
+    "$usage_lines" \
     > "$staging/laser-backup/MANIFEST.txt"
 
   # כתיבה לקובץ זמני והחלפה אטומית: המושך רץ ב-09:00 ואין שום סיבה

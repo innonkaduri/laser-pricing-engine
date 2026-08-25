@@ -18,3 +18,5 @@ Environment=KEEP=60
 # ב-09:00 ושומר 60 יום. שייכת לצינור של adi — הסקריפט לא יוצר אותה,
 # ונכשל בקול אם היא נעלמה.
 Environment=OFFBOX_DIR=/opt/adi-backups
+# רישום השימוש. היסטוריה שאינה מגובה היא היסטוריה שתאבד עם הקופסה.
+Environment=USAGE_LOG=/var/lib/laser/usage.jsonl

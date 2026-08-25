@@ -12,7 +12,7 @@
 #   [Service]
 #   EnvironmentFile=/etc/laser-pricing.env
 # שמות המשתנים שם: APP_USER, APP_PASSWORD, EDITOR_PASSWORD,
-# SESSION_SECRET, TARIFF_PATH, USERS_DB, BACKUP_STATUS_FILE,
+# SESSION_SECRET, TARIFF_PATH, USERS_DB, BACKUP_STATUS_FILE, USAGE_LOG,
 # ואופציונלי SIGNUP_MODE (open|approval|closed, ברירת מחדל open).
 
 [Unit]
