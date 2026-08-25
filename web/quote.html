@@ -81,11 +81,60 @@ button[disabled]{opacity:.55; cursor:default}
   border:1px solid #f0d6c9; border-radius:14px;
 }
 .price .k{font-size:13.5px; color:var(--muted); margin-bottom:8px}
-.price .v{font-size:46px; font-weight:700; letter-spacing:-1.5px; line-height:1}
+.price .v{
+  font-size:46px; font-weight:700; letter-spacing:-1.5px; line-height:1;
+  /* המספר היחיד שהמוצר הזה מייצר. ספרות ברוחב אחיד, כדי שלא
+     ירקד כשמשנים כמות ומחשבים שוב. */
+  font-variant-numeric:tabular-nums;
+}
 .price .vat{font-size:12.5px; color:var(--muted); margin-top:10px}
 .price .disclaimer{font-size:12px; color:var(--muted); margin-top:16px; line-height:1.6; max-width:46ch; margin-inline:auto}
 .rejects{margin:0; padding-inline-start:20px; font-size:13.5px; line-height:1.75; color:var(--bad)}
 footer{max-width:860px; margin:26px auto 0; padding:0 20px; font-size:12px; color:var(--muted); line-height:1.7; text-align:center}
+
+/* ---- מצבי אינטראקציה ----
+   נוסף 26.8.2026 אחרי ביקורת עיצוב: בכל שבעת המסכים היו **אפס**
+   כללי `:hover`, `:active`, `:focus-visible` ו-`transition`. כפתור
+   שאינו מגיב למגע נראה שבור, וטבעת מיקוד חסרה היא כשל נגישות ולא
+   ליטוש — מי שמנווט במקלדת לא יודע איפה הוא.
+
+   `transform` ו-`opacity` בלבד, כי הם היחידים שהדפדפן מנפיש בכרטיס
+   המסך; `background` ו-`border-color` זולים דיים. אין כאן צל צבעוני,
+   זכוכית או זוהר — ההנחיה הייתה "בהיר, ניגודיות גבוהה, בלי סגנון AI",
+   והיא גוברת על כל המלצת עיצוב כללית. */
+button, .btn, a.enter, a.btn {
+  transition: background-color .18s ease, border-color .18s ease,
+              transform .12s ease, opacity .18s ease;
+}
+button:hover:not([disabled]), .btn:hover { filter: brightness(.94); }
+button.ghost:hover:not([disabled]), .btn.ghost:hover {
+  background: var(--alt, #f2f4f6);
+  border-color: var(--muted);
+}
+button:active:not([disabled]), .btn:active { transform: translateY(1px); }
+a.enter:hover { text-decoration: underline; }
+
+/* טבעת מיקוד אחת לכל מה שאפשר להגיע אליו במקלדת. `:focus-visible`
+   ולא `:focus` — עכבר לא אמור לצייר טבעת. */
+a:focus-visible, button:focus-visible, input:focus-visible,
+select:focus-visible, [tabindex]:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* כותרת עברית שנשברת ומשאירה מילה בודדת בשורה נראית כמו תקלה. */
+h1, h2, h3 { text-wrap: balance; }
+p, li { text-wrap: pretty; }
+
+/* מי שביקש פחות תנועה מקבל פחות תנועה. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 </style>
 </head>
 <body>
