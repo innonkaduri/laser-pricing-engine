@@ -209,6 +209,15 @@ offbox_copy() {
     cp -p "$USAGE_LOG" "$staging/laser-backup/usage.jsonl"
     usage_lines="$(wc -l < "$staging/laser-backup/usage.jsonl" | tr -d ' ')"
   fi
+  # **וגם הקבצים שהתגלגלו.** הרישום מתגלגל ב-10MB ואינו נמחק; קובץ
+  # מגולגל שאינו בחבילה הוא היסטוריה שתאבד עם הקופסה בדיוק כמו החי.
+  usage_dir="$(dirname "$USAGE_LOG")"
+  usage_stem="$(basename "${USAGE_LOG%.jsonl}")"
+  for rolled in "$usage_dir/$usage_stem"-*.jsonl; do
+    [[ -f "$rolled" ]] || continue
+    cp -p "$rolled" "$staging/laser-backup/$(basename "$rolled")"
+    usage_lines=$(( usage_lines + $(wc -l < "$rolled" | tr -d ' ') ))
+  done
   printf 'laser-pricing\nמקור: %s\nנוצר: %s\ntariff: %s\nusers: %s\nusage: %s שורות\n' \
     "$(hostname)" "$(date +%Y-%m-%dT%H:%M:%S)" \
     "$(basename "${newest_tariff:-אין}")" "$(basename "${newest_users:-אין}")" \

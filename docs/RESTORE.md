@@ -47,11 +47,28 @@ APP_USER=ynon
 APP_PASSWORD=$(head -c 18 /dev/urandom | base64 | tr -d '=+/')
 EDITOR_PASSWORD=$(head -c 18 /dev/urandom | base64 | tr -d '=+/')
 SESSION_SECRET=$(head -c 32 /dev/urandom | base64 | tr -d '=+/')
+SERVICE_TOKEN=$(head -c 32 /dev/urandom | base64 | tr -d '=+/')
+SIGNUP_MODE=open
 TARIFF_PATH=/var/lib/laser/tariff.json
 USERS_DB=/var/lib/laser/users.db
 BACKUP_STATUS_FILE=/var/lib/laser/backup-status.json
+USAGE_LOG=/var/lib/laser/usage.jsonl
 ENV
 chmod 600 /etc/laser-pricing.env
+```
+
+**כל אחד מהעשרה כאן חייב להופיע, ואי אפשר לוותר בשתיקה על אף אחד:**
+היעדר משתנה **אינו מפיל את השירות** — הוא עולה, נראה תקין, וכותב
+לקובץ מתוך עץ ה-git ש-`git clean -fdx` מוחק. הרשימה מוגדרת בקוד
+ב-`app.REQUIRED_ENV`, **ויש בדיקה שמוודאת שהקובץ הזה מכיל את כולם**;
+נוהל שחזור שאיש לא בודק הוא ספרות.
+
+- **`SERVICE_TOKEN` חדש פירושו שימיש מפסיק לעבוד** עד שאותו ערך
+  נכתב גם שם. הוא סוד דו-שירותי.
+- **`SIGNUP_MODE` מפורש ולא בהשמטה.** ברירת המחדל היא `open`, אבל
+  ברירת מחדל שקטה שפותחת הרשמה ציבורית היא החלטה שאיש לא קיבל.
+
+```bash
 
 # 5. היחידות — מהריפו, לא ביד
 install -m 644 deploy/laser-pricing.service       /etc/systemd/system/

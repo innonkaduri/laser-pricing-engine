@@ -11,9 +11,14 @@
 #   /etc/systemd/system/laser-pricing.service.d/10-auth.conf
 #   [Service]
 #   EnvironmentFile=/etc/laser-pricing.env
-# שמות המשתנים שם: APP_USER, APP_PASSWORD, EDITOR_PASSWORD,
-# SESSION_SECRET, TARIFF_PATH, USERS_DB, BACKUP_STATUS_FILE, USAGE_LOG,
-# ואופציונלי SIGNUP_MODE (open|approval|closed, ברירת מחדל open).
+# **עשרת המשתנים שחייבים לשבת שם**, וכולם ב-`app.REQUIRED_ENV` עם
+# הסיבה לכל אחד. המכנה המשותף: היעדרם אינו מפיל את השירות — הוא עולה,
+# נראה תקין, ועושה משהו אחר.
+#   APP_USER · APP_PASSWORD · EDITOR_PASSWORD · SESSION_SECRET
+#   SERVICE_TOKEN · SIGNUP_MODE (open|approval|closed)
+#   TARIFF_PATH · USERS_DB · BACKUP_STATUS_FILE · USAGE_LOG
+# `SIGNUP_MODE` מפורש ולא בהשמטה: ברירת מחדל שקטה שפותחת הרשמה
+# ציבורית היא החלטה שאיש לא קיבל.
 
 [Unit]
 Description=Laser pricing engine — FastAPI, quotes for laser cutting

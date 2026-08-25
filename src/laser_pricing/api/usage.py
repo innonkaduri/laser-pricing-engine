@@ -35,6 +35,19 @@ from pathlib import Path
 CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
 LOG_PATH = Path(os.environ.get("USAGE_LOG", CONFIG_DIR / "usage.jsonl"))
 
+MAX_BYTES = 10 * 1024 * 1024
+"""מעל זה הקובץ מתגלגל לקובץ חדש. **גלגול, לא מחיקה.**
+
+הקופסה משותפת ל-ADI, ימיש, SIA ו-Arena, וצמיחה לא-חסומה שם היא
+בעיה של כולם. המספר נגזר מ-`MAX_LINES_READ`: רשומה נמדדה ב-~270
+בתים, ולכן 10MB הם ~37,000 שורות — **מתחת לתקרת הקריאה**, כך
+שהקובץ החי תמיד נקרא במלואו ואין מצב שבו הצבירה מציגה חלק ממנו
+בלי לדעת.
+
+הקובץ הישן נשמר בשם `usage-<חותמת>.jsonl` לצידו, ונכנס לגיבוי.
+שום שורה אינה נמחקת.
+"""
+
 MAX_LINES_READ = 50_000
 """כמה שורות נקראות לצורך הצבירה בדשבורד.
 
@@ -78,11 +91,44 @@ def record_quote(quote, user) -> None:
             ],
         }
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _rotate_if_needed()
         with LOG_PATH.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
     except Exception as exc:  # noqa: BLE001 — לוג לא מפיל תמחור
         WRITE_FAILURES.append(f"{time.strftime('%H:%M:%S')} {type(exc).__name__}: {exc}")
         del WRITE_FAILURES[:-20]
+
+
+def _rotate_if_needed() -> None:
+    """מגלגל את הקובץ כשהוא גדול מדי. **אינו מוחק דבר.**
+
+    `rename` ולא העתקה: הוא אטומי, ולכן אין רגע שבו שורה נכתבת לקובץ
+    שכבר אינו הקובץ החי.
+
+    **החותמת לבדה אינה מספיקה, וזה נתפס בבדיקה:** היא ברזולוציית
+    שנייה, ושני גלגולים באותה שנייה נתנו את אותו שם — ו-`rename` דרס
+    את הקודם בשקט. כלומר "גלגול ולא מחיקה" היה מוחק. הסיומת המונה
+    מבטיחה שם פנוי, ו-`os.link` היה חלופה מסובכת יותר לאותה בעיה.
+    """
+    try:
+        if LOG_PATH.stat().st_size < MAX_BYTES:
+            return
+    except OSError:
+        return
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    target = LOG_PATH.with_name(f"{LOG_PATH.stem}-{stamp}.jsonl")
+    serial = 1
+    while target.exists():
+        target = LOG_PATH.with_name(f"{LOG_PATH.stem}-{stamp}-{serial}.jsonl")
+        serial += 1
+    LOG_PATH.rename(target)
+
+
+def _rotated_files() -> list[Path]:
+    try:
+        return sorted(LOG_PATH.parent.glob(f"{LOG_PATH.stem}-*.jsonl"))
+    except OSError:
+        return []
 
 
 def _read_rows() -> tuple[list[dict], bool]:
@@ -121,6 +167,7 @@ def summary(recent: int = 10) -> dict:
                 else "הרישום עדיין לא התחיל — לא נכתב אף תמחור."
             ),
             "write_failures": len(WRITE_FAILURES),
+            "rotated_files": len(_rotated_files()),
         }
 
     by_material: dict[tuple[str, float], dict] = defaultdict(
@@ -164,5 +211,8 @@ def summary(recent: int = 10) -> dict:
         "recent": rows[-recent:][::-1],
         "truncated": truncated,
         "max_lines_read": MAX_LINES_READ,
+        # קבצים שהתגלגלו אינם נקראים לצבירה — הם בגיבוי ובדיסק, והמסך
+        # אומר כמה יש כדי שלא ייראה כאילו זו כל ההיסטוריה.
+        "rotated_files": len(_rotated_files()),
         "write_failures": len(WRITE_FAILURES),
     }

@@ -1746,3 +1746,100 @@ class TestUsageIsRecordedWithoutTheCustomer:
         assert client.post(
             "/api/login", json={"username": "itai", "password": "sod-arok-1"}
         ).status_code == 200
+
+
+class TestTheRunbookIsCheckedAgainstTheCode:
+    """נוהל שחזור שאיש לא בודק הוא ספרות.
+
+    **הפער הזה כבר עלה לנו:** `docs/RESTORE.md` נכתב ונבדק בפועל
+    ב-23.8, ואז נוסף `USAGE_LOG` ב-25.8 והנוהל לא. שחזור לפי הנוהל
+    היה מקים שירות שכותב את רישום השימוש לתוך עץ ה-git, ו-
+    `git clean -fdx` מוחק אותו — **בדיוק התאונה שכבר קרתה עם
+    `tariff.json`**, הפעם כתובה מראש בהוראות.
+    """
+
+    RUNBOOK = Path(__file__).resolve().parent.parent / "docs" / "RESTORE.md"
+
+    def test_every_variable_the_service_needs_appears_in_the_runbook(self):
+        text = self.RUNBOOK.read_text(encoding="utf-8")
+        missing = [name for name in app_module.REQUIRED_ENV if f"{name}=" not in text]
+        assert not missing, (
+            f"נוהל השחזור אינו מגדיר: {', '.join(missing)}. "
+            "שחזור לפיו יקים שירות שנראה תקין ועושה משהו אחר."
+        )
+
+    def test_the_reason_for_each_variable_is_written_down(self):
+        """משתנה בלי סיבה הוא משתנה שמישהו ימחק בניקיון עתידי."""
+        for name, reason in app_module.REQUIRED_ENV.items():
+            assert reason.strip(), name
+            assert len(reason) > 20, f"{name}: הסיבה קצרה מדי מכדי להיות סיבה"
+
+    def test_the_unit_file_documents_the_same_names(self):
+        unit = Path(__file__).resolve().parent.parent / "deploy" / "laser-pricing.service"
+        text = unit.read_text(encoding="utf-8")
+        missing = [n for n in app_module.REQUIRED_ENV if n not in text]
+        assert not missing, f"קובץ היחידה אינו מזכיר: {', '.join(missing)}"
+
+    def test_optional_variables_are_deliberately_absent_from_the_required_list(self):
+        """ברירת מחדל שהיא ההתנהגות הרצויה אינה דורשת הגדרה."""
+        for optional in ("MAX_UPLOAD_MB", "MAX_PUBLIC_UPLOAD_MB", "TARIFF_STALE_DAYS",
+                         "TRUST_PROXY", "TARIFF_JSON"):
+            assert optional not in app_module.REQUIRED_ENV
+
+
+class TestTheUsageLogRollsOverAndNeverDeletes:
+    """קופסה משותפת לחמישה פרויקטים — צמיחה לא-חסומה היא בעיה של כולם.
+
+    **גלגול ולא מחיקה** (האב, 25.8.2026). התקרה נגזרת מתקרת הקריאה:
+    רשומה היא ~270 בתים, ולכן 10MB הם ~37,000 שורות — מתחת ל-50,000
+    שהצבירה קוראת, כך שהקובץ החי תמיד נקרא במלואו.
+    """
+
+    def test_the_size_cap_keeps_the_live_file_fully_readable(self):
+        """המספרים חייבים להישאר מתואמים גם אם מישהו ישנה אחד מהם."""
+        approx_bytes_per_row = 270
+        assert usage.MAX_BYTES / approx_bytes_per_row < usage.MAX_LINES_READ
+
+    def test_rolling_over_moves_the_rows_and_loses_none(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(usage, "LOG_PATH", tmp_path / "usage.jsonl")
+        monkeypatch.setattr(usage, "MAX_BYTES", 400)
+
+        class _Line:
+            material_name, thickness_mm, quantity = "פלדה", 3.0, 1
+            cut_length_mm, line_total = 1000.0, 100.0
+
+        class _Quote:
+            total, currency, min_order_applied, lines = 118.0, "ILS", False, [_Line()]
+
+        class _User:
+            username, source = "itai", "session"
+
+        for _ in range(6):
+            usage.record_quote(_Quote(), _User())
+
+        rolled = sorted(tmp_path.glob("usage-*.jsonl"))
+        live = (tmp_path / "usage.jsonl").read_text(encoding="utf-8").strip().splitlines()
+        rolled_lines = sum(
+            len(f.read_text(encoding="utf-8").strip().splitlines()) for f in rolled
+        )
+        assert rolled, "הקובץ לא התגלגל בכלל"
+        # **אף שורה לא אבדה** — זו כל הנקודה מול מחיקה.
+        assert len(live) + rolled_lines == 6
+
+    def test_the_dashboard_says_how_many_files_rolled_over(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(usage, "LOG_PATH", tmp_path / "usage.jsonl")
+        (tmp_path / "usage.jsonl").write_text("", encoding="utf-8")
+        (tmp_path / "usage-20260101-000000.jsonl").write_text("{}\n", encoding="utf-8")
+        assert usage.summary()["rotated_files"] == 1
+
+    def test_rotation_never_overwrites_an_earlier_roll(self, tmp_path, monkeypatch):
+        """חותמת בשם, כדי שגלגול שני לא ימחק את הראשון."""
+        monkeypatch.setattr(usage, "LOG_PATH", tmp_path / "usage.jsonl")
+        monkeypatch.setattr(usage, "MAX_BYTES", 1)
+        (tmp_path / "usage.jsonl").write_text("first\n", encoding="utf-8")
+        usage._rotate_if_needed()
+        (tmp_path / "usage.jsonl").write_text("second\n", encoding="utf-8")
+        usage._rotate_if_needed()
+        rolled = sorted(tmp_path.glob("usage-*.jsonl"))
+        contents = {f.read_text(encoding="utf-8").strip() for f in rolled}
+        assert contents == {"first", "second"}, contents
