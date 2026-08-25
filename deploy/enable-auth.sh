@@ -50,14 +50,47 @@ if [[ -z "$UNIT" ]]; then
 fi
 echo "יחידה: $UNIT"
 
+# ---- כתיבה שמעדכנת ואינה דורסת ----
+#
+# **`cat >` כאן היה מוקש, ונמצא ב-25.8.2026.** הסקריפט נכתב כשבקובץ
+# היו שלושה משתנים בדיוק; מאז נוספו לו SESSION_SECRET, TARIFF_PATH,
+# USERS_DB, BACKUP_STATUS_FILE, ובקרוב SERVICE_TOKEN לחיבור ימיש.
+# הרצה אחת שלו הייתה מוחקת את כולם: הסשנים היו נופלים, הטבלה נקראת
+# מהנתיב הישן, והקריאות מימיש חוזרות 401 — **הכל בשקט**, כי השירות
+# עולה בלי המשתנים ולא מתלונן.
+#
+# עכשיו הוא מעדכן מפתח-מפתח ומשאיר את השאר. שלושת המשתנים כאן הם
+# היחידים שהסקריפט הזה אחראי עליהם.
 umask 077
-cat > "$ENV_FILE" <<ENVEOF
-APP_USER=$APP_USER
-APP_PASSWORD=$APP_PASSWORD
-EDITOR_PASSWORD=$EDITOR_PASSWORD
-ENVEOF
+touch "$ENV_FILE"
 chown root:root "$ENV_FILE"
 chmod 600 "$ENV_FILE"
+
+set_env_var() {
+  local key="$1" value="$2" tmp
+  tmp="$(mktemp)"
+  chmod 600 "$tmp"
+  # כל שורה שאינה המפתח הזה עוברת כמות שהיא — כולל הערות ושורות ריקות.
+  grep -v "^${key}=" "$ENV_FILE" > "$tmp" || true
+  printf '%s=%s\n' "$key" "$value" >> "$tmp"
+  cat "$tmp" > "$ENV_FILE"   # שומר בעלות והרשאות של הקובץ הקיים
+  rm -f "$tmp"
+}
+
+BEFORE_KEYS="$(cut -d= -f1 "$ENV_FILE" | grep -v '^#' | grep -v '^$' | sort | tr '\n' ' ')"
+set_env_var APP_USER "$APP_USER"
+set_env_var APP_PASSWORD "$APP_PASSWORD"
+set_env_var EDITOR_PASSWORD "$EDITOR_PASSWORD"
+AFTER_KEYS="$(cut -d= -f1 "$ENV_FILE" | grep -v '^#' | grep -v '^$' | sort | tr '\n' ' ')"
+
+# מדידה ולא הבטחה: אם משתנה נעלם, נדע כאן ולא כשימיש ייפול.
+LOST="$(comm -23 <(tr ' ' '\n' <<<"$BEFORE_KEYS" | grep -v '^$') \
+                 <(tr ' ' '\n' <<<"$AFTER_KEYS"  | grep -v '^$') || true)"
+if [[ -n "$LOST" ]]; then
+  echo "שגיאה: משתנים נעלמו מקובץ הסביבה: $LOST" >&2
+  exit 1
+fi
+echo "משתנים בקובץ אחרי העדכון: $AFTER_KEYS"
 echo "נכתב $ENV_FILE (600 root)"
 
 # drop-in ולא עריכת היחידה עצמה — שורד עדכון של הקובץ המקורי.
