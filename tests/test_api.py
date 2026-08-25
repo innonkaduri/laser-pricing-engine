@@ -1352,3 +1352,91 @@ class TestPricesCarryTheirOrigin:
         form = estimated.get("/api/prices").json()["form"]
         assert estimated.put("/api/prices", json=form).status_code == 200
         assert estimated.get("/health").json()["price_origin"] == self.ORIGIN
+
+
+class TestTheOperationalScreen:
+    """המסך שאבא פותח מהטלפון ליד המכונה.
+
+    **הדרישה שקובעת את צורת הנתונים:** "אל תמציא מדד שאין לו מקור.
+    דשבורד שמראה מספר שלא נמדד גרוע ממסך ריק, כי מסתכלים עליו
+    ומחליטים לפיו" (האב, 25.8.2026).
+    """
+
+    @pytest.fixture
+    def gated(self, monkeypatch):
+        monkeypatch.delenv("APP_PASSWORD", raising=False)
+        identity.create_user("aba", "sod-arok-1", "אבא", {identity.CAP_PRICES_EDIT})
+        identity.create_user("itai", "sod-arok-2", "איתי", {identity.CAP_QUOTE_USE})
+        return TestClient(app)
+
+    def test_the_api_returns_a_raw_401_and_never_a_login_redirect(self, gated):
+        """הדרישה המפורשת: 401 בגוף, לא הפניה שמאחוריה API פתוח."""
+        for accept in ("application/json", "*/*", "text/html,application/xhtml+xml"):
+            r = gated.get("/api/dashboard", headers={"accept": accept}, follow_redirects=False)
+            assert r.status_code == 401, f"accept={accept} החזיר {r.status_code}"
+
+    def test_aba_can_open_it_even_though_he_only_edits_prices(self, gated):
+        """המסך נבנה בשבילו. תנאי של quote:use לבדו היה נועל אותו בחוץ."""
+        assert gated.post(
+            "/api/login", json={"username": "aba", "password": "sod-arok-1"}
+        ).status_code == 200
+        assert gated.get("/api/dashboard").status_code == 200
+        assert gated.get("/dashboard").status_code == 200
+
+    def test_an_internal_quote_user_can_too(self, gated):
+        self._login(gated, "itai", "sod-arok-2")
+        assert gated.get("/api/dashboard").status_code == 200
+
+    def test_a_public_user_cannot(self, gated):
+        assert gated.post(
+            "/api/signup", json={"username": "orach", "password": "sisma-arukah"}
+        ).status_code == 201
+        assert gated.get("/api/dashboard").status_code == 403
+        assert gated.get("/dashboard").status_code == 403
+
+    def _login(self, client, u, p):
+        assert client.post("/api/login", json={"username": u, "password": p}).status_code == 200
+
+    def test_quotes_are_declared_uncollected_and_never_zero(self, gated):
+        """אפס נראה כמו מדידה. "לא נאסף" הוא האמת."""
+        self._login(gated, "itai", "sod-arok-2")
+        body = gated.get("/api/dashboard").json()["quotes"]
+        assert body["collected"] is False
+        assert "count" not in body and "total" not in body
+        assert "CRM" in body["reason"]
+
+    def test_unpriced_materials_are_named_because_that_is_the_pending_action(self, gated):
+        self._login(gated, "itai", "sod-arok-2")
+        raw = json.loads(json.dumps(TEST_TARIFF))
+        raw["rates"].append(
+            {
+                "material_key": "ss304",
+                "material_name": "נירוסטה 304",
+                "thickness_mm": 3.0,
+                "plate_price": 0.0,
+                "cut_rate_per_m": 0.0,
+            }
+        )
+        tariff_store.STATE.replace(raw)
+        unpriced = gated.get("/api/dashboard").json()["tariff"]["unpriced_materials"]
+        assert [m["key"] for m in unpriced] == ["ss304"]
+        assert unpriced[0]["name"] == "נירוסטה 304"
+
+    def test_upload_failures_are_counted_with_the_window_they_were_measured_in(self, gated):
+        self._login(gated, "itai", "sod-arok-2")
+        before = gated.get("/api/dashboard").json()["uploads"]["failures_since_start"]
+        assert gated.post("/api/upload", files={"file": ("x.step", b"ISO-10303-21;")}).status_code == 415
+        after = gated.get("/api/dashboard").json()["uploads"]
+        assert after["failures_since_start"] == before + 1
+        # מונה בזיכרון חייב לדווח את החלון שלו, אחרת הוא נקרא כסך הכל.
+        assert "window_hours" in after
+        assert "415" in after["recent"][0]["reason"]
+
+    def test_signups_are_listed_apart_from_internal_users(self, gated):
+        gated.post("/api/signup", json={"username": "orach", "password": "sisma-arukah",
+                                        "display_name": "אורח"})
+        self._login(gated, "itai", "sod-arok-2")
+        users = gated.get("/api/dashboard").json()["users"]
+        assert [u["username"] for u in users["public"]] == ["orach"]
+        assert sorted(u["username"] for u in users["internal"]) == ["aba", "itai"]
+        assert all("password_hash" not in u for u in users["public"] + users["internal"])

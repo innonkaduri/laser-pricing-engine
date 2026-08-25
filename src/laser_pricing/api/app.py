@@ -149,14 +149,18 @@ PRICE_TABLE_PATHS = ("/prices", "/api/prices", "/api/tariff")
 עליו מחליף את הטבלה **כולה** — כולל הכיול שאף אחד לא רואה בטופס.
 """
 
-INTERNAL_PATHS = ("/api/dashboard",)
-"""מה שדורש `quote:use` — כלומר פנימי, אבל לא בהכרח עורך מחירים.
+INTERNAL_PATHS = ("/api/dashboard", "/dashboard")
+"""פנימי: `quote:use` **או** `prices:edit`. לא הציבור.
 
 הדשבורד מדווח אילו שדות בטבלה ריקים, מה מצב השער, מתי גובה לאחרונה
 וכמה משתמשים יש: מפת המערכת מבפנים. כל עוד `quote:use` הייתה היכולת
 היחידה שפותחת את המנוע, "כל מי שנכנס" ו"פנימי" היו אותו דבר והוא ישב
 עם שאר המסלולים. מאז ההרשמה הציבורית הם נפרדו — ולכן הוא נזכר כאן
 במפורש, ולא נשאר בברירת המחדל שנפתחה לרחוב.
+
+**שתי היכולות ולא אחת (25.8.2026):** הדשבורד נבנה כדי שאבא יסתכל בו
+מהטלפון ליד המכונה, ולאבא יש `prices:edit` בלבד. תנאי של `quote:use`
+לבדו היה נועל אותו מחוץ למסך שנבנה בשבילו.
 """
 
 
@@ -182,7 +186,7 @@ def _required_capabilities(path: str) -> frozenset[str] | None:
     if any(path == p or path.startswith(p + "/") for p in PRICE_TABLE_PATHS):
         return frozenset({identity.CAP_PRICES_EDIT})
     if any(path == p or path.startswith(p + "/") for p in INTERNAL_PATHS):
-        return frozenset({identity.CAP_QUOTE_USE})
+        return frozenset({identity.CAP_QUOTE_USE, identity.CAP_PRICES_EDIT})
     return identity.QUOTE_CAPABILITIES
 
 
@@ -204,6 +208,18 @@ def _gate_is_on() -> bool:
 
 
 def _wants_html(request: Request) -> bool:
+    """האם להחזיר מסך כניסה במקום 401.
+
+    **`/api/*` לעולם לא.** נתיב API שמחזיר 303 למסך כניסה נראה מבחוץ
+    כמו נתיב פתוח: הסטטוס אינו 401, הגוף הוא HTML, וכלי שבודק "האם
+    זה מוגן" רואה הפניה ולא סירוב. הדרישה של האב (25.8.2026) הייתה
+    מפורשת — "401 בגוף הגולמי, לא הפניה למסך התחברות שמאחוריו ה-API
+    פתוח" — ובבדיקה התברר ש-`/api/dashboard` עם `Accept: text/html`
+    אכן החזיר 303. דפדפן שמבקש **דף** מקבל מסך; דפדפן שמבקש **API**
+    מקבל 401 בדיוק כמו curl.
+    """
+    if request.url.path.startswith("/api/"):
+        return False
     return request.method == "GET" and "text/html" in request.headers.get("accept", "")
 
 
@@ -272,6 +288,24 @@ MAX_PUBLIC_UPLOAD_BYTES = int(os.environ.get("MAX_PUBLIC_UPLOAD_MB", "5")) * 102
 של שורה אחת בטרמינל להשבית את המנוע ואת ה-CRM יחד. ההפרדה נותנת
 לפנימיים את המרווח ולציבור את מה שחלק אמיתי צריך.
 """
+
+PROCESS_STARTED_AT = time.time()
+"""מתי עלה התהליך. כל מונה בזיכרון נמדד מהרגע הזה, ולא "מאז ומתמיד"."""
+
+_UPLOAD_FAILURES: list[tuple[float, str]] = []
+"""(מתי, למה) לכל העלאה שנכשלה. בזיכרון התהליך, כמו שאר המונים.
+
+**נמדד ולא מוערך**, וזו הנקודה: המונה מתאפס בכל הפעלה מחדש, ולכן
+המסך אומר "מאז ההפעלה האחרונה" ולא מציג מספר שנראה כמו סך הכל
+היסטורי. מונה שמעגל את גבולותיו הוא מונה שאפשר להחליט לפיו.
+"""
+MAX_TRACKED_FAILURES = 200
+
+
+def _record_upload_failure(reason: str) -> None:
+    _UPLOAD_FAILURES.append((time.time(), reason))
+    del _UPLOAD_FAILURES[:-MAX_TRACKED_FAILURES]
+
 
 PUBLIC_ENGINE_CALLS = 12
 PUBLIC_ENGINE_WINDOW_SECONDS = 3600
@@ -842,11 +876,36 @@ def dashboard() -> dict:
     """
     disk_present, disk_matches = STATE.disk_state()
     coverage = _table_coverage()
+    priced_rows, rate_rows = STATE.coverage
+    now = time.time()
+
+    # חומרים שאין בהם **אף** שורה מתומחרת. זו הפעולה שממתינה לאבא,
+    # ולכן היא מחושבת כאן במפורש ולא מושארת לעין לגלות בטבלה.
+    unpriced_materials = [
+        {"key": m["key"], "name": m["name"], "rows": m["rows"]}
+        for m in coverage["materials"]
+        if m["priced_rows"] == 0
+    ]
+
+    users = identity.list_users()
     return {
         "tariff": {
             "ready": STATE.is_ready,
             "source": STATE.origin,
             "error": STATE.error,
+            "priced_rows": priced_rows,
+            "rate_rows": rate_rows,
+            "updated_at": (
+                datetime.fromtimestamp(STATE.source_mtime).strftime("%Y-%m-%d")
+                if STATE.source_mtime
+                else None
+            ),
+            "age_days": round(STATE.age_days, 1) if STATE.age_days is not None else None,
+            "price_origin": STATE.tariff.price_origin if STATE.tariff else "",
+            "price_low_confidence": (
+                list(STATE.tariff.price_low_confidence) if STATE.tariff else []
+            ),
+            "unpriced_materials": unpriced_materials,
             **coverage,
         },
         "engine": {
@@ -854,9 +913,36 @@ def dashboard() -> dict:
             "disk_matches_memory": disk_matches,
             "gate_on": _gate_is_on(),
             "session_secret_ephemeral": identity.SESSION_SECRET_IS_EPHEMERAL,
+            "commit": RUNNING_COMMIT[:12] if RUNNING_COMMIT else None,
+            "uptime_hours": round((now - PROCESS_STARTED_AT) / 3600.0, 1),
         },
         "backup": _backup_state(),
-        "users": {"count": identity.user_count()},
+        "users": {
+            "count": len(users),
+            "internal": [u for u in users if identity.CAP_QUOTE_TOTAL not in u["capabilities"]],
+            "public": [u for u in users if identity.CAP_QUOTE_TOTAL in u["capabilities"]],
+        },
+        "uploads": {
+            # **נמדד מאז ההפעלה האחרונה בלבד**, ולכן החלון מדווח לצידו.
+            "failures_since_start": len(_UPLOAD_FAILURES),
+            "window_hours": round((now - PROCESS_STARTED_AT) / 3600.0, 1),
+            "recent": [
+                {"minutes_ago": int((now - at) / 60), "reason": why}
+                for at, why in _UPLOAD_FAILURES[-8:][::-1]
+            ],
+        },
+        # **אין רישום הצעות במערכת, וזו החלטה ולא חוסר.** הגבול מול
+        # ה-CRM: "כל דבר שיש עליו שם של לקוח שייך ל-CRM, והמנוע לא
+        # לומד מי הלקוח". המסך מציג "לא נאסף" ולא אפס — אפס נראה כמו
+        # מדידה, ומי שמסתכל בדשבורד מחליט לפי מה שהוא רואה.
+        "quotes": {
+            "collected": False,
+            "reason": (
+                "המנוע אינו שומר הצעות. ההחלטה מ-19.8.2026: כל מסמך שיש עליו שם "
+                "של לקוח שייך ל-CRM, והמנוע מתמחר ואינו זוכר. אין מקור לספירה, "
+                "לסכום או לפילוח."
+            ),
+        },
     }
 
 
@@ -922,7 +1008,18 @@ async def upload(request: Request, file: UploadFile = File(...)) -> dict:
     """מעלה קובץ ייצור ומחלץ ממנו את הגיאומטריה.
 
     הקובץ עצמו לא נשמר ולא נשלח לשום מקום — הוא מפוענח מקומית ונמחק.
+
+    הכישלונות נספרים כאן ולא בכל `raise` בנפרד: העטיפה תופסת גם את
+    מה שייכשל בעתיד בלי שמישהו יזכור להוסיף מונה.
     """
+    try:
+        return await _upload(request, file)
+    except HTTPException as exc:
+        _record_upload_failure(f"{exc.status_code}: {str(exc.detail)[:120]}")
+        raise
+
+
+async def _upload(request: Request, file: UploadFile) -> dict:
     _guard_public_engine(request)
     name = file.filename or "upload.dxf"
     suffix = Path(name).suffix.lower()
@@ -1230,6 +1327,11 @@ if WEB_DIR.exists():
         """מסך הכניסה. עצמאי לחלוטין, מאותה סיבה כמו טופס המחירים:
         דף שנטען לפני שיש זהות לא יכול להסתמך על /static שמאחורי השער."""
         return FileResponse(WEB_DIR / "login.html")
+
+    @app.get("/dashboard")
+    def dashboard_page() -> FileResponse:
+        """המסך התפעולי לאבא ולינון. עצמאי, כמו שאר המסכים."""
+        return FileResponse(WEB_DIR / "dashboard.html")
 
     @app.get("/signup")
     def signup_page() -> FileResponse:

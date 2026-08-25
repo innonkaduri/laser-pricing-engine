@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>מצב המערכת — מנוע תמחור לייזר</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>⚙️</text></svg>">
+<style>
+/* עצמאי לחלוטין, כמו שאר המסכים — הדף נטען מהטלפון וסביר שפעם אחת
+   בלבד, ואין טעם שיתלה בשני קבצים נוספים.
+
+   **טלפון קודם.** אבא מסתכל בזה בעמידה ליד המכונה: עמודה אחת, טקסט
+   גדול, ניגודיות גבוהה, בלי זכוכית ובלי זוהר. שתי עמודות רק כשיש
+   מקום אמיתי. */
+:root{
+  --bg:#f2f4f6; --card:#fff; --text:#14181d; --muted:#5b6572;
+  --line:#dde2e8; --accent:#c2410c;
+  --bad:#9f1239;  --bad-bg:#fff1f2;  --bad-line:#fecdd3;
+  --warn:#854d0e; --warn-bg:#fefce8; --warn-line:#fde68a;
+  --ok:#14532d;   --ok-bg:#f0fdf4;   --ok-line:#bbf7d0;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--text); padding:0 0 48px;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Rubik,Arial,sans-serif;
+  font-size:16px; line-height:1.55;
+}
+header{
+  background:var(--card); border-bottom:1px solid var(--line);
+  padding:14px 18px; display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+  position:sticky; top:0; z-index:5;
+}
+header h1{margin:0; font-size:18px; font-weight:700; letter-spacing:-.2px}
+header .spacer{flex:1}
+header .who{font-size:13px; color:var(--muted)}
+header a{color:var(--accent); text-decoration:none}
+main{max-width:900px; margin:0 auto; padding:16px 14px 0}
+@media (min-width:760px){ main{padding:22px 20px 0} }
+
+.card{
+  background:var(--card); border:1px solid var(--line); border-radius:12px;
+  padding:16px 16px 18px; margin:0 0 14px;
+}
+.card > h2{
+  margin:0 0 12px; font-size:15px; font-weight:700; color:var(--muted);
+  letter-spacing:.02em;
+}
+.card.act{border-color:var(--warn-line); background:var(--warn-bg)}
+.card.act > h2{color:var(--warn)}
+.card.good{border-color:var(--ok-line); background:var(--ok-bg)}
+.card.good > h2{color:var(--ok)}
+
+.headline{font-size:22px; font-weight:700; line-height:1.35; margin:0 0 6px}
+@media (min-width:760px){ .headline{font-size:25px} }
+.sub{color:var(--muted); font-size:14.5px; margin:0}
+
+/* רשימת פעולות — הדבר היחיד שדורש תגובה */
+ul.todo{margin:14px 0 0; padding:0; list-style:none; display:grid; gap:10px}
+ul.todo li{
+  background:var(--card); border:1px solid var(--warn-line); border-radius:10px;
+  padding:12px 14px; font-size:15px; line-height:1.5;
+}
+ul.todo li b{display:block; margin-bottom:2px}
+
+.grid{display:grid; gap:10px; grid-template-columns:1fr}
+@media (min-width:620px){ .grid{grid-template-columns:1fr 1fr} }
+.stat{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:13px 14px}
+.stat .k{font-size:13px; color:var(--muted); margin-bottom:3px}
+.stat .v{font-size:20px; font-weight:700; letter-spacing:-.3px}
+.stat .v.small{font-size:15.5px; font-weight:600}
+.stat.warn{border-color:var(--warn-line); background:var(--warn-bg)}
+.stat.warn .v{color:var(--warn)}
+.stat.bad{border-color:var(--bad-line); background:var(--bad-bg)}
+.stat.bad .v{color:var(--bad)}
+.stat.ok .v{color:var(--ok)}
+
+.bar{height:8px; background:#e7ebf0; border-radius:99px; overflow:hidden; margin:10px 0 6px}
+.bar > i{display:block; height:100%; background:var(--accent); border-radius:99px}
+
+table{width:100%; border-collapse:collapse; font-size:14.5px}
+th,td{text-align:right; padding:9px 6px; border-bottom:1px solid var(--line)}
+th{font-size:12.5px; color:var(--muted); font-weight:600}
+tr:last-child td{border-bottom:none}
+td.num,th.num{text-align:left; font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto; -webkit-overflow-scrolling:touch}
+
+.tag{
+  display:inline-block; font-size:12px; padding:2px 8px; border-radius:99px;
+  background:#eef1f5; color:var(--muted); font-weight:600;
+}
+.tag.bad{background:var(--bad-bg); color:var(--bad)}
+.tag.ok{background:var(--ok-bg); color:var(--ok)}
+.none{
+  color:var(--muted); font-size:14.5px; line-height:1.65;
+  background:#f7f9fb; border:1px dashed var(--line); border-radius:10px; padding:14px;
+}
+.none b{color:var(--text)}
+.quiet{color:var(--muted); font-size:13px; margin:8px 0 0}
+.err{background:var(--bad-bg); border:1px solid var(--bad-line); color:var(--bad);
+     border-radius:10px; padding:14px; font-size:15px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>מצב המערכת</h1>
+  <span class="spacer"></span>
+  <span class="who" id="who"></span>
+</header>
+
+<main id="root">
+  <p class="quiet" id="boot">טוען…</p>
+</main>
+
+<script>
+'use strict';
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
+const num = (n) => Number(n).toLocaleString('he-IL');
+
+/* עברית תקינה על כל מספר. "יש 1 הצעות" הוא בדיוק מה שלא ייכתב כאן. */
+function count(n, one, many) {
+  if (n === 0) return `אין ${many}`;
+  if (n === 1) return `${one} אחת`;
+  if (n === 2) return `שתי ${many}`;
+  return `${num(n)} ${many}`;
+}
+function countM(n, one, many) {           // זכר: "משתמש אחד", "שני משתמשים"
+  if (n === 0) return `אין ${many}`;
+  if (n === 1) return `${one} אחד`;
+  if (n === 2) return `שני ${many}`;
+  return `${num(n)} ${many}`;
+}
+/* "3 נרשמו מהאתר" הוא מספר שמתחזה למשפט. הפועל קודם למספר. */
+function signups(n) {
+  if (n === 0) return 'עדיין לא נרשם אף אחד מהאתר';
+  if (n === 1) return 'נרשם משתמש אחד מהאתר';
+  if (n === 2) return 'נרשמו שני משתמשים מהאתר';
+  return `נרשמו ${num(n)} משתמשים מהאתר`;
+}
+function hours(h) {
+  if (h < 1) return 'פחות משעה';
+  if (h < 2) return 'שעה';
+  if (h < 24) return `${num(Math.floor(h))} שעות`;
+  const d = Math.floor(h / 24);
+  return d < 2 ? 'יממה' : `${num(d)} ימים`;
+}
+function ago(minutes) {
+  if (minutes === null || minutes === undefined) return 'לא ידוע';
+  if (minutes < 1) return 'ממש עכשיו';
+  if (minutes < 2) return 'לפני דקה';
+  if (minutes < 60) return `לפני ${num(minutes)} דקות`;
+  const h = Math.floor(minutes / 60);
+  if (h < 2) return 'לפני שעה';
+  if (h < 24) return `לפני ${num(h)} שעות`;
+  const d = Math.floor(h / 24);
+  if (d < 2) return 'אתמול';
+  return `לפני ${num(d)} ימים`;
+}
+function days(d) {
+  if (d === null || d === undefined) return null;
+  if (d < 1) return 'עודכנה היום';
+  if (d < 2) return 'עודכנה אתמול';
+  return `עודכנה לפני ${num(Math.floor(d))} ימים`;
+}
+
+async function load() {
+  const started = performance.now();
+  let me = null, data;
+  try { me = await (await fetch('/api/me')).json(); } catch { /* לא קריטי */ }
+  const res = await fetch('/api/dashboard', {headers: {'accept': 'application/json'}});
+  if (!res.ok) {
+    $('#root').innerHTML = `<div class="err">לא ניתן לטעון את המסך (${res.status}). ` +
+      (res.status === 401 ? 'צריך להתחבר מחדש.' : 'נסה שוב.') + '</div>';
+    return;
+  }
+  data = await res.json();
+  if (me && me.authenticated) {
+    $('#who').innerHTML = `${esc(me.display_name)} · <a href="/api/logout" id="out">יציאה</a>`;
+    $('#out').addEventListener('click', async (e) => {
+      e.preventDefault();
+      await fetch('/api/logout', {method: 'POST'});
+      location.href = '/login';
+    });
+  }
+  render(data);
+  const ms = Math.round(performance.now() - started);
+  $('#root').insertAdjacentHTML('beforeend',
+    `<p class="quiet">נטען ב-${num(ms)} מילישניות · גרסה ${esc((data.engine.commit || '').slice(0, 7))} · ` +
+    `התהליך עלה לפני ${hours(data.engine.uptime_hours)}</p>`);
+}
+
+function render(d) {
+  const t = d.tariff, e = d.engine, b = d.backup, u = d.users, up = d.uploads;
+  const parts = [];
+
+  /* ---- 1. מצב הטבלה — ראשון, כי זה מה שדורש פעולה ---- */
+  const todo = [];
+  (t.unpriced_materials || []).forEach((m) => {
+    todo.push(`<b>${esc(m.name)} — אין אף מחיר</b>
+      ${count(m.rows, 'שורה', 'שורות')} בטבלה, כולן ריקות. בקשה לחומר הזה מוחזרת עם שגיאה ולא עם מחיר.`);
+  });
+  if (t.price_origin) {
+    todo.push(`<b>המחירים אינם של אבא</b>${esc(t.price_origin)}`);
+  }
+  (t.price_low_confidence || []).forEach((f) => {
+    todo.push(`<b>שדה בוודאות נמוכה: ${esc(f)}</b>
+      המספר הזה הוא הערכה חלשה במיוחד. כדאי לאשר אותו לפני שהצעה שנשענת עליו יוצאת.`);
+  });
+  if (t.error) todo.push(`<b>טעינת הטבלה נכשלה</b>${esc(t.error)}`);
+
+  const pct = t.rate_rows ? Math.round((t.priced_rows / t.rate_rows) * 100) : 0;
+  const ageLine = days(t.age_days);
+  parts.push(`
+    <div class="card ${todo.length ? 'act' : 'good'}">
+      <h2>טבלת המחירים</h2>
+      <p class="headline">${t.ready
+        ? `${count(t.priced_rows, 'שורה', 'שורות')} מתומחרות מתוך ${num(t.rate_rows)}`
+        : 'הטבלה עדיין ריקה — כל הצעה יוצאת 0'}</p>
+      <p class="sub">${t.updated_at ? `${esc(ageLine)} · ${esc(t.updated_at)}` : 'לא ידוע מתי עודכנה'}</p>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      <p class="sub">${num(pct)}% מהשורות מתומחרות</p>
+      ${todo.length ? `<ul class="todo">${todo.map((x) => `<li>${x}</li>`).join('')}</ul>` : ''}
+    </div>`);
+
+  /* ---- 2. הצעות — אין מקור, ולכן כתוב שאין ---- */
+  parts.push(`
+    <div class="card">
+      <h2>הצעות שיצאו</h2>
+      <div class="none">
+        <b>לא נאסף.</b> ${esc(d.quotes.reason)}
+      </div>
+    </div>`);
+
+  /* ---- 3. אותו דבר, ובמפורש בנפרד ---- */
+  parts.push(`
+    <div class="card">
+      <h2>ההצעות האחרונות</h2>
+      <div class="none">
+        <b>לא נאסף.</b> אין רשימה להציג ואין פירוט לפתוח, מאותה סיבה.
+      </div>
+    </div>`);
+
+  /* ---- 4. מי נרשם ---- */
+  const pub = u.public || [], int = u.internal || [];
+  parts.push(`
+    <div class="card">
+      <h2>משתמשים</h2>
+      <p class="headline">${signups(pub.length)}</p>
+      <p class="sub">${countM(int.length, 'משתמש פנימי', 'משתמשים פנימיים')}</p>
+      ${pub.length ? `<div class="scroll"><table>
+        <thead><tr><th>שם</th><th>שם משתמש</th><th class="num">נרשם</th><th>מצב</th></tr></thead>
+        <tbody>${pub.map((x) => `<tr>
+          <td>${esc(x.display_name)}</td><td>${esc(x.username)}</td>
+          <td class="num">${esc(String(x.created_at).slice(0, 10))}</td>
+          <td>${x.disabled ? '<span class="tag bad">חסום</span>' : '<span class="tag ok">פעיל</span>'}</td>
+        </tr>`).join('')}</tbody></table></div>`
+        : '<p class="quiet">עדיין לא נרשם אף אחד דרך האתר.</p>'}
+      <div class="scroll" style="margin-top:14px"><table>
+        <thead><tr><th>פנימי</th><th>הרשאות</th></tr></thead>
+        <tbody>${int.map((x) => `<tr>
+          <td>${esc(x.display_name)} <span class="tag">${esc(x.username)}</span></td>
+          <td>${esc(x.capabilities.join(' · '))}</td></tr>`).join('')}</tbody>
+      </table></div>
+    </div>`);
+
+  /* ---- 5. בריאות ---- */
+  const backupCell = !b.reporting
+    ? `<div class="stat bad"><div class="k">גיבוי אחרון</div><div class="v small">אינו מדווח</div></div>`
+    : `<div class="stat ${b.stale ? 'bad' : 'ok'}"><div class="k">גיבוי אחרון</div>
+         <div class="v small">${esc(ago(b.minutes_since_run))}</div></div>`;
+  const failCell = up.failures_since_start === 0
+    ? `<div class="stat ok"><div class="k">העלאות שנכשלו</div><div class="v small">אין</div></div>`
+    : `<div class="stat warn"><div class="k">העלאות שנכשלו</div>
+         <div class="v">${num(up.failures_since_start)}</div></div>`;
+
+  parts.push(`
+    <div class="card">
+      <h2>בריאות</h2>
+      <div class="grid">
+        ${backupCell}
+        <div class="stat ${t.age_days > 14 ? 'warn' : ''}"><div class="k">גיל הטבלה</div>
+          <div class="v small">${t.age_days === null ? 'לא ידוע' : esc(days(t.age_days))}</div></div>
+        ${failCell}
+        <div class="stat ${e.gate_on ? 'ok' : 'bad'}"><div class="k">שער הכניסה</div>
+          <div class="v small">${e.gate_on ? 'סגור כנדרש' : 'פתוח לכולם'}</div></div>
+        <div class="stat ${e.disk_present ? '' : 'warn'}"><div class="k">הטבלה על הדיסק</div>
+          <div class="v small">${e.disk_present
+            ? (e.disk_matches_memory ? 'תואמת לזיכרון' : 'שונה מהזיכרון')
+            : 'בזיכרון בלבד'}</div></div>
+        <div class="stat ${e.session_secret_ephemeral ? 'warn' : ''}"><div class="k">מפתח הסשנים</div>
+          <div class="v small">${e.session_secret_ephemeral ? 'מתחלף בכל הפעלה' : 'קבוע'}</div></div>
+      </div>
+      <p class="quiet">
+        ספירת ההעלאות שנכשלו נמדדת מאז ההפעלה האחרונה של השירות
+        (${hours(up.window_hours)}), ולא מאז ומתמיד.
+      </p>
+      ${up.recent.length ? `<div class="scroll" style="margin-top:6px"><table>
+        <thead><tr><th class="num">מתי</th><th>מה נכשל</th></tr></thead>
+        <tbody>${up.recent.map((r) => `<tr>
+          <td class="num">${esc(ago(r.minutes_ago))}</td><td>${esc(r.reason)}</td>
+        </tr>`).join('')}</tbody></table></div>` : ''}
+    </div>`);
+
+  /* ---- מה חסר בטבלה, לפי חומר ---- */
+  const labels = Object.fromEntries((t.field_labels || []).map((f) => [f.field, f.label]));
+  parts.push(`
+    <div class="card">
+      <h2>מה עוד חסר, לפי חומר</h2>
+      <div class="scroll"><table>
+        <thead><tr><th>חומר</th><th class="num">עוביים</th><th class="num">עם מחיר</th><th>שדות ריקים בכל השורות</th></tr></thead>
+        <tbody>${(t.materials || []).map((m) => {
+          const allEmpty = Object.entries(m.empty_fields)
+            .filter(([, c]) => c === m.rows).map(([f]) => labels[f] || f);
+          return `<tr>
+            <td>${esc(m.name)}</td>
+            <td class="num">${num(m.rows)}</td>
+            <td class="num">${m.priced_rows ? num(m.priced_rows) : '<span class="tag bad">0</span>'}</td>
+            <td style="font-size:13px; color:var(--muted)">${allEmpty.length ? esc(allEmpty.join(' · ')) : '—'}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table></div>
+    </div>`);
+
+  $('#root').innerHTML = parts.join('');
+}
+
+load().catch((err) => {
+  $('#root').innerHTML = `<div class="err">${esc(err.message)}</div>`;
+});
+</script>
+
+</body>
+</html>
