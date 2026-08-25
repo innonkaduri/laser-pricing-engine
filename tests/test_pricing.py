@@ -531,3 +531,80 @@ class TestOrderLevelRules:
         )
         quote = price_order([square_part(qty=10)], tariff)
         assert any("מדרגות הבזבוז" in w for w in quote.warnings)
+
+
+class TestAnEmptyRowIsMissingPriceNotZeroPrice:
+    """שורה שקיימת בטבלה וריקה ממחירים אינה "מחיר אפס".
+
+    **נמצא במדידה על הפרודקשן, 25.8.2026.** אחרי שהטבלה מולאה חלקית
+    (פלדה בלבד) ונוסף מינימום הזמנה של 350, נירוסטה 3 מ"מ — שורה בלי
+    מחירים — החזירה **413 ₪** ולא 0: המינימום רץ על סכום אפס והרים
+    אותו. כלומר תוספת המינימום הפכה תקלה גלויה למחיר קטן וסביר למראה,
+    שהוא בדיוק מה שיוצא ללקוח בלי שאיש עוצר.
+    """
+
+    def _tariff(self, stainless_priced: bool):
+        from laser_pricing.pricing.tariff import tariff_from_dict
+
+        return tariff_from_dict(
+            {
+                "min_order_total": 350.0,
+                "vat_pct": 18.0,
+                "waste_tiers": [{"max_waste_pct": 100, "multiplier": 1.1, "label": "כל"}],
+                "rates": [
+                    {
+                        "material_key": "st37",
+                        "material_name": "פלדה שחורה",
+                        "thickness_mm": 3.0,
+                        "plate_price": 466.29,
+                        "cut_rate_per_m": 11.0,
+                    },
+                    {
+                        "material_key": "ss304",
+                        "material_name": "נירוסטה 304",
+                        "thickness_mm": 3.0,
+                        "plate_price": 1500.0 if stainless_priced else 0.0,
+                        "cut_rate_per_m": 16.5 if stainless_priced else 0.0,
+                    },
+                ],
+            }
+        )
+
+    def test_the_unpriced_row_refuses_instead_of_returning_the_minimum(self):
+        from laser_pricing.pricing.tariff import MissingTariffError
+
+        tariff = self._tariff(stainless_priced=False)
+        with pytest.raises(MissingTariffError) as exc:
+            tariff.rate_for("ss304", 3.0)
+        assert "אין מחיר בטבלה" in str(exc.value)
+        assert "נירוסטה" in str(exc.value), "השגיאה חייבת לומר על איזה חומר מדובר"
+
+    def test_the_priced_row_beside_it_still_works(self):
+        tariff = self._tariff(stainless_priced=False)
+        assert tariff.rate_for("st37", 3.0).cut_rate_per_m == 11.0
+
+    def test_a_completely_empty_table_still_returns_zero_and_does_not_refuse(self):
+        """ההתנהגות שאיפשרה לבנות בלי להמתין לאבא — נשארת.
+
+        כשאיש עוד לא מילא כלום, המערכת מוכרזת לא-מוכנה ומחזירה 0 עם
+        אזהרות בקול. ההבחנה היא בין "טבלה ריקה" לבין "שורה ריקה
+        בתוך טבלה שמישהו כבר מילא".
+        """
+        from laser_pricing.pricing.tariff import tariff_from_dict
+
+        empty = tariff_from_dict(
+            {
+                "waste_tiers": [{"max_waste_pct": 100, "multiplier": 1.0, "label": "כל"}],
+                "rates": [
+                    {
+                        "material_key": "st37",
+                        "material_name": "פלדה שחורה",
+                        "thickness_mm": 3.0,
+                        "plate_price": 0.0,
+                        "cut_rate_per_m": 0.0,
+                    }
+                ],
+            }
+        )
+        assert empty.has_any_prices is False
+        assert empty.rate_for("st37", 3.0).plate_price == 0.0
