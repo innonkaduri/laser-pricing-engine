@@ -105,10 +105,21 @@ app = FastAPI(
 
 # ---- נעילה ----
 
-OPEN_PATHS = frozenset({"/health", "/login", "/api/login", "/signup", "/api/signup"})
-"""מה שנפתח בלי זהות. `/login`, `/signup` ו-ה-API שלהם הם המסכים שבהם
-משיגים זהות, ו-`/health` הוא בדיקת הפלטפורמה — ולכן כולם מחזירים
-בוליאנים ומסכים בלבד, ולעולם לא מחירים."""
+OPEN_PATHS = frozenset(
+    {"/health", "/login", "/api/login", "/signup", "/api/signup", "/", "/api/offering"}
+)
+"""מה שנפתח בלי זהות — כולם מחזירים מסכים, בוליאנים ושמות, ולעולם
+לא מחירים.
+
+`/login` ו-`/signup` הם המסכים שבהם משיגים זהות. `/health` הוא בדיקת
+הפלטפורמה. **`/` ו-`/api/offering` נפתחו 25.8.2026** עם דף הנחיתה:
+מי שלא מכיר את המערכת צריך לנחות על משהו ולהחליט אם להירשם, ולא על
+מסך כניסה. `/` מחזיר את דף הנחיתה לאנונימי ואת האפליקציה למי שנכנס —
+ההחלטה בפונקציה עצמה, כי `OPEN_PATHS` עוקף את ה-middleware.
+
+**מה ש-`/api/offering` מחזיר:** שמות חומרים ועוביים שאפשר **באמת**
+לתמחר. אין בו מחיר, ואין בו מה שאין לו מחיר.
+"""
 
 EDITOR_PATHS = ("/prices", "/api/prices")
 """המסלולים היחידים ש-EDITOR_PASSWORD פותח.
@@ -946,6 +957,47 @@ def dashboard() -> dict:
     }
 
 
+@app.get("/api/offering")
+def offering() -> dict:
+    """מה המערכת יודעת לתמחר **היום** — בלי זהות ובלי מחירים.
+
+    **הסיבה שהנתיב הזה קיים:** דף הנחיתה חייב לומר אילו חומרים
+    נתמכים, ואם הוא יאמר "כל החומרים" הוא ייצור לקוח שנוחת על 422
+    בפנייה הראשונה שלו. נירוסטה, אלומיניום ופח מגולוון אינם מתומחרים
+    היום — ולכן הם פשוט לא יופיעו, וברגע שיתומחרו הם יופיעו בלי
+    שאיש יערוך את הדף.
+
+    **"נתמך" פירושו גם מחיר פלטה וגם מחיר חיתוך.** שורה עם אחד מהם
+    בלבד מייצרת מחיר שחסר בו רכיב, וזו הבטחה גרועה יותר משתיקה.
+    """
+    tariff = STATE.tariff
+    if tariff is None:
+        return {"ready": False, "materials": [], "plate": None, "max_upload_mb": None}
+
+    usable: dict[str, dict] = {}
+    for rate in tariff.rates.values():
+        if rate.plate_price <= 0 or rate.cut_rate_per_m <= 0:
+            continue
+        entry = usable.setdefault(
+            rate.material_key, {"name": rate.material_name, "thicknesses": []}
+        )
+        entry["thicknesses"].append(rate.thickness_mm)
+
+    materials = [
+        {"name": m["name"], "thicknesses": sorted(m["thicknesses"])}
+        for m in sorted(usable.values(), key=lambda m: str(m["name"]))
+    ]
+    plate = tariff.plate
+    return {
+        "ready": STATE.is_ready and bool(materials),
+        "materials": materials,
+        "plate": {"width_mm": plate.width_mm, "height_mm": plate.height_mm},
+        # מה שמותר להעלות בלי חשבון פנימי — הדף אומר את המספר האמיתי.
+        "max_upload_mb": MAX_PUBLIC_UPLOAD_BYTES // (1024 * 1024),
+        "signup_open": SIGNUP_MODE != "closed",
+    }
+
+
 @app.get("/api/config")
 def config(request: Request) -> dict:
     """כל מה שהממשק צריך כדי להיפתח: פלטה, חומרים ומצב הטבלה.
@@ -1332,14 +1384,28 @@ if WEB_DIR.exists():
 
     @app.get("/")
     def index(request: Request) -> FileResponse:
-        """שני מסכים שונים על אותה כתובת, לפי מי שנכנס.
+        """שלושה מסכים שונים על אותה כתובת, לפי מי שנכנס.
+
+        אנונימי מקבל את **דף הנחיתה** — הוא לא יודע מה זה, ומסך כניסה
+        אינו תשובה לשאלה "מה זה". מי שנכנס מקבל את המנוע: הגיליון
+        הפנימי למי שרשאי לראות פירוק עלויות, ומסך המחיר לכל השאר.
 
         זה לא "אותו מסך עם עמודות מוסתרות". הגיליון הפנימי מציג פירוק
         עלויות, פריסה על הפלטה, אחוזי בזבוז ולשוניות של הטבלה ומצב
         המערכת — שום דבר מזה אינו רלוונטי למי שרוצה לדעת כמה עולה
-        החלק שלו, ורובו גם אסור לו. `quote.html` הוא מוצר אחר.
+        החלק שלו, ורובו גם אסור לו.
+
+        **הזהות נקראת כאן ולא מה-middleware:** `/` נמצא ב-`OPEN_PATHS`,
+        ולכן `request.state.user` לא נקבע.
         """
-        return FileResponse(WEB_DIR / ("index.html" if _sees_breakdown(request) else "quote.html"))
+        if not _gate_is_on():
+            return FileResponse(WEB_DIR / "index.html")
+        user = identity.current_user(request)
+        if user is None:
+            return FileResponse(WEB_DIR / "landing.html")
+        return FileResponse(
+            WEB_DIR / ("index.html" if user.sees_cost_breakdown else "quote.html")
+        )
 
     @app.get("/login")
     def login_page() -> FileResponse:

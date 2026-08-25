@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>תמחור חיתוך לייזר — מחיר לחלק שלך, מיד</title>
+<meta name="description" content="מעלים שרטוט או מקלידים מידות, בוחרים חומר ועובי, ומקבלים מחיר לחיתוך לייזר. בלי טלפונים ובלי להמתין להצעה במייל.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>⚙️</text></svg>">
+<style>
+/* עצמאי, כמו כל המסכים הציבוריים. **מובייל קודם** — מי שנוחת כאן
+   מגיע לרוב מהטלפון. בהיר, ניגודיות גבוהה, בלי זכוכית ובלי זוהר. */
+:root{
+  --bg:#fff; --alt:#f5f7f9; --text:#14181d; --muted:#5b6572;
+  --line:#dde2e8; --accent:#c2410c; --accent-soft:#fff3ec;
+  --ok:#14532d; --ok-bg:#f0fdf4; --ok-line:#bbf7d0;
+  --warn:#854d0e; --warn-bg:#fefce8; --warn-line:#fde68a;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--text); font-size:17px; line-height:1.6;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Rubik,Arial,sans-serif;
+}
+a{color:var(--accent)}
+.wrap{max-width:900px; margin:0 auto; padding:0 18px}
+@media (min-width:760px){ .wrap{padding:0 24px} }
+
+/* **הכותרת אינה דביקה, וזו החלטה.** דביקה היא חסמה כותרת מדור בכל
+   קפיצה לעוגן ובתחתית הגלילה — ואין לה מה להציע בדף הזה, כי ה-CTA
+   חוזר למעלה ולמטה. נתפס בבדיקת עין ברוחב 390. */
+header{border-bottom:1px solid var(--line); background:var(--bg)}
+header .wrap{display:flex; align-items:center; gap:12px; padding-top:13px; padding-bottom:13px}
+header b{font-size:16.5px; letter-spacing:-.2px}
+header .spacer{flex:1}
+header a.enter{font-size:15px; text-decoration:none; font-weight:600}
+
+.btn{
+  display:inline-block; padding:13px 26px; border-radius:9px; font-weight:700; font-size:17px;
+  background:var(--accent); color:#fff; text-decoration:none; border:1px solid var(--accent);
+}
+.btn.ghost{background:var(--bg); color:var(--text); border-color:var(--line); font-weight:600}
+.cta{display:flex; gap:11px; flex-wrap:wrap; margin:24px 0 0}
+
+section{padding:44px 0; border-bottom:1px solid var(--line)}
+section.alt{background:var(--alt)}
+h1{font-size:31px; line-height:1.25; margin:0 0 14px; letter-spacing:-.6px}
+@media (min-width:760px){ h1{font-size:40px} }
+h1 span{color:var(--accent)}
+h2{font-size:22px; margin:0 0 8px; letter-spacing:-.3px}
+@media (min-width:760px){ h2{font-size:25px} }
+p.lead{font-size:18px; color:var(--muted); margin:0 0 6px; max-width:56ch}
+p{margin:0 0 12px; max-width:62ch}
+.muted{color:var(--muted)}
+.small{font-size:15px}
+
+ol.steps{margin:22px 0 0; padding:0; list-style:none; display:grid; gap:14px}
+@media (min-width:760px){ ol.steps{grid-template-columns:repeat(3,1fr); gap:18px} }
+ol.steps li{background:var(--bg); border:1px solid var(--line); border-radius:12px; padding:18px}
+section.alt ol.steps li{background:#fff}
+ol.steps .n{
+  width:29px; height:29px; border-radius:50%; background:var(--accent-soft); color:var(--accent);
+  display:flex; align-items:center; justify-content:center; font-weight:700; font-size:15px;
+  margin-bottom:10px;
+}
+ol.steps h3{margin:0 0 4px; font-size:17.5px}
+ol.steps p{margin:0; font-size:15.5px; color:var(--muted)}
+
+.mats{margin:20px 0 0; display:grid; gap:11px}
+.mat{
+  background:var(--bg); border:1px solid var(--line); border-radius:11px;
+  padding:14px 16px; display:flex; gap:12px; align-items:baseline; flex-wrap:wrap;
+}
+.mat b{font-size:17px}
+.mat .th{
+  color:var(--muted); font-size:15px; font-variant-numeric:tabular-nums;
+  /* ‏"1 · 1.5 · 2 מ"מ" מתהפך בלי הבידוד הזה — נתפס בבדיקת עין ב-390. */
+  direction:ltr; unicode-bidi:isolate;
+}
+.facts{margin:20px 0 0; display:grid; gap:10px}
+@media (min-width:620px){ .facts{grid-template-columns:1fr 1fr} }
+.fact{border:1px solid var(--line); border-radius:11px; padding:13px 15px; background:var(--bg)}
+.fact .k{font-size:13.5px; color:var(--muted)}
+.fact .v{font-size:17px; font-weight:600; margin-top:2px}
+.fact .v.ltr{direction:ltr; unicode-bidi:isolate; text-align:right}
+
+.note{border-radius:11px; padding:15px 17px; font-size:16px; line-height:1.6; margin:20px 0 0}
+.note.warn{background:var(--warn-bg); border:1px solid var(--warn-line); color:var(--warn)}
+.note.ok{background:var(--ok-bg); border:1px solid var(--ok-line); color:var(--ok)}
+ul.plain{margin:14px 0 0; padding:0; list-style:none; display:grid; gap:9px; max-width:62ch}
+ul.plain li{display:flex; gap:10px; align-items:flex-start; font-size:16px}
+ul.plain .t{flex:none; color:var(--accent); font-weight:700}
+footer{padding:28px 0 40px; color:var(--muted); font-size:14.5px}
+.hidden{display:none !important}
+</style>
+</head>
+<body>
+
+<header><div class="wrap">
+  <b>תמחור חיתוך לייזר</b>
+  <span class="spacer"></span>
+  <a class="enter" href="/login">כניסה</a>
+</div></header>
+
+<section><div class="wrap">
+  <h1>כמה עולה <span>החלק שלך</span>?</h1>
+  <p class="lead">
+    מעלים שרטוט או מקלידים מידות, בוחרים חומר ועובי — ומקבלים מחיר.
+    בלי לחכות להצעה במייל ובלי לרדוף אחרי טלפונים.
+  </p>
+  <div class="cta">
+    <a class="btn" href="/signup" id="cta-top">התחלה — פתיחת חשבון</a>
+    <a class="btn ghost" href="/login">כבר יש לי חשבון</a>
+  </div>
+  <p class="small muted" style="margin-top:14px">פתיחת החשבון חינם ולוקחת פחות מדקה.</p>
+</div></section>
+
+<section class="alt"><div class="wrap">
+  <h2>איך זה עובד</h2>
+  <p class="lead">שלושה שלבים, והכול על המסך.</p>
+  <ol class="steps">
+    <li>
+      <div class="n">1</div>
+      <h3>שולחים את החלק</h3>
+      <p>קובץ שרטוט מסוג DXF, או פשוט מקלידים רוחב, גובה וכמה חורים — אם החלק פשוט.</p>
+    </li>
+    <li>
+      <div class="n">2</div>
+      <h3>בוחרים חומר ועובי</h3>
+      <p>מהרשימה שלמטה, ואת הכמות שאתם צריכים. מחיר ליחידה יורד ככל שמזמינים יותר.</p>
+    </li>
+    <li>
+      <div class="n">3</div>
+      <h3>מקבלים מחיר</h3>
+      <p>סכום אחד, כולל מע"מ, על המסך. אפשר לשנות חומר או כמות ולראות מיד איך המחיר זז.</p>
+    </li>
+  </ol>
+</div></section>
+
+<section><div class="wrap">
+  <h2>מה נכנס, ומה יוצא</h2>
+  <ul class="plain">
+    <li><span class="t">←</span><div><b>נכנס:</b> שרטוט DXF של המתאר, או מידות שאתם מקלידים. חומר, עובי וכמות.</div></li>
+    <li><span class="t">←</span><div><b>יוצא:</b> מחיר אחד להזמנה, כולל מע"מ.</div></li>
+    <li><span class="t">←</span><div><b>מה שנמדד מהשרטוט:</b> שטח המתכת, אורך החיתוך ומספר החורים — לא הערכה על העין.</div></li>
+    <li><span class="t">←</span><div><b>מה שנלקח בחשבון:</b> כמה חומר באמת נצרך מהפלטה, ולא רק שטח החלק.</div></li>
+  </ul>
+  <div class="note ok">
+    <b>הקובץ שלכם לא נשמר אצלנו.</b> הוא נקרא כדי למדוד את החלק, ונמחק מיד אחר כך.
+  </div>
+</div></section>
+
+<section class="alt"><div class="wrap">
+  <h2>מה אפשר לחתוך היום</h2>
+  <p class="lead" id="mats-lead">טוען…</p>
+  <div class="mats" id="mats"></div>
+  <div class="facts" id="facts"></div>
+  <p class="small muted" id="mats-note" style="margin-top:16px"></p>
+</div></section>
+
+<section><div class="wrap">
+  <h2>למי זה</h2>
+  <p>
+    לכל מי שקונה חיתוך מתכת ורוצה לדעת כמה זה עולה לפני שהוא מרים טלפון:
+    בעלי מוסך ומסגרייה, נגרים שצריכים פרזול, מהנדסים ומעצבים שבודקים
+    כדאיות, וכל מי שיש לו שרטוט ורוצה מספר.
+  </p>
+  <div class="note warn">
+    <b>המחיר הוא הערכה ואינו הצעה מחייבת.</b>
+    הוא נועד לתת לכם מספר לעבוד איתו. חלק חריג במידות, בחומר או בדרישות
+    הייצור עשוי לקבל תמחור שונה לאחר בדיקה, ולהזמנה קטנה חל מינימום חיוב.
+  </div>
+</div></section>
+
+<section class="alt" id="start"><div class="wrap">
+  <h2>מתחילים</h2>
+  <p class="lead">פותחים חשבון, מעלים חלק, ורואים מחיר. פחות מדקה.</p>
+  <div class="cta">
+    <a class="btn" href="/signup" id="cta-bottom">פתיחת חשבון</a>
+    <a class="btn ghost" href="/login">כניסה</a>
+  </div>
+  <p class="small muted" style="margin-top:14px">
+    אנחנו לא מבקשים אימייל ולא טלפון — רק שם משתמש וסיסמה. שמרו את הסיסמה,
+    כי אין שחזור אוטומטי.
+  </p>
+</div></section>
+
+<footer><div class="wrap">
+  תמחור חיתוך לייזר · המחירים המוצגים הם הערכה ואינם מהווים הצעה מחייבת.
+</div></footer>
+
+<script>
+'use strict';
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
+const nf = (n) => Number(n).toLocaleString('he-IL');
+
+/* עברית תקינה על כל מספר — "1 חומרים" הוא הסימן שאיש לא קרא את הדף. */
+function materialCount(n) {
+  if (n === 1) return 'חומר אחד';
+  if (n === 2) return 'שני חומרים';
+  return `${nf(n)} חומרים`;
+}
+/* היחידה יושבת בתווית ולא בערך: מחרוזת שמערבבת עברית, מספרים ו-"×"
+   מתהפכת בדפדפן, וזה נתפס בבדיקת עין ברוחב 390. */
+function thicknessList(list) {
+  return list.map(nf).join(' · ');
+}
+
+/* **הרשימה מגיעה מהטבלה החיה ולא מהדף.** דף שכותב "כל החומרים" יוצר
+   לקוח שנוחת על שגיאה בפנייה הראשונה שלו — וזה גרוע מדף שלא היה.
+   חומר שיתומחר מחר יופיע כאן מחר, בלי שאיש יערוך את הקובץ הזה. */
+fetch('/api/offering')
+  .then((r) => r.json())
+  .then((d) => {
+    const lead = document.getElementById('mats-lead');
+    const host = document.getElementById('mats');
+    const note = document.getElementById('mats-note');
+
+    if (!d.ready || !d.materials.length) {
+      lead.textContent = 'המערכת בהרצה, ורשימת החומרים תיפתח בקרוב.';
+      note.textContent = 'אפשר לפתוח חשבון כבר עכשיו — נעדכן כשהתמחור ייפתח.';
+      return;
+    }
+
+    lead.textContent = `${materialCount(d.materials.length)} זמינים לתמחור מיידי כרגע.`;
+    host.innerHTML = d.materials.map((m) => `
+      <div class="mat"><b>${esc(m.name)}</b>
+        <span class="muted small">${m.thicknesses.length === 1 ? 'עובי' : 'עוביים'} (מ"מ):</span>
+        <span class="th">${esc(thicknessList(m.thicknesses))}</span></div>
+    `).join('');
+
+    const facts = [];
+    if (d.plate) {
+      facts.push(['גודל פלטה (מ"מ)', `${nf(d.plate.width_mm)} × ${nf(d.plate.height_mm)}`, true]);
+      facts.push(['חלק גדול מזה', 'נחתך בכמה חלקים ומולחם', false]);
+    }
+    if (d.max_upload_mb) facts.push(['קובץ שרטוט', `DXF, עד ${nf(d.max_upload_mb)}MB`, false]);
+    facts.push(['בלי שרטוט', 'אפשר להקליד מידות', false]);
+    document.getElementById('facts').innerHTML = facts.map(([k, v, ltr]) => `
+      <div class="fact"><div class="k">${esc(k)}</div>
+        <div class="v${ltr ? ' ltr' : ''}">${esc(v)}</div></div>
+    `).join('');
+
+    note.textContent =
+      'חומר או עובי שאינו ברשימה עדיין אינו מתומחר כאן, ולא נציג לו מחיר משוער.';
+
+    if (d.signup_open === false) {
+      document.querySelectorAll('#cta-top, #cta-bottom').forEach((el) => el.classList.add('hidden'));
+    }
+  })
+  .catch(() => {
+    document.getElementById('mats-lead').textContent =
+      'לא ניתן לטעון את רשימת החומרים כרגע.';
+  });
+</script>
+
+</body>
+</html>

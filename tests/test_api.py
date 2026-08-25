@@ -270,10 +270,20 @@ class TestAuthGate:
         assert client.get("/api/config").status_code == 200
 
     def test_gate_blocks_everything_including_tariff_edits(self, client, monkeypatch):
+        """**`/` נפתח 25.8.2026 לדף הנחיתה, וזה שינוי מכוון.**
+
+        מה שהבדיקה שמרה עליו לא השתנה: המנוע והטבלה סגורים. מה שכן
+        השתנה הוא ש-`/` מחזיר עמוד שיווקי סטטי במקום 401 — הוא אינו
+        מכיל מחיר, אינו מכיל נתון, ואינו פותח דבר.
+        """
         monkeypatch.setenv("APP_PASSWORD", "sod")
-        assert client.get("/").status_code == 401
         assert client.get("/api/config").status_code == 401
         assert client.put("/api/tariff", json=TEST_TARIFF).status_code == 401
+        assert client.post("/api/quote", json={"parts": []}).status_code == 401
+
+        landing = client.get("/", headers={"accept": "text/html"})
+        assert landing.status_code == 200
+        assert "פירוט ההצעה" not in landing.text and "טבלת התמחור" not in landing.text
 
     def test_health_stays_open_so_render_can_probe_it(self, client, monkeypatch):
         monkeypatch.setenv("APP_PASSWORD", "sod")
@@ -509,7 +519,10 @@ class TestEditorKeyIsScoped:
 
     def test_editor_key_does_not_open_the_engine(self, gated):
         assert gated.get("/api/config", headers={"X-Editor-Key": "123"}).status_code == 401
-        assert gated.get("/", headers={"X-Editor-Key": "123"}).status_code == 401
+        # `/` הוא דף הנחיתה מאז 25.8 ופתוח לכולם; מה שנבדק הוא שמפתח
+        # הטופס אינו הופך אותו לאפליקציה.
+        root = gated.get("/", headers={"X-Editor-Key": "123", "accept": "text/html"})
+        assert root.status_code == 200 and "טבלת התמחור" not in root.text
 
     def test_editor_key_does_not_open_the_raw_json_editor(self, gated):
         """הנקודה המרכזית: 123 לא נותן להחליף את הטבלה כולה."""
@@ -569,9 +582,16 @@ class TestUsersAndCapabilities:
         assert gated.post("/api/login", json={"username": "x", "password": "y"}).status_code == 401
 
     def test_browser_gets_the_login_screen_and_curl_gets_401(self, gated):
-        page = gated.get("/", headers={"accept": "text/html"}, follow_redirects=False)
+        """המסלול הזה עבר מ-`/` לנתיב מוגן אמיתי.
+
+        מאז שדף הנחיתה יושב על `/`, השאלה "דפדפן מקבל מסך וכלי מקבל
+        401" נבדקת על מסלול שבאמת מוגן.
+        """
+        page = gated.get("/prices", headers={"accept": "text/html"}, follow_redirects=False)
+        assert page.status_code == 401  # לאבא אין שם משתמש — ראה EDITOR_PATHS
+        page = gated.get("/dashboard", headers={"accept": "text/html"}, follow_redirects=False)
         assert page.status_code == 303 and page.headers["location"].startswith("/login")
-        assert gated.get("/", headers={"accept": "*/*"}).status_code == 401
+        assert gated.get("/dashboard", headers={"accept": "*/*"}).status_code == 401
 
     # ---- זהות ----
 
@@ -1536,3 +1556,69 @@ class TestInternalOwnersHoldMoreGeometries:
         ).json()
         assert body["min_order_applied"] is True
         assert body["total"] == pytest.approx(9000.0 * 1.18, abs=0.01)
+
+
+class TestTheLandingPagePromisesOnlyWhatExists:
+    """דף ציבורי שמישהו זר נוחת עליו ומחליט אם להירשם.
+
+    **הדרישה שקובעת את הקוד:** "אל תבטיח יכולת שאינה קיימת. דף שכותב
+    'כל החומרים' יוצר לקוח שנוחת על 422 בפנייה הראשונה שלו, וזה גרוע
+    מדף שלא היה" (האב, 25.8.2026). רשימת החומרים נקראת מהטבלה החיה.
+    """
+
+    @pytest.fixture
+    def gated(self, monkeypatch):
+        monkeypatch.delenv("APP_PASSWORD", raising=False)
+        identity.create_user("itai", "sod-arok-1", "איתי", {identity.CAP_QUOTE_USE})
+        return TestClient(app)
+
+    def test_a_stranger_lands_on_the_page_and_not_on_a_login_screen(self, gated):
+        page = gated.get("/", headers={"accept": "text/html"}, follow_redirects=False)
+        assert page.status_code == 200
+        assert "פתיחת חשבון" in page.text
+
+    def test_the_offering_is_open_and_carries_no_prices(self, gated):
+        body = gated.get("/api/offering")
+        assert body.status_code == 200
+        blob = body.text
+        for forbidden in ("plate_price", "cut_rate_per_m", "pierce_price", "margin",
+                          "min_order", "bend_price", "total"):
+            assert forbidden not in blob, f"דלף {forbidden} לדף ציבורי"
+
+    def test_only_materials_that_can_actually_be_priced_are_listed(self, gated):
+        raw = json.loads(json.dumps(TEST_TARIFF))
+        raw["rates"].append(
+            {"material_key": "ss304", "material_name": "נירוסטה 304", "thickness_mm": 3.0,
+             "plate_price": 0.0, "cut_rate_per_m": 0.0}
+        )
+        # שורה עם חיתוך ובלי חומר — מייצרת מחיר שחסר בו רכיב, ולכן
+        # אינה "נתמכת" גם אם היא נראית מלאה למחצה.
+        raw["rates"].append(
+            {"material_key": "alu5083", "material_name": "אלומיניום 5083", "thickness_mm": 3.0,
+             "plate_price": 0.0, "cut_rate_per_m": 29.7}
+        )
+        tariff_store.STATE.replace(raw)
+        names = [m["name"] for m in gated.get("/api/offering").json()["materials"]]
+        assert names == ["פלדה שחורה"]
+
+    def test_a_material_that_gets_priced_appears_without_editing_the_page(self, gated):
+        raw = json.loads(json.dumps(TEST_TARIFF))
+        raw["rates"].append(
+            {"material_key": "ss304", "material_name": "נירוסטה 304", "thickness_mm": 3.0,
+             "plate_price": 1500.0, "cut_rate_per_m": 16.5}
+        )
+        tariff_store.STATE.replace(raw)
+        names = [m["name"] for m in gated.get("/api/offering").json()["materials"]]
+        assert names == ["נירוסטה 304", "פלדה שחורה"]
+
+    def test_an_empty_table_says_so_instead_of_listing_nothing_quietly(self, gated):
+        body = gated.get("/api/offering").json()
+        assert body["ready"] is False and body["materials"] == []
+
+    def test_a_logged_in_user_gets_the_engine_and_not_the_landing_page(self, gated):
+        assert gated.post(
+            "/api/login", json={"username": "itai", "password": "sod-arok-1"}
+        ).status_code == 200
+        page = gated.get("/", headers={"accept": "text/html"})
+        assert "פתיחת חשבון" not in page.text
+        assert "פירוט ההצעה" in page.text or "חלקים בהזמנה" in page.text
