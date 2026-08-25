@@ -1066,6 +1066,7 @@ async def _upload(request: Request, file: UploadFile) -> dict:
             warnings=tuple(extraction.warnings),
         ),
         owner=_owner_key(request),
+        internal=_sees_breakdown(request),
     )
     return _geometry_response(key, stem, PartSource.DXF.value, extraction.geometry) | {
         "units_detected": extraction.units_detected,
@@ -1088,11 +1089,32 @@ def manual(spec: ManualPartSpec, request: Request) -> dict:
     key = STORE.put(
         StoredGeometry(geometry=geometry, name=spec.name, source=PartSource.MANUAL.value),
         owner=_owner_key(request),
+        internal=_sees_breakdown(request),
     )
     return _geometry_response(key, spec.name, PartSource.MANUAL.value, geometry)
 
 
 # ---- תמחור ----
+
+
+def _expired_detail(request: Request, item: "PartRequest") -> str:
+    """מה לעשות עכשיו — ולא רק מה קרה.
+
+    **הכרעת האב, 25.8.2026:** "'העלה מחדש' נכונה לבן אדם בדפדפן
+    ומטעה לחלוטין שירות." ימיש אינו מעלה קבצים ואינו יכול "להעלות
+    מחדש"; מה שהוא צריך לעשות הוא לקרוא שוב ל-`/api/manual` ולקבל
+    `geometry_id` חדש. אותה הודעה לשני הקהלים הייתה נכונה לאחד
+    ומבלבלת את השני, ולכן היא נבחרת לפי מקור הזהות.
+    """
+    who = item.name or item.geometry_id
+    user = _current(request)
+    if user is not None and user.source == "service":
+        return (
+            f'geometry_id של "{who}" פג מהזיכרון. הגיאומטריות נשמרות בזיכרון התהליך '
+            f"בלבד וכל הפעלה מחדש מאפסת אותן. שלח שוב /api/manual (או /api/upload) "
+            f"לאותו חלק, קבל geometry_id חדש, וחזור על /api/quote."
+        )
+    return f'הגיאומטריה של "{who}" כבר לא בזיכרון. העלה את הקובץ מחדש.'
 
 
 @app.post("/api/quote")
@@ -1107,10 +1129,7 @@ def quote(body: QuoteRequest, request: Request) -> dict:
         try:
             stored = STORE.get(item.geometry_id, owner=owner)
         except GeometryExpired as exc:
-            raise HTTPException(
-                status_code=410,
-                detail=f'הגיאומטריה של "{item.name or item.geometry_id}" כבר לא בזיכרון. העלה את הקובץ מחדש.',
-            ) from exc
+            raise HTTPException(status_code=410, detail=_expired_detail(request, item)) from exc
         try:
             parts.append(
                 Part(

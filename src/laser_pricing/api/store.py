@@ -22,13 +22,37 @@ from dataclasses import dataclass
 
 from ..domain.geometry import PartGeometry
 
-MAX_ENTRIES = 400
-MAX_ENTRIES_PER_OWNER = 40
-"""תקרה לכל בעלים בנפרד, ולא רק תקרה גלובלית.
+MAX_ENTRIES = 500
+"""תקרה גלובלית על כל הבעלים יחד."""
+
+MAX_ENTRIES_PER_PUBLIC_OWNER = 40
+"""תקרה למי שנרשם מהרחוב.
 
 עם תקרה גלובלית בלבד, מבקר אחד שמעלה בלולאה היה דוחק מהזיכרון את
 הקובץ שאבא באמצע לתמחר — כלומר מוחק את עבודתו של אחר בלי לגעת בה.
 המגבלה הפרטנית עושה את ההצפה לבעיה של מי שיצר אותה.
+"""
+
+MAX_ENTRIES_PER_INTERNAL_OWNER = 200
+"""תקרה לבעלים פנימי: אבא, ינון, ו-`crm` (טוקן השירות של ימיש).
+
+**הכרעת האב, 25.8.2026:** "ימיש הוא עסק מתכת — הזמנה של 40 חלקים
+אינה קצה, היא יום שלישי רגיל." התקרה הציבורית נשארת 40 כי היא הגנה
+מפני זר, לא מפני איתי.
+
+**המספר נגזר ממדידה ולא נבחר.** זיכרון לגיאומטריה שמורה, נמדד על
+הקופסה ב-25.8.2026:
+
+    מתאר אחד (מלבן פשוט)        1.0 KB
+    11 מתארים (10 חורים)         72 KB
+    201 מתארים                  1.4 MB
+    401 מתארים                  2.9 MB
+
+200 חלקים כבדים במיוחד הם ~580MB, מול `MemoryMax=1500M` ביחידה —
+כלומר גם המקרה הגרוע ביותר נשאר בתוך התקציב, ו-200 הם פי חמישה
+מ"יום שלישי רגיל". הזמנה טיפוסית של 200 חלקים היא ~14MB.
+
+**שני המספרים כאן ואין להם עותק בשום מקום אחר בקוד.**
 """
 
 
@@ -49,27 +73,30 @@ class StoredGeometry:
 class GeometryStore:
     """מילון עם תקרה — הישן ביותר נזרק ראשון, בתוך כל בעלים בנפרד."""
 
-    def __init__(
-        self, max_entries: int = MAX_ENTRIES, max_per_owner: int = MAX_ENTRIES_PER_OWNER
-    ) -> None:
+    def __init__(self, max_entries: int = MAX_ENTRIES) -> None:
         self._items: OrderedDict[str, StoredGeometry] = OrderedDict()
         self._max = max_entries
-        self._max_per_owner = max_per_owner
 
-    def put(self, entry: StoredGeometry, owner: str = "") -> str:
+    def put(self, entry: StoredGeometry, owner: str = "", internal: bool = False) -> str:
+        """שומר גיאומטריה ומחזיר מפתח.
+
+        `internal` קובע איזו משתי התקרות חלה. הוא מגיע מהיכולות של
+        הפונה ולא משם הבעלים, כדי שלא תיווצר רשימת שמות מיוחסים.
+        """
         entry.owner = owner
         # 12 בתים אקראיים ולא מונה: מפתח שאפשר לנחש הוא רשימת הקבצים
         # של כל השאר.
         key = secrets.token_urlsafe(12)
         self._items[key] = entry
-        self._evict_owner(owner)
+        cap = MAX_ENTRIES_PER_INTERNAL_OWNER if internal else MAX_ENTRIES_PER_PUBLIC_OWNER
+        self._evict_owner(owner, cap)
         while len(self._items) > self._max:
             self._items.popitem(last=False)
         return key
 
-    def _evict_owner(self, owner: str) -> None:
+    def _evict_owner(self, owner: str, cap: int) -> None:
         keys = [k for k, v in self._items.items() if v.owner == owner]
-        for key in keys[: max(0, len(keys) - self._max_per_owner)]:
+        for key in keys[: max(0, len(keys) - cap)]:
             del self._items[key]
 
     def get(self, key: str, owner: str = "") -> StoredGeometry:

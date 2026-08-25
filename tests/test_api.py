@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 from laser_pricing.api import identity, tariff_store
 # היבוא הפרטי מכוון: מונה הניסיונות הכושלים הוא מצב של התהליך, ובדיקה
 # חייבת לאפס אותו כדי לא לחסום את הבדיקה הבאה.
+from laser_pricing.api.store import STORE
 from laser_pricing.api.app import (
     _EDITOR_ATTEMPTS,
     _ENGINE_CALLS,
@@ -96,6 +97,11 @@ def isolated_users(tmp_path, monkeypatch):
     _SIGNUPS.clear()
     _ENGINE_CALLS.clear()
     _EDITOR_ATTEMPTS.clear()
+    # מחסן הגיאומטריות הוא מצב גלובלי בדיוק כמו השאר, והוא **לא** אופס
+    # עד 25.8.2026. התוצאה הייתה בדיקה מהבהבת: היא נשענת על כך שגיאומטריה
+    # של משתמש אחד עדיין בזיכרון כשאחר מנסה לגנוב אותה, וזה תלוי בכמה
+    # כניסות הצטברו מבדיקות קודמות מול תקרת הפינוי.
+    STORE._items.clear()
     yield
 
 
@@ -1440,3 +1446,93 @@ class TestTheOperationalScreen:
         assert [u["username"] for u in users["public"]] == ["orach"]
         assert sorted(u["username"] for u in users["internal"]) == ["aba", "itai"]
         assert all("password_hash" not in u for u in users["public"] + users["internal"])
+
+
+class TestInternalOwnersHoldMoreGeometries:
+    """הזמנה של 40 חלקים אינה קצה, היא יום שלישי רגיל (האב, 25.8.2026).
+
+    התקרה הציבורית נשארת 40 — היא הגנה מפני זר, לא מפני איתי.
+    """
+
+    @pytest.fixture
+    def gated(self, monkeypatch):
+        monkeypatch.delenv("APP_PASSWORD", raising=False)
+        monkeypatch.setenv("SERVICE_TOKEN", "token-shel-yamish")
+        identity.create_user("itai", "sod-arok-1", "איתי", {identity.CAP_QUOTE_USE})
+        return TestClient(app)
+
+    def _make(self, client, n, **kw):
+        return [
+            client.post("/api/manual", json={"shape": "rect", "width_mm": 100 + i,
+                                             "height_mm": 100}, **kw).json()["geometry_id"]
+            for i in range(n)
+        ]
+
+    def test_the_crm_can_hold_an_order_of_sixty_parts(self, gated):
+        tariff_store.STATE.replace(TEST_TARIFF)
+        headers = {"x-service-token": "token-shel-yamish"}
+        gids = self._make(gated, 60, headers=headers)
+        body = gated.post(
+            "/api/quote",
+            json={"parts": [{"geometry_id": g, "material_key": "st37",
+                             "thickness_mm": 3.0, "quantity": 1} for g in gids]},
+            headers=headers,
+        )
+        assert body.status_code == 200, body.text
+        assert len(body.json()["lines"]) == 60
+
+    def test_a_public_visitor_is_still_capped_at_forty(self, gated):
+        tariff_store.STATE.replace(TEST_TARIFF)
+        assert gated.post(
+            "/api/signup", json={"username": "orach", "password": "sisma-arukah"}
+        ).status_code == 201
+        # תקרת הקצב הציבורית עוצרת הרבה לפני תקרת האחסון, וזה בסדר —
+        # שתיהן קיימות, ומה שנבדק כאן הוא שהמספרים לא התחלפו.
+        from laser_pricing.api import store
+
+        assert store.MAX_ENTRIES_PER_PUBLIC_OWNER == 40
+        assert store.MAX_ENTRIES_PER_INTERNAL_OWNER > 40
+
+    def test_the_expiry_message_tells_a_service_what_to_do(self, gated):
+        """"העלה מחדש" נכונה לבן אדם ומטעה שירות — הוא לא מעלה קבצים."""
+        tariff_store.STATE.replace(TEST_TARIFF)
+        headers = {"x-service-token": "token-shel-yamish"}
+        body = gated.post(
+            "/api/quote",
+            json={"parts": [{"geometry_id": "lo-kayam", "material_key": "st37",
+                             "thickness_mm": 3.0, "quantity": 1}]},
+            headers=headers,
+        )
+        assert body.status_code == 410
+        detail = body.json()["detail"]
+        assert "/api/manual" in detail, "השירות חייב לדעת לאיזה נתיב לחזור"
+        assert "העלה את הקובץ מחדש" not in detail
+
+    def test_a_person_still_gets_the_human_message(self, gated):
+        tariff_store.STATE.replace(TEST_TARIFF)
+        assert gated.post(
+            "/api/login", json={"username": "itai", "password": "sod-arok-1"}
+        ).status_code == 200
+        body = gated.post(
+            "/api/quote",
+            json={"parts": [{"geometry_id": "lo-kayam", "material_key": "st37",
+                             "thickness_mm": 3.0, "quantity": 1}]},
+        )
+        assert body.status_code == 410
+        assert "העלה את הקובץ מחדש" in body.json()["detail"]
+
+    def test_the_minimum_order_flag_is_a_field_and_not_prose(self, gated):
+        """ימיש יציג 413 כ"מחיר הפריט" אם אין שדה שאומר שזה מינימום."""
+        # מינימום גבוה מהסכום הטבעי, כדי שהדגל בוודאי יופעל. הערך
+        # האמיתי בפרודקשן הוא 350, והוא זה שהפך ריבוע 50x50 ל-413.
+        tariff_store.STATE.replace(TEST_TARIFF | {"min_order_total": 9000.0})
+        headers = {"x-service-token": "token-shel-yamish"}
+        gid = self._make(gated, 1, headers=headers)[0]
+        body = gated.post(
+            "/api/quote",
+            json={"parts": [{"geometry_id": gid, "material_key": "st37",
+                             "thickness_mm": 3.0, "quantity": 1}]},
+            headers=headers,
+        ).json()
+        assert body["min_order_applied"] is True
+        assert body["total"] == pytest.approx(9000.0 * 1.18, abs=0.01)
