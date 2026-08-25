@@ -6,6 +6,25 @@
 <title>מצב המערכת — מנוע תמחור לייזר</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>⚙️</text></svg>">
 <style>
+/* ---- Assistant, גופן עברי אמיתי ----
+   **מתארח אצלנו ולא נטען מגוגל.** בקשה חיצונית מכל דף היא גם השהיה
+   וגם דליפה — מי שפותח מסך שמציג מחירים לא צריך שגוגל תדע על כך.
+   שני קבצים, 28.7KB יחד, במטמון בין כל המסכים.
+
+   עד עכשיו הגופן העברי היה ברירת המחדל של מערכת ההפעלה: סביר במק
+   ובאייפון, פחות באנדרואיד ובווינדוס. `font-display: swap` כדי
+   שהטקסט ייקרא מיד גם לפני שהקובץ הגיע. */
+@font-face{
+  font-family:'Assistant'; font-style:normal; font-weight:400 700; font-display:swap;
+  src:url('/fonts/assistant-hebrew.woff2') format('woff2');
+  unicode-range:U+0307-0308,U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F;
+}
+@font-face{
+  font-family:'Assistant'; font-style:normal; font-weight:400 700; font-display:swap;
+  src:url('/fonts/assistant-latin.woff2') format('woff2');
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
 /* עצמאי לחלוטין, כמו שאר המסכים — הדף נטען מהטלפון וסביר שפעם אחת
    בלבד, ואין טעם שיתלה בשני קבצים נוספים.
 
@@ -23,7 +42,7 @@
 html{-webkit-text-size-adjust:100%}
 body{
   margin:0; background:var(--bg); color:var(--text); padding:0 0 48px;
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Rubik,Arial,sans-serif;
+  font-family:'Assistant',-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
   font-size:16px; line-height:1.55;
 }
 header{

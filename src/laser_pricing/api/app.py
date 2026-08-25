@@ -158,6 +158,16 @@ EDITOR_PATHS = ("/prices", "/api/prices")
 """
 
 
+def _is_font_path(path: str) -> bool:
+    """גופנים פתוחים לכולם, כי דף הנחיתה ומסך הכניסה אנונימיים.
+
+    **מתארחים אצלנו ולא נטענים מגוגל.** בקשה חיצונית מכל דף היא
+    גם השהיה וגם דליפה: מי שפותח מסך שמציג מחירים לא צריך שגוגל
+    תדע על כך. שני קבצים, 28.7KB יחד, נשמרים במטמון בין כל המסכים.
+    """
+    return path.startswith("/fonts/") and path.endswith(".woff2")
+
+
 def _is_editor_path(path: str) -> bool:
     return any(path == p or path.startswith(p + "/") for p in EDITOR_PATHS)
 
@@ -270,7 +280,7 @@ async def auth_gate(request: Request, call_next):
     מאיפה מגיעה הזהות; החלפת מקור הזהות ל-CRM לא נוגעת כאן.
     """
     path = request.url.path
-    if path in OPEN_PATHS or not _gate_is_on():
+    if path in OPEN_PATHS or _is_font_path(path) or not _gate_is_on():
         return await call_next(request)
 
     user = identity.current_user(request)
@@ -1435,6 +1445,21 @@ if WEB_DIR.exists():
         """מסך הכניסה. עצמאי לחלוטין, מאותה סיבה כמו טופס המחירים:
         דף שנטען לפני שיש זהות לא יכול להסתמך על /static שמאחורי השער."""
         return FileResponse(WEB_DIR / "login.html")
+
+    @app.get("/fonts/{name}")
+    def font(name: str) -> FileResponse:
+        """Assistant, מתארח אצלנו. רק woff2, ורק מהתיקייה הזאת."""
+        if not name.endswith(".woff2") or "/" in name or ".." in name:
+            raise HTTPException(status_code=404, detail="לא נמצא")
+        path = WEB_DIR / "fonts" / name
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="לא נמצא")
+        return FileResponse(
+            path,
+            media_type="font/woff2",
+            # הגופן אינו משתנה. שנה של מטמון חוסכת את הבקשה לגמרי.
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        )
 
     @app.get("/dashboard")
     def dashboard_page() -> FileResponse:

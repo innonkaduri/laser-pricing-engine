@@ -1843,3 +1843,59 @@ class TestTheUsageLogRollsOverAndNeverDeletes:
         rolled = sorted(tmp_path.glob("usage-*.jsonl"))
         contents = {f.read_text(encoding="utf-8").strip() for f in rolled}
         assert contents == {"first", "second"}, contents
+
+
+class TestTheHebrewFontIsServedByUs:
+    """Assistant מתארח אצלנו ולא נטען מגוגל.
+
+    בקשה חיצונית מכל דף היא גם השהיה וגם דליפה — מי שפותח מסך
+    שמציג מחירים לא צריך שגוגל תדע על כך. וגם: דף הנחיתה, הכניסה
+    וההרשמה אנונימיים, ולכן הגופן חייב להיות פתוח כמותם.
+    """
+
+    @pytest.fixture
+    def gated(self, monkeypatch):
+        monkeypatch.delenv("APP_PASSWORD", raising=False)
+        identity.create_user("itai", "sod-arok-1", "איתי", {identity.CAP_QUOTE_USE})
+        return TestClient(app)
+
+    def test_the_font_loads_without_logging_in(self, gated):
+        for name in ("assistant-hebrew.woff2", "assistant-latin.woff2"):
+            r = gated.get(f"/fonts/{name}")
+            assert r.status_code == 200, name
+            assert r.headers["content-type"] == "font/woff2"
+            assert r.content[:4] == b"wOF2", "זה לא woff2 אמיתי"
+            assert "immutable" in r.headers.get("cache-control", "")
+
+    def test_no_page_reaches_out_to_google(self):
+        """אם מישהו יחזיר `<link>` לגוגל, זה ייפול כאן."""
+        web = Path(__file__).resolve().parent.parent / "web"
+        for page in web.glob("*.html"):
+            text = page.read_text(encoding="utf-8")
+            for host in ("fonts.googleapis.com", "fonts.gstatic.com"):
+                assert host not in text, f"{page.name} פונה ל-{host}"
+        assert "fonts.g" not in (web / "style.css").read_text(encoding="utf-8")
+
+    def test_every_screen_actually_asks_for_assistant(self):
+        web = Path(__file__).resolve().parent.parent / "web"
+        # index.html נשען על style.css, ולכן הוא נבדק דרכו.
+        for name in ("landing.html", "quote.html", "dashboard.html", "signup.html",
+                     "login.html", "prices.html", "style.css"):
+            assert "'Assistant'" in (web / name).read_text(encoding="utf-8"), name
+
+    def test_nothing_but_a_woff2_comes_out_of_the_font_path(self, gated):
+        """שתי שכבות, ולכן שתי תשובות שונות — ושתיהן דחייה.
+
+        מה שאינו מסתיים ב-`.woff2` אינו נחשב נתיב גופן ולכן **אינו
+        עוקף את השער בכלל** ומקבל 401; מה שכן, נבדק שוב במסלול עצמו
+        מול חציית תיקיות ומקבל 404. הבדיקה מוודאת שאף אחד מהם אינו
+        מחזיר קובץ.
+        """
+        # `/fonts/..` מנורמל בידי הלקוח ל-`/` ואינו מגיע למסלול — מקרה
+        # מדומה, ולכן אינו כאן. מה שכן: חציית תיקיות **מקודדת שמסתיימת
+        # ב-.woff2**, שעוברת את בדיקת השער ונעצרת במסלול עצמו.
+        for evil in ("..%2F..%2Fetc%2Fpasswd.woff2", "..%2Fstyle.css",
+                     "x.txt", "app.js", "%2E%2E%2Fapp.js"):
+            r = gated.get(f"/fonts/{evil}")
+            assert r.status_code in (401, 404), f"{evil} → {r.status_code}"
+            assert r.content[:4] != b"wOF2", evil
