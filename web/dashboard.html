@@ -3,173 +3,51 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>מצב המערכת — מנוע תמחור לייזר</title>
+<title>מצב המערכת — ימיש כדורי</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>⚙️</text></svg>">
+<link rel="preload" as="font" type="font/woff2" href="/fonts/assistant-hebrew.woff2" crossorigin>
+<link rel="stylesheet" href="/brand.css">
 <style>
-/* ---- Assistant, גופן עברי אמיתי ----
-   **מתארח אצלנו ולא נטען מגוגל.** בקשה חיצונית מכל דף היא גם השהיה
-   וגם דליפה — מי שפותח מסך שמציג מחירים לא צריך שגוגל תדע על כך.
-   שני קבצים, 28.7KB יחד, במטמון בין כל המסכים.
+/* מצב המערכת — טלפון קודם, עמודה אחת. */
+body{padding-bottom:var(--s12)}
+main{max-width:920px; margin-inline:auto; padding:var(--s5) var(--s4) 0}
+@media (min-width:760px){ main{padding:var(--s6) var(--s5) 0} }
+.card{margin-bottom:var(--s4); padding:var(--s5)}
+.card>h2{
+  margin:0 0 var(--s4); font-size:var(--fs-xs); font-weight:700; color:var(--ink-400);
+  letter-spacing:.09em;
+}
+.card.act{border-color:var(--warn-200); background:var(--warn-50)}
+.card.act>h2{color:var(--warn-700)}
+.card.good{border-color:var(--ok-200); background:var(--ok-50)}
+.card.good>h2{color:var(--ok-700)}
+.sub{color:var(--ink-500); font-size:var(--fs-sm); margin:0}
 
-   עד עכשיו הגופן העברי היה ברירת המחדל של מערכת ההפעלה: סביר במק
-   ובאייפון, פחות באנדרואיד ובווינדוס. `font-display: swap` כדי
-   שהטקסט ייקרא מיד גם לפני שהקובץ הגיע. */
-@font-face{
-  font-family:'Assistant'; font-style:normal; font-weight:400 700; font-display:swap;
-  src:url('/fonts/assistant-hebrew.woff2') format('woff2');
-  unicode-range:U+0307-0308,U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F;
-}
-@font-face{
-  font-family:'Assistant'; font-style:normal; font-weight:400 700; font-display:swap;
-  src:url('/fonts/assistant-latin.woff2') format('woff2');
-  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
-}
-
-/* עצמאי לחלוטין, כמו שאר המסכים — הדף נטען מהטלפון וסביר שפעם אחת
-   בלבד, ואין טעם שיתלה בשני קבצים נוספים.
-
-   **טלפון קודם.** אבא מסתכל בזה בעמידה ליד המכונה: עמודה אחת, טקסט
-   גדול, ניגודיות גבוהה, בלי זכוכית ובלי זוהר. שתי עמודות רק כשיש
-   מקום אמיתי. */
-:root{
-  --bg:#f2f4f6; --card:#fff; --text:#14181d; --muted:#5b6572;
-  --line:#dde2e8; --accent:#c2410c;
-  --bad:#9f1239;  --bad-bg:#fff1f2;  --bad-line:#fecdd3;
-  --warn:#854d0e; --warn-bg:#fefce8; --warn-line:#fde68a;
-  --ok:#14532d;   --ok-bg:#f0fdf4;   --ok-line:#bbf7d0;
-}
-*{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%}
-body{
-  margin:0; background:var(--bg); color:var(--text); padding:0 0 48px;
-  font-family:'Assistant',-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
-  font-size:16px; line-height:1.55;
-}
-header{
-  background:var(--card); border-bottom:1px solid var(--line);
-  padding:14px 18px; display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
-  position:sticky; top:0; z-index:5;
-}
-header h1{margin:0; font-size:18px; font-weight:700; letter-spacing:-.2px}
-header .spacer{flex:1}
-header .who{font-size:13px; color:var(--muted)}
-header a{color:var(--accent); text-decoration:none}
-main{max-width:900px; margin:0 auto; padding:16px 14px 0}
-@media (min-width:760px){ main{padding:22px 20px 0} }
-
-.card{
-  background:var(--card); border:1px solid var(--line); border-radius:12px;
-  padding:16px 16px 18px; margin:0 0 14px;
-}
-.card > h2{
-  margin:0 0 12px; font-size:15px; font-weight:700; color:var(--muted);
-  letter-spacing:.02em;
-}
-.card.act{border-color:var(--warn-line); background:var(--warn-bg)}
-.card.act > h2{color:var(--warn)}
-.card.good{border-color:var(--ok-line); background:var(--ok-bg)}
-.card.good > h2{color:var(--ok)}
-
-.headline{font-size:22px; font-weight:700; line-height:1.35; margin:0 0 6px}
-@media (min-width:760px){ .headline{font-size:25px} }
-.sub{color:var(--muted); font-size:14.5px; margin:0}
-
-/* רשימת פעולות — הדבר היחיד שדורש תגובה */
-ul.todo{margin:14px 0 0; padding:0; list-style:none; display:grid; gap:10px}
+ul.todo{margin:var(--s4) 0 0; padding:0; list-style:none; display:grid; gap:var(--s3)}
 ul.todo li{
-  background:var(--card); border:1px solid var(--warn-line); border-radius:10px;
-  padding:12px 14px; font-size:15px; line-height:1.5;
+  background:var(--paper); border:1px solid var(--warn-200); border-radius:var(--r-md);
+  padding:var(--s4); font-size:var(--fs-sm); line-height:1.55;
 }
-ul.todo li b{display:block; margin-bottom:2px}
+ul.todo li b{display:block; margin-bottom:2px; color:var(--ink-900)}
 
-.grid{display:grid; gap:10px; grid-template-columns:1fr}
+.grid{display:grid; gap:var(--s3); grid-template-columns:1fr}
 @media (min-width:620px){ .grid{grid-template-columns:1fr 1fr} }
-.stat{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:13px 14px}
-.stat .k{font-size:13px; color:var(--muted); margin-bottom:3px}
-.stat .v{font-size:20px; font-weight:700; letter-spacing:-.3px}
-.stat .v.small{font-size:15.5px; font-weight:600}
-.stat.warn{border-color:var(--warn-line); background:var(--warn-bg)}
-.stat.warn .v{color:var(--warn)}
-.stat.bad{border-color:var(--bad-line); background:var(--bad-bg)}
-.stat.bad .v{color:var(--bad)}
-.stat.ok .v{color:var(--ok)}
-
-.bar{height:8px; background:#e7ebf0; border-radius:99px; overflow:hidden; margin:10px 0 6px}
-.bar > i{display:block; height:100%; background:var(--accent); border-radius:99px}
-
-table{width:100%; border-collapse:collapse; font-size:14.5px}
-th,td{text-align:right; padding:9px 6px; border-bottom:1px solid var(--line)}
-th{font-size:12.5px; color:var(--muted); font-weight:600}
-tr:last-child td{border-bottom:none}
-td.num,th.num{text-align:left; font-variant-numeric:tabular-nums}
-.scroll{overflow-x:auto; -webkit-overflow-scrolling:touch}
-
-.tag{
-  display:inline-block; font-size:12px; padding:2px 8px; border-radius:99px;
-  background:#eef1f5; color:var(--muted); font-weight:600;
-}
-.tag.bad{background:var(--bad-bg); color:var(--bad)}
-.tag.ok{background:var(--ok-bg); color:var(--ok)}
-.none{
-  color:var(--muted); font-size:14.5px; line-height:1.65;
-  background:#f7f9fb; border:1px dashed var(--line); border-radius:10px; padding:14px;
-}
-.none b{color:var(--text)}
-.quiet{color:var(--muted); font-size:13px; margin:8px 0 0}
-.err{background:var(--bad-bg); border:1px solid var(--bad-line); color:var(--bad);
-     border-radius:10px; padding:14px; font-size:15px}
-
-/* ---- מצבי אינטראקציה ----
-   נוסף 26.8.2026 אחרי ביקורת עיצוב: בכל שבעת המסכים היו **אפס**
-   כללי `:hover`, `:active`, `:focus-visible` ו-`transition`. כפתור
-   שאינו מגיב למגע נראה שבור, וטבעת מיקוד חסרה היא כשל נגישות ולא
-   ליטוש — מי שמנווט במקלדת לא יודע איפה הוא.
-
-   `transform` ו-`opacity` בלבד, כי הם היחידים שהדפדפן מנפיש בכרטיס
-   המסך; `background` ו-`border-color` זולים דיים. אין כאן צל צבעוני,
-   זכוכית או זוהר — ההנחיה הייתה "בהיר, ניגודיות גבוהה, בלי סגנון AI",
-   והיא גוברת על כל המלצת עיצוב כללית. */
-button, .btn, a.enter, a.btn {
-  transition: background-color .18s ease, border-color .18s ease,
-              transform .12s ease, opacity .18s ease;
-}
-button:hover:not([disabled]), .btn:hover { filter: brightness(.94); }
-button.ghost:hover:not([disabled]), .btn.ghost:hover {
-  background: var(--alt, #f2f4f6);
-  border-color: var(--muted);
-}
-button:active:not([disabled]), .btn:active { transform: translateY(1px); }
-a.enter:hover { text-decoration: underline; }
-
-/* טבעת מיקוד אחת לכל מה שאפשר להגיע אליו במקלדת. `:focus-visible`
-   ולא `:focus` — עכבר לא אמור לצייר טבעת. */
-a:focus-visible, button:focus-visible, input:focus-visible,
-select:focus-visible, [tabindex]:focus-visible {
-  outline: 3px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: 6px;
-}
-
-/* כותרת עברית שנשברת ומשאירה מילה בודדת בשורה נראית כמו תקלה. */
-h1, h2, h3 { text-wrap: balance; }
-p, li { text-wrap: pretty; }
-
-/* מי שביקש פחות תנועה מקבל פחות תנועה. */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: .01ms !important;
-    transition-duration: .01ms !important;
-    scroll-behavior: auto !important;
-  }
-}
+.bar{height:8px; background:var(--ink-150); border-radius:var(--r-full); overflow:hidden; margin:var(--s3) 0 6px}
+.bar>i{display:block; height:100%; background:var(--flame-600); border-radius:var(--r-full)}
+th,td{text-align:right}
 </style>
 </head>
 <body>
 
-<header>
-  <h1>מצב המערכת</h1>
-  <span class="spacer"></span>
-  <span class="who" id="who"></span>
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M5 8.5A3.5 3.5 0 0 1 8.5 5h9.9L27 13.6v9.9A3.5 3.5 0 0 1 23.5 27h-15A3.5 3.5 0 0 1 5 23.5v-15Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M18.4 5v5.1a3.5 3.5 0 0 0 3.5 3.5H27" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><circle cx="12.4" cy="19.6" r="3" fill="currentColor"/></svg>
+      <span class="name"><b>ימיש כדורי</b><span>מצב המערכת</span></span>
+    </a>
+    <span class="spacer"></span>
+    <span class="muted" style="font-size:var(--fs-sm)" id="who"></span>
+  </div>
 </header>
 
 <main id="root">

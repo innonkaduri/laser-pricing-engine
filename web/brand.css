@@ -250,3 +250,74 @@ tbody tr:hover{background:var(--ink-50)}
 }
 .hidden{display:none !important}
 .sr-only{position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0}
+
+/* ═══════════════════════════════════════════════════════════════════
+   גשר אל אוצר המילים הקודם
+   ═══════════════════════════════════════════════════════════════════
+   ששת המסכים שקדמו למערכת כתבו `.note.bad` ולא `.note-bad`,
+   `button.ghost` ולא `.btn-secondary`, `.none` ולא `.empty`. הכינויים
+   כאן מאפשרים להעביר אותם בהחלפת גיליון אחת **בלי לגעת ב-JavaScript
+   שמייצר את הסימון** — וזה מה שהופך את המעבר לבטוח: אין רגע שבו
+   מסך עובד חצי.
+
+   **זה גשר ולא ברירת מחדל.** סימון חדש נכתב בצורה הראשית
+   (`.note-warn`, `.btn-secondary`, `.empty`), והחלק הזה נועד להצטמצם.
+   ═══════════════════════════════════════════════════════════════════ */
+.note.ok{background:var(--ok-50); border-color:var(--ok-200); color:var(--ok-700)}
+.note.warn{background:var(--warn-50); border-color:var(--warn-200); color:var(--warn-700)}
+.note.bad{background:var(--bad-50); border-color:var(--bad-200); color:var(--bad-700)}
+.note{border:1px solid var(--ink-200)}
+
+.tag.ok{background:var(--ok-50); color:var(--ok-700); border-color:var(--ok-200)}
+.tag.warn{background:var(--warn-50); color:var(--warn-700); border-color:var(--warn-200)}
+.tag.bad{background:var(--bad-50); color:var(--bad-700); border-color:var(--bad-200)}
+
+.stat.ok{background:var(--ok-50); border-color:var(--ok-200)} .stat.ok .v{color:var(--ok-700)}
+.stat.warn{background:var(--warn-50); border-color:var(--warn-200)} .stat.warn .v{color:var(--warn-700)}
+.stat.bad{background:var(--bad-50); border-color:var(--bad-200)} .stat.bad .v{color:var(--bad-700)}
+.stat.total{background:var(--flame-50); border-color:var(--flame-100)} .stat.total .v{color:var(--flame-700)}
+.stat .v.small,.stat .v.sm{font-size:16.5px; font-weight:650}
+
+/* כפתור עירום הוא הפעולה הראשית; `.ghost` הוא המשני. */
+button:not(.btn):not(.ghost),.btn.primary{
+  display:inline-flex; align-items:center; justify-content:center; gap:var(--s2);
+  min-height:46px; padding:0 var(--s6); border-radius:var(--r-sm);
+  font:inherit; font-size:16px; font-weight:650; letter-spacing:-.01em;
+  border:1px solid var(--flame-600); background:var(--flame-600); color:#fff;
+  cursor:pointer; text-decoration:none; box-shadow:var(--shadow-1);
+  transition:background-color var(--dur) var(--ease), transform .1s var(--ease);
+}
+button:not(.btn):not(.ghost):hover:not(:disabled),.btn.primary:hover{background:var(--flame-700)}
+button.ghost,.btn.ghost,a.ghost{
+  display:inline-flex; align-items:center; justify-content:center; gap:var(--s2);
+  min-height:46px; padding:0 var(--s6); border-radius:var(--r-sm);
+  font:inherit; font-size:16px; font-weight:600;
+  background:var(--paper); color:var(--ink-800); border:1px solid var(--ink-200);
+  cursor:pointer; text-decoration:none; box-shadow:var(--shadow-1);
+  transition:border-color var(--dur) var(--ease), background-color var(--dur) var(--ease);
+}
+button.ghost:hover:not(:disabled),.btn.ghost:hover,a.ghost:hover{
+  border-color:var(--ink-300); background:var(--ink-50); color:var(--ink-900);
+}
+button:active:not(:disabled),.btn:active{transform:translateY(1px)}
+button:disabled{opacity:.45; cursor:not-allowed}
+
+.none{
+  border:1px dashed var(--ink-200); border-radius:var(--r-md); background:var(--ink-50);
+  padding:var(--s5); color:var(--ink-500); font-size:var(--fs-sm); line-height:1.65;
+}
+.none b{color:var(--ink-800)}
+.scroll{overflow-x:auto; -webkit-overflow-scrolling:touch}
+.quiet{color:var(--ink-500); font-size:var(--fs-xs); margin:var(--s2) 0 0; line-height:1.6}
+.hint,.sub{color:var(--ink-500)}
+.err{background:var(--bad-50); border:1px solid var(--bad-200); color:var(--bad-700);
+     border-radius:var(--r-md); padding:var(--s4) var(--s5); font-size:var(--fs-sm)}
+.headline{font-size:23px; font-weight:700; line-height:1.3; margin:0 0 var(--s2); color:var(--ink-900); letter-spacing:-.02em}
+@media (min-width:760px){ .headline{font-size:26px} }
+.pill{
+  display:inline-flex; align-items:center; font-size:12px; font-weight:650;
+  padding:3px 9px; border-radius:var(--r-full); background:var(--ink-100);
+  color:var(--ink-600); border:1px solid var(--ink-150); margin-inline-start:var(--s2);
+}
+.pill.ok{background:var(--ok-50); color:var(--ok-700); border-color:var(--ok-200)}
+.pill.warn{background:var(--warn-50); color:var(--warn-700); border-color:var(--warn-200)}
