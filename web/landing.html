@@ -17,7 +17,7 @@
 <meta property="og:url" content="https://laser.82.29.184.166.nip.io/">
 <meta name="twitter:card" content="summary">
 <meta name="theme-color" content="#c2410c">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>⚙️</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23c2410c'/><rect x='7' y='9' width='18' height='14' rx='2' fill='none' stroke='white' stroke-width='2'/><circle cx='13' cy='16' r='2.2' fill='white'/><circle cx='19' cy='16' r='2.2' fill='white'/></svg>">
 <style>
 /* ---- Assistant, גופן עברי אמיתי ----
    **מתארח אצלנו ולא נטען מגוגל.** בקשה חיצונית מכל דף היא גם השהיה
@@ -63,7 +63,13 @@ header{border-bottom:1px solid var(--line); background:var(--bg)}
 header .wrap{display:flex; align-items:center; gap:12px; padding-top:13px; padding-bottom:13px}
 header b{font-size:16.5px; letter-spacing:-.2px}
 header .spacer{flex:1}
-header a.enter{font-size:15px; text-decoration:none; font-weight:600}
+header a.enter{
+  font-size:15px; text-decoration:none; font-weight:600;
+  /* 44 פיקסלים הוא יעד המגע המינימלי. קישור טקסט "כניסה" היה 20
+     פיקסלים גובה — מספיק לעכבר, לא לאגודל. */
+  display:inline-flex; align-items:center; min-height:44px; padding:0 10px;
+  margin-inline-end:-10px; border-radius:8px;
+}
 
 .btn{
   display:inline-block; padding:13px 26px; border-radius:9px; font-weight:700; font-size:17px;
@@ -118,8 +124,10 @@ ol.steps p{margin:0; font-size:15.5px; color:var(--muted)}
 .note.warn{background:var(--warn-bg); border:1px solid var(--warn-line); color:var(--warn)}
 .note.ok{background:var(--ok-bg); border:1px solid var(--ok-line); color:var(--ok)}
 ul.plain{margin:14px 0 0; padding:0; list-style:none; display:grid; gap:9px; max-width:62ch}
-ul.plain li{display:flex; gap:10px; align-items:flex-start; font-size:16px}
-ul.plain .t{flex:none; color:var(--accent); font-weight:700}
+ul.plain li{display:flex; gap:11px; align-items:flex-start; font-size:16px}
+/* SVG ולא התו "←". תו נשען על הגופן של מערכת ההפעלה, מתיישר אחרת
+   בכל מכשיר, ומקבל משקל אחר ממה שהתכוונו. */
+ul.plain svg{flex:none; width:21px; height:21px; margin-top:3px; color:var(--accent)}
 footer{padding:28px 0 40px; color:var(--muted); font-size:14.5px}
 .hidden{display:none !important}
 
@@ -191,6 +199,20 @@ p, li { text-wrap: pretty; }
 </div></section>
 
 <section class="alt"><div class="wrap">
+  <h2>למה המספר הזה אמין</h2>
+  <p class="lead">הוא לא הערכה על העין. הוא מחושב מהשרטוט שלכם.</p>
+  <ul class="plain">
+    <li><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10.5l4 4 8-9"/></svg><div><b>נמדד מהקובץ:</b> שטח המתכת, אורך החיתוך ומספר החורים — מהשרטוט עצמו, לא מהתרשמות.</div></li>
+    <li><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10.5l4 4 8-9"/></svg><div><b>נספר החומר שבאמת נצרך:</b> החלקים נפרסים על הפלטה, והמחיר מביא בחשבון את מה שיוצא ממנה — לא רק את שטח החלק.</div></li>
+    <li><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10.5l4 4 8-9"/></svg><div><b>אותו חישוב, כל פעם:</b> אותו שרטוט ואותה כמות יחזירו אותו מספר. אין שיקול דעת ואין מצב רוח.</div></li>
+    <li><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10.5l4 4 8-9"/></svg><div><b>אין מחיר משוער:</b> חומר או עובי שאין להם מחיר אצלנו לא מקבלים ניחוש — הם פשוט לא מוצעים.</div></li>
+  </ul>
+  <div class="note ok">
+    <b>הקובץ שלכם לא נשמר אצלנו.</b> הוא נקרא כדי למדוד את החלק, ונמחק מיד אחר כך.
+  </div>
+</div></section>
+
+<section><div class="wrap">
   <h2>איך זה עובד</h2>
   <p class="lead">שלושה שלבים, והכול על המסך.</p>
   <ol class="steps">
@@ -210,19 +232,6 @@ p, li { text-wrap: pretty; }
       <p>סכום אחד, כולל מע"מ, על המסך. אפשר לשנות חומר או כמות ולראות מיד איך המחיר זז.</p>
     </li>
   </ol>
-</div></section>
-
-<section><div class="wrap">
-  <h2>מה נכנס, ומה יוצא</h2>
-  <ul class="plain">
-    <li><span class="t">←</span><div><b>נכנס:</b> שרטוט DXF של המתאר, או מידות שאתם מקלידים. חומר, עובי וכמות.</div></li>
-    <li><span class="t">←</span><div><b>יוצא:</b> מחיר אחד להזמנה, כולל מע"מ.</div></li>
-    <li><span class="t">←</span><div><b>מה שנמדד מהשרטוט:</b> שטח המתכת, אורך החיתוך ומספר החורים — לא הערכה על העין.</div></li>
-    <li><span class="t">←</span><div><b>מה שנלקח בחשבון:</b> כמה חומר באמת נצרך מהפלטה, ולא רק שטח החלק.</div></li>
-  </ul>
-  <div class="note ok">
-    <b>הקובץ שלכם לא נשמר אצלנו.</b> הוא נקרא כדי למדוד את החלק, ונמחק מיד אחר כך.
-  </div>
 </div></section>
 
 <section class="alt"><div class="wrap">
