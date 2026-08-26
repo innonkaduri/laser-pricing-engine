@@ -168,6 +168,17 @@ def _is_font_path(path: str) -> bool:
     return path.startswith("/fonts/") and path.endswith(".woff2")
 
 
+def _is_brand_css(path: str) -> bool:
+    """מערכת העיצוב, פתוחה מאותה סיבה בדיוק כמו הגופן.
+
+    **קובץ אחד לשבעה מסכים.** קודם כל מסך נשא עותק של ה-CSS שלו,
+    ולכן "מערכת עיצוב" הייתה שם לשבע גרסאות שנפרדו זו מזו בשקט —
+    כפתור שקיבל רדיוס אחר כאן ושם, וצבע שתוקן במסך אחד ולא בשישה.
+    אין בו שום נתון: טוקנים ורכיבים בלבד.
+    """
+    return path == "/brand.css"
+
+
 def _is_editor_path(path: str) -> bool:
     return any(path == p or path.startswith(p + "/") for p in EDITOR_PATHS)
 
@@ -280,7 +291,7 @@ async def auth_gate(request: Request, call_next):
     מאיפה מגיעה הזהות; החלפת מקור הזהות ל-CRM לא נוגעת כאן.
     """
     path = request.url.path
-    if path in OPEN_PATHS or _is_font_path(path) or not _gate_is_on():
+    if path in OPEN_PATHS or _is_font_path(path) or _is_brand_css(path) or not _gate_is_on():
         return await call_next(request)
 
     user = identity.current_user(request)
@@ -1445,6 +1456,17 @@ if WEB_DIR.exists():
         """מסך הכניסה. עצמאי לחלוטין, מאותה סיבה כמו טופס המחירים:
         דף שנטען לפני שיש זהות לא יכול להסתמך על /static שמאחורי השער."""
         return FileResponse(WEB_DIR / "login.html")
+
+    @app.get("/brand.css")
+    def brand_css() -> FileResponse:
+        """מערכת העיצוב. פתוחה, כי המסכים הציבוריים נטענים בלי זהות."""
+        return FileResponse(
+            WEB_DIR / "brand.css",
+            media_type="text/css; charset=utf-8",
+            # קצר יותר מהגופן: העיצוב כן משתנה, ופריסה חייבת להיראות
+            # מיד. שעה מספיקה כדי לחסוך את הבקשה בתוך אותו ביקור.
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
 
     @app.get("/fonts/{name}")
     def font(name: str) -> FileResponse:

@@ -3,293 +3,316 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>תמחור חיתוך לייזר — מחיר לחלק שלך, מיד</title>
-<meta name="description" content="מעלים שרטוט או מקלידים מידות, בוחרים חומר ועובי, ומקבלים מחיר לחיתוך לייזר. בלי טלפונים ובלי להמתין להצעה במייל.">
+<title>ימיש כדורי — תמחור חיתוך לייזר תוך שניות</title>
+<meta name="description" content="ימיש כדורי: מעלים שרטוט או מקלידים מידות, בוחרים חומר ועובי, ומקבלים מחיר לחיתוך לייזר. בלי טלפונים ובלי להמתין להצעה במייל.">
 <link rel="canonical" href="https://laser.82.29.184.166.nip.io/">
-<!-- הקישור הזה יועבר בוואטסאפ, לא במייל. בלי התגיות האלה הוא מופיע
-     שם כשורת טקסט קירחת, וזה ההבדל בין "מישהו שלח לי משהו" לבין
-     כרטיס עם כותרת והסבר. -->
 <meta property="og:type" content="website">
 <meta property="og:locale" content="he_IL">
-<meta property="og:site_name" content="תמחור חיתוך לייזר">
+<meta property="og:site_name" content="ימיש כדורי">
 <meta property="og:title" content="כמה עולה החלק שלך?">
 <meta property="og:description" content="מעלים שרטוט או מקלידים מידות, בוחרים חומר ועובי — ומקבלים מחיר לחיתוך לייזר. בלי טלפונים ובלי להמתין להצעה במייל.">
 <meta property="og:url" content="https://laser.82.29.184.166.nip.io/">
 <meta name="twitter:card" content="summary">
 <meta name="theme-color" content="#c2410c">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23c2410c'/><rect x='7' y='9' width='18' height='14' rx='2' fill='none' stroke='white' stroke-width='2'/><circle cx='13' cy='16' r='2.2' fill='white'/><circle cx='19' cy='16' r='2.2' fill='white'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23c2410c'/><path d='M8 11.5A2.5 2.5 0 0 1 10.5 9h7.9L25 15.6v5.9A2.5 2.5 0 0 1 22.5 24h-12A2.5 2.5 0 0 1 8 21.5v-10Z' stroke='white' stroke-width='2' fill='none' stroke-linejoin='round'/><circle cx='13.5' cy='19' r='2.4' fill='white'/></svg>">
+<link rel="preload" as="font" type="font/woff2" href="/fonts/assistant-hebrew.woff2" crossorigin>
+<link rel="stylesheet" href="/brand.css">
 <style>
-/* ---- Assistant, גופן עברי אמיתי ----
-   **מתארח אצלנו ולא נטען מגוגל.** בקשה חיצונית מכל דף היא גם השהיה
-   וגם דליפה — מי שפותח מסך שמציג מחירים לא צריך שגוגל תדע על כך.
-   שני קבצים, 28.7KB יחד, במטמון בין כל המסכים.
+/* מה שייחודי לדף הנחיתה בלבד. כל השאר יורש מ-/brand.css. */
+/* הכותרת ממשיכה את הגיבור במקום לחתוך אותו בפס לבן. */
+.topbar-dark{background:var(--ink-900); border-bottom-color:rgba(255,255,255,.1)}
+.topbar-dark .brand .name b{color:#fff}
+.topbar-dark .brand .name span{color:var(--ink-400)}
+.topbar-dark .brand svg{color:var(--flame-500)}
+.topbar-dark .navlink{color:var(--ink-300)}
+.topbar-dark .navlink:hover{color:#fff; background:rgba(255,255,255,.08)}
 
-   עד עכשיו הגופן העברי היה ברירת המחדל של מערכת ההפעלה: סביר במק
-   ובאייפון, פחות באנדרואיד ובווינדוס. `font-display: swap` כדי
-   שהטקסט ייקרא מיד גם לפני שהקובץ הגיע. */
-@font-face{
-  font-family:'Assistant'; font-style:normal; font-weight:400 700; font-display:swap;
-  src:url('/fonts/assistant-hebrew.woff2') format('woff2');
-  unicode-range:U+0307-0308,U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F;
+/* ═══ הגיבור ═══
+   **כהה, כי מתכת כהה.** ומעליו רשת דקה כמו גיליון שרטוט — לא
+   "טקסטורה", אלא ההקשר שבו המוצר הזה חי. הניגודיות גבוהה
+   (לבן על #0a0e13), ואין כאן זכוכית ואין זוהר.
+
+   **והחלק עצמו על המסך.** זה הנכס שהיה לנו כל הזמן ולא השתמשנו בו:
+   המנוע מודד ומצייר גיאומטריה, ולכן הגיבור מראה שרטוט אמיתי עם
+   המידות שהמנוע קורא ממנו. שום תמונת סטוק לא תעשה את זה. */
+.hero{
+  position:relative; margin-top:-1px; overflow:hidden; background:var(--ink-900); color:#fff;
+  padding:var(--s16) 0 var(--s20);
 }
-@font-face{
-  font-family:'Assistant'; font-style:normal; font-weight:400 700; font-display:swap;
-  src:url('/fonts/assistant-latin.woff2') format('woff2');
-  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+.hero::before{
+  content:""; position:absolute; inset:0; pointer-events:none;
+  background:
+    repeating-linear-gradient(0deg, rgba(255,255,255,.045) 0 1px, transparent 1px 56px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.045) 0 1px, transparent 1px 56px);
+  mask-image:radial-gradient(120% 100% at 70% 0%, #000 0%, transparent 75%);
+}
+.hero::after{
+  content:""; position:absolute; inset:0; pointer-events:none;
+  background:radial-gradient(70% 60% at 18% 22%, rgba(226,87,15,.16) 0%, transparent 62%);
+}
+.hero .wrap{position:relative; z-index:1}
+.hero-grid{display:grid; gap:var(--s10); align-items:center; grid-template-columns:1fr}
+@media (min-width:900px){ .hero-grid{grid-template-columns:1.05fr .95fr; gap:var(--s12)} }
+
+.eyebrow{
+  display:inline-flex; align-items:center; gap:var(--s2); font-size:var(--fs-xs);
+  font-weight:650; color:#ffd9c2; background:rgba(226,87,15,.14);
+  border:1px solid rgba(226,87,15,.32); border-radius:var(--r-full);
+  padding:6px 14px; margin-bottom:var(--s5);
+}
+.eyebrow i{width:6px; height:6px; border-radius:50%; background:var(--flame-500); flex:none}
+.hero h1{font-size:var(--fs-display); letter-spacing:-.038em; color:#fff; margin-bottom:var(--s5)}
+.hero h1 em{font-style:normal; color:var(--flame-500)}
+.hero .lead{font-size:19px; color:var(--ink-300); max-width:46ch; line-height:1.62}
+.hero .cta{display:flex; gap:var(--s3); flex-wrap:wrap; margin-top:var(--s8)}
+.hero .btn-secondary{background:transparent; color:#fff; border-color:rgba(255,255,255,.22)}
+.hero .btn-secondary:hover{background:rgba(255,255,255,.07); border-color:rgba(255,255,255,.4)}
+.hero .fineprint{margin-top:var(--s5); font-size:var(--fs-sm); color:var(--ink-400)}
+
+/* ---- השרטוט ---- */
+.blueprint{
+  position:relative; border:1px solid rgba(255,255,255,.12); border-radius:var(--r-xl);
+  background:rgba(255,255,255,.03); padding:var(--s5);
+}
+.blueprint svg{display:block; width:100%; height:auto}
+.bp-cut{stroke:var(--flame-500); stroke-width:2.4; fill:none; stroke-linejoin:round}
+.bp-hole{stroke:var(--flame-500); stroke-width:2.2; fill:rgba(10,14,19,.6)}
+.bp-dim{stroke:rgba(255,255,255,.34); stroke-width:1}
+.bp-label{fill:rgba(255,255,255,.62); font-size:12px; font-weight:600; font-family:inherit}
+.bp-fill{fill:rgba(226,87,15,.07)}
+
+.bp-readout{
+  display:grid; grid-template-columns:repeat(4,1fr); gap:var(--s3); margin-top:var(--s4);
+  padding-top:var(--s4); border-top:1px solid rgba(255,255,255,.1);
+}
+.bp-readout .k{font-size:11.5px; color:var(--ink-400); font-weight:600; letter-spacing:.04em}
+.bp-readout .v{font-size:16px; font-weight:700; color:#fff; margin-top:2px;
+  font-variant-numeric:tabular-nums; direction:ltr; unicode-bidi:isolate; text-align:right}
+
+/* הקו נחתך פעם אחת, כמו לייזר. מי שביקש פחות תנועה מקבל את השרטוט
+   מצויר מראש — הכלל הגלובלי ב-brand.css מכבה את ההנפשה. */
+@keyframes bp-draw{to{stroke-dashoffset:0}}
+@keyframes bp-pop{from{opacity:0; transform:scale(.4)} to{opacity:1; transform:scale(1)}}
+@keyframes bp-fade{from{opacity:0} to{opacity:1}}
+.bp-cut{stroke-dasharray:1500; stroke-dashoffset:1500; animation:bp-draw 1.6s var(--ease) .25s forwards}
+.bp-hole{opacity:0; transform-box:fill-box; transform-origin:center; animation:bp-pop .32s var(--ease) forwards}
+.bp-hole:nth-of-type(1){animation-delay:1.30s} .bp-hole:nth-of-type(2){animation-delay:1.40s}
+.bp-hole:nth-of-type(3){animation-delay:1.50s} .bp-hole:nth-of-type(4){animation-delay:1.60s}
+.bp-dims{opacity:0; animation:bp-fade .5s var(--ease) 1.75s forwards}
+.bp-fill{opacity:0; animation:bp-fade .7s var(--ease) 1.55s forwards}
+@media (prefers-reduced-motion:reduce){
+  .bp-cut{stroke-dashoffset:0} .bp-hole,.bp-dims,.bp-fill{opacity:1; transform:none}
 }
 
-/* עצמאי, כמו כל המסכים הציבוריים. **מובייל קודם** — מי שנוחת כאן
-   מגיע לרוב מהטלפון. בהיר, ניגודיות גבוהה, בלי זכוכית ובלי זוהר. */
-:root{
-  --bg:#fff; --alt:#f5f7f9; --text:#14181d; --muted:#5b6572;
-  --line:#dde2e8; --accent:#c2410c; --accent-soft:#fff3ec;
-  --ok:#14532d; --ok-bg:#f0fdf4; --ok-line:#bbf7d0;
-  --warn:#854d0e; --warn-bg:#fefce8; --warn-line:#fde68a;
-}
-*{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%; scroll-behavior:smooth}
-body{
-  margin:0; background:var(--bg); color:var(--text); font-size:17px; line-height:1.6;
-  font-family:'Assistant',-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
-}
-a{color:var(--accent)}
-.wrap{max-width:900px; margin:0 auto; padding:0 18px}
-@media (min-width:760px){ .wrap{padding:0 24px} }
+section{padding:var(--s16) 0; border-bottom:1px solid var(--ink-150)}
+section.tint{background:var(--paper)}
+.sec-head{max-width:56ch; margin-bottom:var(--s8)}
+.sec-head h2{margin-bottom:var(--s2)}
+.sec-head p{color:var(--ink-500); font-size:17.5px}
 
-/* **הכותרת אינה דביקה, וזו החלטה.** דביקה היא חסמה כותרת מדור בכל
-   קפיצה לעוגן ובתחתית הגלילה — ואין לה מה להציע בדף הזה, כי ה-CTA
-   חוזר למעלה ולמטה. נתפס בבדיקת עין ברוחב 390. */
-header{border-bottom:1px solid var(--line); background:var(--bg)}
-header .wrap{display:flex; align-items:center; gap:12px; padding-top:13px; padding-bottom:13px}
-header b{font-size:16.5px; letter-spacing:-.2px}
-header .spacer{flex:1}
-header a.enter{
-  font-size:15px; text-decoration:none; font-weight:600;
-  /* 44 פיקסלים הוא יעד המגע המינימלי. קישור טקסט "כניסה" היה 20
-     פיקסלים גובה — מספיק לעכבר, לא לאגודל. */
-  display:inline-flex; align-items:center; min-height:44px; padding:0 10px;
-  margin-inline-end:-10px; border-radius:8px;
-}
-
-.btn{
-  display:inline-block; padding:13px 26px; border-radius:9px; font-weight:700; font-size:17px;
-  background:var(--accent); color:#fff; text-decoration:none; border:1px solid var(--accent);
-}
-.btn.ghost{background:var(--bg); color:var(--text); border-color:var(--line); font-weight:600}
-.cta{display:flex; gap:11px; flex-wrap:wrap; margin:24px 0 0}
-
-section{padding:44px 0; border-bottom:1px solid var(--line)}
-section.alt{background:var(--alt)}
-h1{font-size:31px; line-height:1.25; margin:0 0 14px; letter-spacing:-.6px}
-@media (min-width:760px){ h1{font-size:40px} }
-h1 span{color:var(--accent)}
-h2{font-size:22px; margin:0 0 8px; letter-spacing:-.3px}
-@media (min-width:760px){ h2{font-size:25px} }
-p.lead{font-size:18px; color:var(--muted); margin:0 0 6px; max-width:56ch}
-p{margin:0 0 12px; max-width:62ch}
-.muted{color:var(--muted)}
-.small{font-size:15px}
-
-ol.steps{margin:22px 0 0; padding:0; list-style:none; display:grid; gap:14px}
-@media (min-width:760px){ ol.steps{grid-template-columns:repeat(3,1fr); gap:18px} }
-ol.steps li{background:var(--bg); border:1px solid var(--line); border-radius:12px; padding:18px}
-section.alt ol.steps li{background:#fff}
-ol.steps .n{
-  width:29px; height:29px; border-radius:50%; background:var(--accent-soft); color:var(--accent);
+.steps{display:grid; gap:var(--s4); grid-template-columns:1fr}
+@media (min-width:780px){ .steps{grid-template-columns:repeat(3,1fr); gap:var(--s5)} }
+.step{background:var(--paper); border:1px solid var(--ink-150); border-radius:var(--r-lg); padding:var(--s6); box-shadow:var(--shadow-1)}
+section.tint .step{background:var(--ink-50)}
+.step .n{
+  width:34px; height:34px; border-radius:var(--r-sm); background:var(--flame-600); color:#fff;
   display:flex; align-items:center; justify-content:center; font-weight:700; font-size:15px;
-  margin-bottom:10px;
+  margin-bottom:var(--s4); box-shadow:var(--shadow-1);
 }
-ol.steps h3{margin:0 0 4px; font-size:17.5px}
-ol.steps p{margin:0; font-size:15.5px; color:var(--muted)}
+.step h3{margin-bottom:var(--s2)}
+.step p{color:var(--ink-500); font-size:var(--fs-sm)}
 
-.mats{margin:20px 0 0; display:grid; gap:11px}
+.proof{display:grid; gap:var(--s4); grid-template-columns:1fr}
+@media (min-width:680px){ .proof{grid-template-columns:1fr 1fr} }
+.claim{display:flex; gap:var(--s4); align-items:flex-start; padding:var(--s5) 0}
+.claim svg{flex:none; width:22px; height:22px; color:var(--flame-600); margin-top:2px}
+.claim b{display:block; color:var(--ink-900); margin-bottom:3px; font-size:16.5px}
+.claim span{color:var(--ink-500); font-size:var(--fs-sm); line-height:1.6}
+
+.mats{display:grid; gap:var(--s3)}
 .mat{
-  background:var(--bg); border:1px solid var(--line); border-radius:11px;
-  padding:14px 16px; display:flex; gap:12px; align-items:baseline; flex-wrap:wrap;
+  background:var(--paper); border:1px solid var(--ink-150); border-radius:var(--r-md);
+  padding:var(--s4) var(--s5); display:flex; gap:var(--s4); align-items:baseline; flex-wrap:wrap;
 }
-.mat b{font-size:17px}
-.mat .th{
-  color:var(--muted); font-size:15px; font-variant-numeric:tabular-nums;
-  /* ‏"1 · 1.5 · 2 מ"מ" מתהפך בלי הבידוד הזה — נתפס בבדיקת עין ב-390. */
-  direction:ltr; unicode-bidi:isolate;
-}
-.facts{margin:20px 0 0; display:grid; gap:10px}
-@media (min-width:620px){ .facts{grid-template-columns:1fr 1fr} }
-.fact{border:1px solid var(--line); border-radius:11px; padding:13px 15px; background:var(--bg)}
-.fact .k{font-size:13.5px; color:var(--muted)}
-.fact .v{font-size:17px; font-weight:600; margin-top:2px}
-.fact .v.ltr{direction:ltr; unicode-bidi:isolate; text-align:right}
+.mat b{font-size:17px; color:var(--ink-900)}
+.mat .th{color:var(--ink-500); font-size:var(--fs-sm); font-variant-numeric:tabular-nums; direction:ltr; unicode-bidi:isolate}
+.mat .lbl{font-size:var(--fs-xs); color:var(--ink-400); font-weight:600}
 
-.note{border-radius:11px; padding:15px 17px; font-size:16px; line-height:1.6; margin:20px 0 0}
-.note.warn{background:var(--warn-bg); border:1px solid var(--warn-line); color:var(--warn)}
-.note.ok{background:var(--ok-bg); border:1px solid var(--ok-line); color:var(--ok)}
-ul.plain{margin:14px 0 0; padding:0; list-style:none; display:grid; gap:9px; max-width:62ch}
-ul.plain li{display:flex; gap:11px; align-items:flex-start; font-size:16px}
-/* SVG ולא התו "←". תו נשען על הגופן של מערכת ההפעלה, מתיישר אחרת
-   בכל מכשיר, ומקבל משקל אחר ממה שהתכוונו. */
-ul.plain svg{flex:none; width:21px; height:21px; margin-top:3px; color:var(--accent)}
-footer{padding:28px 0 40px; color:var(--muted); font-size:14.5px}
-.hidden{display:none !important}
-
-/* ---- מצבי אינטראקציה ----
-   נוסף 26.8.2026 אחרי ביקורת עיצוב: בכל שבעת המסכים היו **אפס**
-   כללי `:hover`, `:active`, `:focus-visible` ו-`transition`. כפתור
-   שאינו מגיב למגע נראה שבור, וטבעת מיקוד חסרה היא כשל נגישות ולא
-   ליטוש — מי שמנווט במקלדת לא יודע איפה הוא.
-
-   `transform` ו-`opacity` בלבד, כי הם היחידים שהדפדפן מנפיש בכרטיס
-   המסך; `background` ו-`border-color` זולים דיים. אין כאן צל צבעוני,
-   זכוכית או זוהר — ההנחיה הייתה "בהיר, ניגודיות גבוהה, בלי סגנון AI",
-   והיא גוברת על כל המלצת עיצוב כללית. */
-button, .btn, a.enter, a.btn {
-  transition: background-color .18s ease, border-color .18s ease,
-              transform .12s ease, opacity .18s ease;
-}
-button:hover:not([disabled]), .btn:hover { filter: brightness(.94); }
-button.ghost:hover:not([disabled]), .btn.ghost:hover {
-  background: var(--alt, #f2f4f6);
-  border-color: var(--muted);
-}
-button:active:not([disabled]), .btn:active { transform: translateY(1px); }
-a.enter:hover { text-decoration: underline; }
-
-/* טבעת מיקוד אחת לכל מה שאפשר להגיע אליו במקלדת. `:focus-visible`
-   ולא `:focus` — עכבר לא אמור לצייר טבעת. */
-a:focus-visible, button:focus-visible, input:focus-visible,
-select:focus-visible, [tabindex]:focus-visible {
-  outline: 3px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: 6px;
-}
-
-/* כותרת עברית שנשברת ומשאירה מילה בודדת בשורה נראית כמו תקלה. */
-h1, h2, h3 { text-wrap: balance; }
-p, li { text-wrap: pretty; }
-
-/* מי שביקש פחות תנועה מקבל פחות תנועה. */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: .01ms !important;
-    transition-duration: .01ms !important;
-    scroll-behavior: auto !important;
-  }
-}
+.closing{background:var(--ink-900); color:var(--ink-200); border-bottom:none}
+.closing h2{color:#fff}
+.closing p{color:var(--ink-300)}
+.closing .btn-secondary{background:transparent; color:#fff; border-color:var(--ink-600)}
+.closing .btn-secondary:hover{background:var(--ink-800); border-color:var(--ink-500)}
+.closing .fineprint{color:var(--ink-400); font-size:var(--fs-sm); margin-top:var(--s5); max-width:52ch}
+footer{padding:var(--s8) 0 var(--s12); color:var(--ink-400); font-size:var(--fs-sm); background:var(--ink-900)}
+footer .wrap{display:flex; gap:var(--s4); flex-wrap:wrap; align-items:center}
 </style>
 </head>
 <body>
 
-<header><div class="wrap">
-  <b>תמחור חיתוך לייזר</b>
-  <span class="spacer"></span>
-  <a class="enter" href="/login">כניסה</a>
-</div></header>
-
-<main>
-<section><div class="wrap">
-  <h1>כמה עולה <span>החלק שלך</span>?</h1>
-  <p class="lead">
-    מעלים שרטוט או מקלידים מידות, בוחרים חומר ועובי — ומקבלים מחיר.
-    בלי לחכות להצעה במייל ובלי לרדוף אחרי טלפונים.
-  </p>
-  <div class="cta">
-    <a class="btn" href="/signup" id="cta-top">התחלה — פתיחת חשבון</a>
-    <a class="btn ghost" href="/login">כבר יש לי חשבון</a>
+<header class="topbar topbar-dark">
+  <div class="wrap">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M5 8.5A3.5 3.5 0 0 1 8.5 5h9.9L27 13.6v9.9A3.5 3.5 0 0 1 23.5 27h-15A3.5 3.5 0 0 1 5 23.5v-15Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M18.4 5v5.1a3.5 3.5 0 0 0 3.5 3.5H27" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><circle cx="12.4" cy="19.6" r="3" fill="currentColor"/></svg>
+      <span class="name"><b>ימיש כדורי</b><span>חיתוך לייזר</span></span>
+    </a>
+    <span class="spacer"></span>
+    <a class="navlink" href="/login">כניסה</a>
+    <a class="btn btn-primary btn-sm" href="/signup">פתיחת חשבון</a>
   </div>
-  <p class="small muted" style="margin-top:14px">פתיחת החשבון חינם ולוקחת פחות מדקה.</p>
-</div></section>
+</header>
 
-<section class="alt"><div class="wrap">
-  <h2>למה המספר הזה אמין</h2>
-  <p class="lead">הוא לא הערכה על העין. הוא מחושב מהשרטוט שלכם.</p>
-  <ul class="plain">
-    <li><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10.5l4 4 8-9"/></svg><div><b>נמדד מהקובץ:</b> שטח המתכת, אורך החיתוך ומספר החורים — מהשרטוט עצמו, לא מהתרשמות.</div></li>
-    <li><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10.5l4 4 8-9"/></svg><div><b>נספר החומר שבאמת נצרך:</b> החלקים נפרסים על הפלטה, והמחיר מביא בחשבון את מה שיוצא ממנה — לא רק את שטח החלק.</div></li>
-    <li><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10.5l4 4 8-9"/></svg><div><b>אותו חישוב, כל פעם:</b> אותו שרטוט ואותה כמות יחזירו אותו מספר. אין שיקול דעת ואין מצב רוח.</div></li>
-    <li><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10.5l4 4 8-9"/></svg><div><b>אין מחיר משוער:</b> חומר או עובי שאין להם מחיר אצלנו לא מקבלים ניחוש — הם פשוט לא מוצעים.</div></li>
-  </ul>
-  <div class="note ok">
-    <b>הקובץ שלכם לא נשמר אצלנו.</b> הוא נקרא כדי למדוד את החלק, ונמחק מיד אחר כך.
+<div class="hero">
+  <div class="wrap">
+    <div class="hero-grid">
+
+      <div>
+        <span class="eyebrow"><i></i>תמחור מיידי, בלי להמתין להצעה</span>
+        <h1>כמה עולה <em>החלק שלך</em>?</h1>
+        <p class="lead">
+          מעלים שרטוט או מקלידים מידות, בוחרים חומר ועובי — ומקבלים מחיר.
+          בלי טלפונים ובלי לרדוף אחרי הצעה במייל.
+        </p>
+        <div class="cta">
+          <a class="btn btn-primary" href="/signup">פתיחת חשבון — חינם</a>
+          <a class="btn btn-secondary" href="#how">איך זה עובד</a>
+        </div>
+        <p class="fineprint">פחות מדקה. בלי אימייל ובלי טלפון.</p>
+      </div>
+
+      <!-- **החלק עצמו.** לא תמונת סטוק ולא איור גנרי: זה בדיוק סוג
+           הגיאומטריה שהמנוע קורא, עם המידות שהוא מודד ממנה. -->
+      <div class="blueprint" aria-hidden="true">
+        <svg viewBox="0 0 420 300" role="img">
+          <path class="bp-fill" d="M40 62h300a18 18 0 0 1 18 18v140a18 18 0 0 1-18 18H40a18 18 0 0 1-18-18V80a18 18 0 0 1 18-18Z"/>
+          <path class="bp-cut" d="M40 62h300a18 18 0 0 1 18 18v140a18 18 0 0 1-18 18H40a18 18 0 0 1-18-18V80a18 18 0 0 1 18-18Z"/>
+          <path class="bp-cut" d="M150 128h80a14 14 0 0 1 0 28h-80a14 14 0 0 1 0-28Z"/>
+          <circle class="bp-hole" cx="62" cy="102" r="13"/>
+          <circle class="bp-hole" cx="318" cy="102" r="13"/>
+          <circle class="bp-hole" cx="62" cy="198" r="13"/>
+          <circle class="bp-hole" cx="318" cy="198" r="13"/>
+          <g class="bp-dims">
+            <path class="bp-dim" d="M22 44h336M22 38v12M358 38v12"/>
+            <rect x="168" y="30" width="46" height="18" rx="4" fill="#0a0e13"/>
+            <text class="bp-label" x="191" y="43" text-anchor="middle" direction="ltr">400</text>
+            <path class="bp-dim" d="M382 62v176M376 62h12M376 238h12"/>
+            <rect x="368" y="141" width="28" height="18" rx="4" fill="#0a0e13"/>
+            <text class="bp-label" x="382" y="154" text-anchor="middle" direction="ltr">250</text>
+            <path class="bp-dim" d="M62 264h256M62 258v12M318 258v12"/>
+            <text class="bp-label" x="190" y="284" text-anchor="middle" direction="ltr">4 × Ø26</text>
+          </g>
+        </svg>
+        <div class="bp-readout">
+          <div><div class="k">מידות (מ"מ)</div><div class="v">400 × 250</div></div>
+          <div><div class="k">אורך חיתוך</div><div class="v">1.55 מ׳</div></div>
+          <div><div class="k">חורים</div><div class="v">4</div></div>
+          <div><div class="k">ניקובים</div><div class="v">6</div></div>
+        </div>
+      </div>
+
+    </div>
   </div>
-</div></section>
+</div>
 
-<section><div class="wrap">
-  <h2>איך זה עובד</h2>
-  <p class="lead">שלושה שלבים, והכול על המסך.</p>
-  <ol class="steps">
-    <li>
-      <div class="n">1</div>
-      <h3>שולחים את החלק</h3>
-      <p>קובץ שרטוט מסוג DXF, או פשוט מקלידים רוחב, גובה וכמה חורים — אם החלק פשוט.</p>
-    </li>
-    <li>
-      <div class="n">2</div>
-      <h3>בוחרים חומר ועובי</h3>
-      <p>מהרשימה שלמטה, ואת הכמות שאתם צריכים. מחיר ליחידה יורד ככל שמזמינים יותר.</p>
-    </li>
-    <li>
-      <div class="n">3</div>
-      <h3>מקבלים מחיר</h3>
-      <p>סכום אחד, כולל מע"מ, על המסך. אפשר לשנות חומר או כמות ולראות מיד איך המחיר זז.</p>
-    </li>
-  </ol>
-</div></section>
-
-<section class="alt"><div class="wrap">
-  <h2>מה אפשר לחתוך היום</h2>
-  <p class="lead" id="mats-lead">טוען…</p>
-  <div class="mats" id="mats"></div>
-  <div class="facts" id="facts"></div>
-  <p class="small muted" id="mats-note" style="margin-top:16px"></p>
-</div></section>
-
-<section><div class="wrap">
-  <h2>למי זה</h2>
-  <p>
-    לכל מי שקונה חיתוך מתכת ורוצה לדעת כמה זה עולה לפני שהוא מרים טלפון:
-    בעלי מוסך ומסגרייה, נגרים שצריכים פרזול, מהנדסים ומעצבים שבודקים
-    כדאיות, וכל מי שיש לו שרטוט ורוצה מספר.
-  </p>
-  <div class="note warn">
-    <b>המחיר הוא הערכה ואינו הצעה מחייבת.</b>
-    הוא נועד לתת לכם מספר לעבוד איתו. חלק חריג במידות, בחומר או בדרישות
-    הייצור עשוי לקבל תמחור שונה לאחר בדיקה, ולהזמנה קטנה חל מינימום חיוב.
+<section id="how" class="tint">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>שלושה שלבים</h2>
+      <p>הכול על המסך, בלי טופס פנייה ובלי המתנה.</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="n">1</div>
+        <h3>שולחים את החלק</h3>
+        <p>קובץ שרטוט DXF, או פשוט מקלידים רוחב, גובה וכמה חורים — אם החלק פשוט.</p>
+      </div>
+      <div class="step">
+        <div class="n">2</div>
+        <h3>בוחרים חומר ועובי</h3>
+        <p>מהרשימה שלמטה, ואת הכמות שצריך. מחיר ליחידה יורד ככל שמזמינים יותר.</p>
+      </div>
+      <div class="step">
+        <div class="n">3</div>
+        <h3>מקבלים מחיר</h3>
+        <p>סכום אחד כולל מע"מ. משנים חומר או כמות ורואים מיד איך המחיר זז.</p>
+      </div>
+    </div>
   </div>
-</div></section>
+</section>
 
-<section class="alt" id="start"><div class="wrap">
-  <h2>מתחילים</h2>
-  <p class="lead">פותחים חשבון, מעלים חלק, ורואים מחיר. פחות מדקה.</p>
-  <div class="cta">
-    <a class="btn" href="/signup" id="cta-bottom">פתיחת חשבון</a>
-    <a class="btn ghost" href="/login">כניסה</a>
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>למה המספר הזה אמין</h2>
+      <p>כל טענה כאן ניתנת לבדיקה — אין כאן הערכה על העין.</p>
+    </div>
+    <div class="proof">
+      <div class="claim">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 14 3-4 3 3 5-7"/></svg>
+        <div><b>נמדד מהקובץ</b><span>שטח המתכת, אורך החיתוך ומספר החורים נקראים מהשרטוט עצמו.</span></div>
+      </div>
+      <div class="claim">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/></svg>
+        <div><b>נספר החומר שבאמת נצרך</b><span>הפריסה על הפלטה נלקחת בחשבון, ולא רק שטח החלק.</span></div>
+      </div>
+      <div class="claim">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="4"/></svg>
+        <div><b>אותו חישוב בכל פעם</b><span>אותם נתונים נותנים אותו מחיר — לא משנה מי שאל ומתי.</span></div>
+      </div>
+      <div class="claim">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        <div><b>אין מחיר משוער</b><span>חומר או עובי שאין לו מחיר מוגדר מחזיר שגיאה, ולא ניחוש שנראה סביר.</span></div>
+      </div>
+    </div>
   </div>
-  <p class="small muted" style="margin-top:14px">
-    אנחנו לא מבקשים אימייל ולא טלפון — רק שם משתמש וסיסמה. שמרו את הסיסמה,
-    כי אין שחזור אוטומטי.
-  </p>
-</div></section>
+</section>
 
-</main>
+<section class="tint">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>מה אפשר לחתוך היום</h2>
+      <p id="mats-lead">טוען…</p>
+    </div>
+    <div class="mats" id="mats"></div>
+    <div class="stats stats-3" id="facts" style="margin-top:var(--s5)"></div>
+    <p class="tiny" id="mats-note" style="margin-top:var(--s5)"></p>
+  </div>
+</section>
 
-<footer><div class="wrap">
-  תמחור חיתוך לייזר · המחירים המוצגים הם הערכה ואינם מהווים הצעה מחייבת.
-</div></footer>
+<section class="closing">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>מתחילים</h2>
+      <p>פותחים חשבון, מעלים חלק, ורואים מחיר.</p>
+    </div>
+    <div class="cta row">
+      <a class="btn btn-primary" href="/signup" id="cta-bottom">פתיחת חשבון</a>
+      <a class="btn btn-secondary" href="/login">כבר יש לי חשבון</a>
+    </div>
+    <p class="fineprint">
+      אנחנו לא מבקשים אימייל ולא טלפון — רק שם משתמש וסיסמה.
+      שמרו את הסיסמה, כי אין שחזור אוטומטי.
+    </p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>ימיש כדורי · חיתוך לייזר</span>
+    <span class="spacer"></span>
+    <span>המחירים המוצגים הם הערכה ואינם מהווים הצעה מחייבת.</span>
+  </div>
+</footer>
 
 <script>
 'use strict';
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
 const nf = (n) => Number(n).toLocaleString('he-IL');
 
-/* עברית תקינה על כל מספר — "1 חומרים" הוא הסימן שאיש לא קרא את הדף. */
 function materialCount(n) {
-  if (n === 1) return 'חומר אחד';
-  if (n === 2) return 'שני חומרים';
-  return `${nf(n)} חומרים`;
-}
-/* היחידה יושבת בתווית ולא בערך: מחרוזת שמערבבת עברית, מספרים ו-"×"
-   מתהפכת בדפדפן, וזה נתפס בבדיקת עין ברוחב 390. */
-function thicknessList(list) {
-  return list.map(nf).join(' · ');
+  if (n === 1) return 'חומר אחד זמין';
+  if (n === 2) return 'שני חומרים זמינים';
+  return `${nf(n)} חומרים זמינים`;
 }
 
 /* **הרשימה מגיעה מהטבלה החיה ולא מהדף.** דף שכותב "כל החומרים" יוצר
@@ -299,7 +322,6 @@ fetch('/api/offering')
   .then((r) => r.json())
   .then((d) => {
     const lead = document.getElementById('mats-lead');
-    const host = document.getElementById('mats');
     const note = document.getElementById('mats-note');
 
     if (!d.ready || !d.materials.length) {
@@ -308,35 +330,31 @@ fetch('/api/offering')
       return;
     }
 
-    lead.textContent = `${materialCount(d.materials.length)} זמינים לתמחור מיידי כרגע.`;
-    host.innerHTML = d.materials.map((m) => `
-      <div class="mat"><b>${esc(m.name)}</b>
-        <span class="muted small">${m.thicknesses.length === 1 ? 'עובי' : 'עוביים'} (מ"מ):</span>
-        <span class="th">${esc(thicknessList(m.thicknesses))}</span></div>
-    `).join('');
+    lead.textContent = `${materialCount(d.materials.length)} לתמחור מיידי כרגע.`;
+    document.getElementById('mats').innerHTML = d.materials.map((m) => `
+      <div class="mat">
+        <b>${esc(m.name)}</b>
+        <span class="lbl">${m.thicknesses.length === 1 ? 'עובי' : 'עוביים'} (מ"מ)</span>
+        <span class="th">${esc(m.thicknesses.map(nf).join(' · '))}</span>
+      </div>`).join('');
 
     const facts = [];
     if (d.plate) {
       facts.push(['גודל פלטה (מ"מ)', `${nf(d.plate.width_mm)} × ${nf(d.plate.height_mm)}`, true]);
-      facts.push(['חלק גדול מזה', 'נחתך בכמה חלקים ומולחם', false]);
+      facts.push(['חלק גדול מזה', 'נחתך בחלקים ומולחם', false]);
     }
     if (d.max_upload_mb) facts.push(['קובץ שרטוט', `DXF, עד ${nf(d.max_upload_mb)}MB`, false]);
-    facts.push(['בלי שרטוט', 'אפשר להקליד מידות', false]);
     document.getElementById('facts').innerHTML = facts.map(([k, v, ltr]) => `
-      <div class="fact"><div class="k">${esc(k)}</div>
-        <div class="v${ltr ? ' ltr' : ''}">${esc(v)}</div></div>
-    `).join('');
+      <div class="stat"><div class="k">${esc(k)}</div>
+        <div class="v sm${ltr ? ' num' : ''}">${esc(v)}</div></div>`).join('');
 
-    note.textContent =
-      'חומר או עובי שאינו ברשימה עדיין אינו מתומחר כאן, ולא נציג לו מחיר משוער.';
-
+    note.textContent = 'חומר או עובי שאינו ברשימה עדיין אינו מתומחר כאן, ולא נציג לו מחיר משוער.';
     if (d.signup_open === false) {
-      document.querySelectorAll('#cta-top, #cta-bottom').forEach((el) => el.classList.add('hidden'));
+      document.querySelectorAll('[href="/signup"]').forEach((el) => el.classList.add('hidden'));
     }
   })
   .catch(() => {
-    document.getElementById('mats-lead').textContent =
-      'לא ניתן לטעון את רשימת החומרים כרגע.';
+    document.getElementById('mats-lead').textContent = 'לא ניתן לטעון את רשימת החומרים כרגע.';
   });
 </script>
 

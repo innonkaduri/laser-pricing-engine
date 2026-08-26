@@ -1877,11 +1877,29 @@ class TestTheHebrewFontIsServedByUs:
         assert "fonts.g" not in (web / "style.css").read_text(encoding="utf-8")
 
     def test_every_screen_actually_asks_for_assistant(self):
+        """**דרך הקובץ שלו, או דרך מערכת העיצוב.** שתי הדרכים כשרות;
+        מה שאסור הוא מסך שנופל בשקט לגופן של מערכת ההפעלה.
+
+        `brand.css` נוסף 26.8.2026 ואיתו הדרך השנייה — מסך שמקשר
+        אליו יורש ממנו את `@font-face`, ואין טעם לשכפל את ההצהרה.
+        """
         web = Path(__file__).resolve().parent.parent / "web"
+        assert "'Assistant'" in (web / "brand.css").read_text(encoding="utf-8")
         # index.html נשען על style.css, ולכן הוא נבדק דרכו.
         for name in ("landing.html", "quote.html", "dashboard.html", "signup.html",
                      "login.html", "prices.html", "style.css"):
-            assert "'Assistant'" in (web / name).read_text(encoding="utf-8"), name
+            text = (web / name).read_text(encoding="utf-8")
+            asks_directly = "'Assistant'" in text
+            inherits = 'href="/brand.css"' in text
+            assert asks_directly or inherits, f"{name} נופל לגופן של מערכת ההפעלה"
+
+    def test_the_design_system_is_open_like_the_font(self, gated):
+        """מסכי הנחיתה, הכניסה וההרשמה אנונימיים — ובלי הקובץ הזה הם
+        נטענים בלי עיצוב בכלל."""
+        r = gated.get("/brand.css")
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("text/css")
+        assert "fonts.googleapis" not in r.text and "fonts.gstatic" not in r.text
 
     def test_nothing_but_a_woff2_comes_out_of_the_font_path(self, gated):
         """שתי שכבות, ולכן שתי תשובות שונות — ושתיהן דחייה.
