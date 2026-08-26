@@ -253,7 +253,7 @@ $('#clear').addEventListener('click', () => {
   renderParts();
 });
 
-function thumbSvg(d, size = 62) {
+function thumbSvg(d, size = 72) {
   const w = d.bbox.width_mm || 1;
   const h = d.bbox.height_mm || 1;
   const scale = (size - 10) / Math.max(w, h);
@@ -261,10 +261,11 @@ function thumbSvg(d, size = 62) {
     const pts = c.points
       .map(([x, y]) => `${((x - d.bbox.min_x) * scale + 5).toFixed(2)},${((h - (y - d.bbox.min_y)) * scale + 5).toFixed(2)}`)
       .join(' ');
-    const color = c.hole ? '#d9541e' : '#3f74a8';
+    // צבעי המותג ולא כחול-אקראי, וקו עבה מספיק כדי להיראות ב-62 פיקסלים.
+    const color = c.hole ? '#e2570f' : '#c2410c';
     return c.closed
-      ? `<polygon points="${pts}" fill="none" stroke="${color}" stroke-width="1.2"/>`
-      : `<polyline points="${pts}" fill="none" stroke="#9aa3ae" stroke-width="1" stroke-dasharray="3 2"/>`;
+      ? `<polygon points="${pts}" fill="${c.hole ? '#fff' : 'rgba(194,65,12,.08)'}" stroke="${color}" stroke-width="1.8"/>`
+      : `<polyline points="${pts}" fill="none" stroke="#aab6c3" stroke-width="1.2" stroke-dasharray="3 2"/>`;
   }).join('');
   return `<svg class="thumb" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${paths}</svg>`;
 }

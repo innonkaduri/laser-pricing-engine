@@ -3,19 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>מנוע תמחור לייזר</title>
+  <title>גיליון תמחור — ימיש כדורי</title>
+  <link rel="preload" as="font" type="font/woff2" href="/fonts/assistant-hebrew.woff2" crossorigin>
+  <link rel="stylesheet" href="/brand.css">
   <link rel="stylesheet" href="/static/style.css">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>⚙️</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23c2410c'/><path d='M8 11.5A2.5 2.5 0 0 1 10.5 9h7.9L25 15.6v5.9A2.5 2.5 0 0 1 22.5 24h-12A2.5 2.5 0 0 1 8 21.5v-10Z' stroke='white' stroke-width='2' fill='none' stroke-linejoin='round'/><circle cx='13.5' cy='19' r='2.4' fill='white'/></svg>">
 </head>
 <body>
 
-<header>
-  <h1>מנוע תמחור לייזר</h1>
-  <span class="sub" id="plate-label">טוען…</span>
-  <span class="spacer"></span>
-  <span class="sub" id="tariff-source"></span>
-  <span class="sub"><a href="/dashboard" style="color:var(--accent)">מצב המערכת</a></span>
-  <span class="sub" id="whoami"></span>
+<header class="topbar">
+  <div class="wrap-wide">
+    <a class="brand" href="/"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M5 8.5A3.5 3.5 0 0 1 8.5 5h9.9L27 13.6v9.9A3.5 3.5 0 0 1 23.5 27h-15A3.5 3.5 0 0 1 5 23.5v-15Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M18.4 5v5.1a3.5 3.5 0 0 0 3.5 3.5H27" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><circle cx="12.4" cy="19.6" r="3" fill="currentColor"/></svg>
+      <span class="name"><b>ימיש כדורי</b><span>גיליון תמחור פנימי</span></span>
+    </a>
+    <span class="spacer"></span>
+    <span class="sub" id="plate-label"></span>
+    <span class="sub" id="tariff-source"></span>
+    <a class="navlink" href="/dashboard">מצב המערכת</a>
+    <span class="sub" id="whoami"></span>
+  </div>
 </header>
 
 <p class="banner hidden" id="banner"></p>

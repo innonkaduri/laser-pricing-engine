@@ -1033,6 +1033,29 @@ def dashboard() -> dict:
     }
 
 
+def _priced_materials(tariff) -> list[dict]:
+    """חומרים ועוביים שיש להם **גם מחיר פלטה וגם מחיר חיתוך**.
+
+    שורה עם אחד מהם בלבד מייצרת מחיר שחסר בו רכיב, ולכן היא אינה
+    "נתמכת" גם אם היא נראית מלאה למחצה. מקור אחד לשאלה הזאת, וממנו
+    ניזונים גם `/api/offering` (דף הנחיתה) וגם `/api/config` הציבורי
+    (מסך התמחור) — כדי שהדף לא יבטיח משהו שהמסך אינו יודע לספק.
+    """
+    usable: dict[str, dict] = {}
+    for rate in tariff.rates.values():
+        if rate.plate_price <= 0 or rate.cut_rate_per_m <= 0:
+            continue
+        entry = usable.setdefault(
+            rate.material_key,
+            {"key": rate.material_key, "name": rate.material_name, "thicknesses": []},
+        )
+        entry["thicknesses"].append(rate.thickness_mm)
+    return [
+        {"key": m["key"], "name": m["name"], "thicknesses": sorted(m["thicknesses"])}
+        for m in sorted(usable.values(), key=lambda m: str(m["name"]))
+    ]
+
+
 @app.get("/api/offering")
 def offering() -> dict:
     """מה המערכת יודעת לתמחר **היום** — בלי זהות ובלי מחירים.
@@ -1050,19 +1073,7 @@ def offering() -> dict:
     if tariff is None:
         return {"ready": False, "materials": [], "plate": None, "max_upload_mb": None}
 
-    usable: dict[str, dict] = {}
-    for rate in tariff.rates.values():
-        if rate.plate_price <= 0 or rate.cut_rate_per_m <= 0:
-            continue
-        entry = usable.setdefault(
-            rate.material_key, {"name": rate.material_name, "thicknesses": []}
-        )
-        entry["thicknesses"].append(rate.thickness_mm)
-
-    materials = [
-        {"name": m["name"], "thicknesses": sorted(m["thicknesses"])}
-        for m in sorted(usable.values(), key=lambda m: str(m["name"]))
-    ]
+    materials = [{"name": m["name"], "thicknesses": m["thicknesses"]} for m in _priced_materials(tariff)]
     plate = tariff.plate
     return {
         "ready": STATE.is_ready and bool(materials),
@@ -1108,7 +1119,12 @@ def config(request: Request) -> dict:
             "usable_height_mm": round(plate.usable_height, 2),
             "label": plate.label,
         },
-        "materials": tariff.materials,
+        # **לציבור יוצאים רק חומרים שאפשר באמת לתמחר.** בלי הסינון
+        # הזה מסך התמחור מציע אלומיניום כברירת מחדל, המשתמש לוחץ
+        # "חשב מחיר" בפעם הראשונה בחייו — ומקבל 422 אדום. השגיאה
+        # נכונה, אבל להציע בחירה שנועדה להיכשל היא באג במסך ולא
+        # במנוע. אותו כלל בדיוק כמו ב-`/api/offering`.
+        "materials": tariff.materials if detailed else _priced_materials(tariff),
         # יוצא **גם לציבור**: זו הדרישה של האב שההצעה תישא את מקורה
         # ולא באותיות קטנות. מקור המחירים אינו מחיר, ולכן אינו מדליף.
         "price_origin": tariff.price_origin,

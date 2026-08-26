@@ -1971,3 +1971,59 @@ class TestIdentityDependentPagesAreNeverCached:
         assert client.post(
             "/api/login", json={"username": "itai", "password": "sod-arok-1"}
         ).status_code == 200
+
+
+class TestThePublicScreenNeverOffersAFailure:
+    """משתמש חדש לא אמור לקבל שגיאה בלחיצה הראשונה בחייו.
+
+    **נתפס בבדיקה בדפדפן, 26.8.2026.** מסך התמחור בחר את החומר
+    הראשון ברשימה כברירת מחדל — אלומיניום, שאין לו מחיר — והלחיצה
+    הראשונה על "חשב מחיר" החזירה 422 אדום. השגיאה **נכונה**, אבל
+    להציע בחירה שנועדה להיכשל היא באג במסך ולא במנוע.
+    """
+
+    @pytest.fixture
+    def partial(self, client):
+        raw = json.loads(json.dumps(TEST_TARIFF))
+        raw["rates"].append(
+            {"material_key": "alu5083", "material_name": "אלומיניום 5083",
+             "thickness_mm": 1.5, "plate_price": 0.0, "cut_rate_per_m": 0.0}
+        )
+        raw["rates"].append(
+            {"material_key": "st37", "material_name": "פלדה שחורה",
+             "thickness_mm": 5.0, "plate_price": 0.0, "cut_rate_per_m": 0.0}
+        )
+        tariff_store.STATE.replace(raw)
+        return client
+
+    def test_the_public_config_hides_what_cannot_be_priced(self, partial, monkeypatch):
+        monkeypatch.delenv("APP_PASSWORD", raising=False)
+        gated = TestClient(app)
+        assert gated.post(
+            "/api/signup", json={"username": "orach", "password": "sisma-arukah"}
+        ).status_code == 201
+        materials = gated.get("/api/config").json()["materials"]
+        assert [m["name"] for m in materials] == ["פלדה שחורה"]
+        # וגם העובי שאין לו מחיר אינו מוצע.
+        assert materials[0]["thicknesses"] == [3.0]
+
+    def test_an_internal_user_still_sees_everything_that_is_missing(self, partial, monkeypatch):
+        """אבא חייב לראות את השורות הריקות — זו רשימת העבודה שלו."""
+        monkeypatch.delenv("APP_PASSWORD", raising=False)
+        identity.create_user("itai", "sod-arok-1", "איתי", {identity.CAP_QUOTE_USE})
+        gated = TestClient(app)
+        assert gated.post(
+            "/api/login", json={"username": "itai", "password": "sod-arok-1"}
+        ).status_code == 200
+        names = {m["name"] for m in gated.get("/api/config").json()["materials"]}
+        assert "אלומיניום 5083" in names
+
+    def test_the_landing_page_and_the_quote_screen_agree(self, partial, monkeypatch):
+        """מקור אחד לשאלה "מה אפשר לתמחר", כדי שהדף לא יבטיח מה
+        שהמסך אינו יודע לספק."""
+        monkeypatch.delenv("APP_PASSWORD", raising=False)
+        gated = TestClient(app)
+        gated.post("/api/signup", json={"username": "orach", "password": "sisma-arukah"})
+        offering = [m["name"] for m in gated.get("/api/offering").json()["materials"]]
+        config = [m["name"] for m in gated.get("/api/config").json()["materials"]]
+        assert offering == config
