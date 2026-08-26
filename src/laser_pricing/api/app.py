@@ -282,6 +282,34 @@ def _wants_html(request: Request) -> bool:
     return request.method == "GET" and "text/html" in request.headers.get("accept", "")
 
 
+CACHEABLE_ASSETS = ("/fonts/", "/static/", "/brand.css")
+"""מה שזהה לכל אדם ולכן מותר לשמור. כל השאר — לא."""
+
+
+def _no_shared_cache(path: str, response):
+    """תשובה שתלויה בזהות אינה נשמרת במטמון. **נמצא בשטח, 26.8.2026.**
+
+    ינון נרשם, החשבון נוצר, והדפדפן החזיר אותו לדף הנחיתה. הסיבה לא
+    הייתה בשרת: `/` מחזיר **תוכן שונה לכל זהות** — נחיתה לאנונימי,
+    מסך תמחור לנרשם, גיליון פנימי למי שרשאי — אבל `FileResponse` שלח
+    `ETag` ו-`Last-Modified` **בלי `Cache-Control` ובלי `Vary`**.
+    הדפדפן שמר את דף הנחיתה תחת הכתובת `/`, ואחרי ההרשמה הגיש את
+    העותק השמור. **החשבון נוצר; המסך היה ישן.**
+
+    ומעבר לבלבול: בלי `private`, מטמון משותף (proxy, CDN) היה רשאי
+    להגיש את המסך של משתמש אחד לאחר.
+
+    הכותרת נקבעת **כאן ולא בכל מסלול בנפרד**, כי מסלול חדש שיישכח
+    הוא בדיוק הבאג הזה שוב.
+    """
+    if path.startswith(CACHEABLE_ASSETS):
+        return response
+    response.headers["Cache-Control"] = "private, no-store"
+    existing = response.headers.get("Vary")
+    response.headers["Vary"] = f"{existing}, Cookie" if existing else "Cookie"
+    return response
+
+
 @app.middleware("http")
 async def auth_gate(request: Request, call_next):
     """מי אתה, ומה מותר לך.
@@ -289,8 +317,15 @@ async def auth_gate(request: Request, call_next):
     כל הזהות מגיעה מ-`identity.current_user` — סשן, Basic, או טוקן
     שירות של ה-CRM. הקובץ הזה מחליט רק *מה נדרש לאיזה מסלול*, ולא
     מאיפה מגיעה הזהות; החלפת מקור הזהות ל-CRM לא נוגעת כאן.
+
+    **יציאה אחת.** ההחלטה מחושבת ב-`_decide`, והכותרות נקבעות כאן
+    פעם אחת — כדי שיציאה מוקדמת חדשה לא תוכל לפספס אותן.
     """
     path = request.url.path
+    return _no_shared_cache(path, await _decide(request, call_next, path))
+
+
+async def _decide(request: Request, call_next, path: str):
     if path in OPEN_PATHS or _is_font_path(path) or _is_brand_css(path) or not _gate_is_on():
         return await call_next(request)
 

@@ -1917,3 +1917,57 @@ class TestTheHebrewFontIsServedByUs:
             r = gated.get(f"/fonts/{evil}")
             assert r.status_code in (401, 404), f"{evil} → {r.status_code}"
             assert r.content[:4] != b"wOF2", evil
+
+
+class TestIdentityDependentPagesAreNeverCached:
+    """`/` מחזיר תוכן שונה לכל זהות, ולכן אסור לשמור אותו.
+
+    **נמצא בשטח 26.8.2026, ולא בבדיקה:** ינון נרשם, החשבון נוצר,
+    והדפדפן החזיר אותו לדף הנחיתה. `FileResponse` שלח `ETag`
+    ו-`Last-Modified` בלי `Cache-Control` ובלי `Vary`, הדפדפן שמר
+    את דף הנחיתה תחת הכתובת `/`, ואחרי ההרשמה הגיש את העותק השמור.
+    **החשבון נוצר; המסך היה ישן.**
+    """
+
+    @pytest.fixture
+    def gated(self, monkeypatch):
+        monkeypatch.delenv("APP_PASSWORD", raising=False)
+        identity.create_user("itai", "sod-arok-1", "איתי", {identity.CAP_QUOTE_USE})
+        return TestClient(app)
+
+    def test_the_root_says_private_and_varies_on_the_cookie(self, gated):
+        r = gated.get("/", headers={"accept": "text/html"})
+        assert r.status_code == 200
+        assert "no-store" in r.headers["cache-control"]
+        assert "private" in r.headers["cache-control"]
+        assert "Cookie" in r.headers["vary"]
+
+    def test_the_same_url_really_does_serve_different_screens(self, gated):
+        """זו הסיבה שהמטמון מסוכן כאן, ולא רק מבלבל."""
+        anon = gated.get("/", headers={"accept": "text/html"}).text
+        assert gated.post(
+            "/api/login", json={"username": "itai", "password": "sod-arok-1"}
+        ).status_code == 200
+        signed_in = gated.get("/", headers={"accept": "text/html"}).text
+        assert anon != signed_in
+        assert "פתיחת חשבון" in anon and "פתיחת חשבון" not in signed_in
+
+    def test_every_screen_and_api_refuses_to_be_stored(self, gated):
+        self._login(gated)
+        for path in ("/", "/dashboard", "/login", "/signup", "/api/me", "/api/config",
+                     "/api/offering", "/health"):
+            r = gated.get(path, headers={"accept": "text/html"}, follow_redirects=False)
+            assert "no-store" in r.headers.get("cache-control", ""), path
+
+    def test_the_font_and_the_design_system_are_still_cached(self, gated):
+        """הם זהים לכל אדם. לבטל להם את המטמון היה מעניש בלי סיבה."""
+        font = gated.get("/fonts/assistant-hebrew.woff2")
+        assert "immutable" in font.headers["cache-control"]
+        css = gated.get("/brand.css")
+        assert "no-store" not in css.headers.get("cache-control", "")
+        assert "max-age" in css.headers["cache-control"]
+
+    def _login(self, client):
+        assert client.post(
+            "/api/login", json={"username": "itai", "password": "sod-arok-1"}
+        ).status_code == 200
