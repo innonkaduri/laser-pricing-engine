@@ -2273,11 +2273,29 @@ class TestTheCatalogCarriesNoPrices:
         assert "price" not in json.dumps(data)
 
     def test_the_preview_marks_where_a_bent_part_folds(self, priced_client):
-        data = priced_client.post("/api/catalog/angle-bracket/preview", json={"values": {}}).json()
+        """קו הכיפוף יושב במרכז אזור הכיפוף, ולא בקודקוד החד.
+
+        **עד 27.8.2026 הוא ישב על 80 — סוף השוק לפי המידה החיצונית.**
+        זה הקודקוד התיאורטי, ואין שם חומר: הפח מתעגל, והמכבש מיישר
+        את הסכין למרכז הקשת. ההפרש הוא הנסיגה פחות חצי קצבה, והוא
+        גדל עם העובי — ולכן הבדיקה נשענת על הנוסחה ולא על מספר.
+        """
+        from laser_pricing.domain.folding import BendSpec, bend_allowance, outside_setback
+
+        thickness = 2.0
+        data = priced_client.post(
+            "/api/catalog/angle-bracket/preview",
+            json={"values": {}, "thickness_mm": thickness},
+        ).json()
         assert data["bend_count"] == 1
         assert len(data["fold_lines"]) == 1
-        # קו הכיפוף יושב בסוף השוק הראשונה, ברירת המחדל 80 מ"מ.
-        assert data["fold_lines"][0][0] == pytest.approx(80.0)
+        bend = BendSpec()
+        radius = bend.radius_for(thickness)
+        pull = outside_setback(90, radius, thickness) - bend_allowance(
+            90, radius, thickness, bend.k_factor
+        ) / 2
+        assert data["fold_lines"][0][0] == pytest.approx(80.0 - pull, abs=1e-3)
+        assert pull > 0, "כיפוף חייב למשוך את הקו פנימה, לא החוצה"
 
     def test_no_catalog_product_needs_splitting_at_its_largest(self):
         """התקרות בקטלוג נבחרו כך שאין מוצר שדורש ריתוך.
@@ -2714,13 +2732,48 @@ class TestTheSolidViewIsTheSamePartAsTheFlatOne:
             assert flat[field] == solid[field], field
 
     def test_the_solid_reports_the_body_and_the_flat_reports_the_blank(self, priced_client):
-        """מגש 300×200 עם דופן 50 נחתך מפריסה של 400×300. שתיהן נכונות."""
+        """מגש 300×200 דופן 50: הגוף 300×200×50, הפריסה **קטנה מ-400×300**.
+
+        סכום המקטעים הוא 400×300 וזו פריסה שאי אפשר לחתוך לפיה:
+        החומר נמתח בקשת, והחלק היה יוצא גדול מדי בכל כיוון. הבדיקה
+        נועלת את שני הצדדים — שהמוצר נשאר בדיוק מה שהוזמן, ושהפריסה
+        התכווצה בדיוק בניכוי אחד לכל כיפוף.
+        """
+        from laser_pricing.domain.folding import BendSpec, bend_deduction
+
+        thickness = 2.0
         solid = priced_client.post(
             "/api/catalog/tray-4-sides/preview",
-            json={"values": {"width_mm": 300, "depth_mm": 200, "wall_mm": 50}, "view": "solid"},
+            json={
+                "values": {"width_mm": 300, "depth_mm": 200, "wall_mm": 50},
+                "view": "solid",
+                "thickness_mm": thickness,
+            },
         ).json()
-        assert [solid["bbox"]["width_mm"], solid["bbox"]["height_mm"]] == [400.0, 300.0]
+        bend = BendSpec()
+        drop = 2 * bend_deduction(90, bend.radius_for(thickness), thickness, bend.k_factor)
+        assert solid["bbox"]["width_mm"] == pytest.approx(400.0 - drop, abs=1e-3)
+        assert solid["bbox"]["height_mm"] == pytest.approx(300.0 - drop, abs=1e-3)
         assert sorted(solid["model"]["size_mm"]) == [50.0, 200.0, 300.0]
+
+    def test_the_blank_shrinks_with_thickness_and_the_product_never_does(self, priced_client):
+        """אותו מוצר בשלושה עוביים: שלוש פריסות, מוצר אחד.
+
+        **זה הפער שהופך קובץ לחלק פגום.** עד שנוסף הניכוי, מגש
+        ב-1 מ"מ וב-6 מ"מ נחתכו מאותה פריסה בדיוק — ורק אחד מהם
+        יכול היה לצאת במידה.
+        """
+        blanks = []
+        for thickness in (1.0, 3.0, 6.0):
+            solid = priced_client.post(
+                "/api/catalog/tray-4-sides/preview",
+                json={"values": {}, "view": "solid", "thickness_mm": thickness},
+            ).json()
+            blanks.append(solid["bbox"]["width_mm"])
+            assert sorted(solid["model"]["size_mm"]) == [50.0, 200.0, 300.0]
+        assert blanks[0] > blanks[1] > blanks[2], blanks
+        assert blanks[0] == pytest.approx(396.0, abs=1e-3), "נמדד מול זאמיט 27.8.2026"
+        assert blanks[1] == pytest.approx(388.0, abs=1e-3), "נמדד מול זאמיט 27.8.2026"
 
     def test_a_flat_product_is_a_body_too_and_its_height_is_the_thickness(self, priced_client):
         solid = priced_client.post(
@@ -2762,3 +2815,86 @@ class TestTheSolidViewIsTheSamePartAsTheFlatOne:
         assert thin["cut_length_mm"] == thick["cut_length_mm"]
         assert min(thin["model"]["size_mm"]) == 1.0
         assert min(thick["model"]["size_mm"]) == 10.0
+
+
+class TestTheProductionFile:
+    """DXF שיוצא למכונה — ומה שאסור שיהיה בו.
+
+    **הבדיקה המרכזית כאן היא הלוך-ושוב.** הקובץ נכתב, נקרא חזרה
+    ב-`read_dxf` — אותו מחלץ שקורא קבצים של לקוחות — ונמדד. אם
+    אורך החיתוך שחוזר אינו אורך החיתוך שתומחר, אז מישהו משלם על
+    חלק אחד ומקבל אחר, ואין דרך אחרת לגלות את זה.
+    """
+
+    def _download(self, client, product="tray-4-sides", **query):
+        params = "&".join(f"{k}={v}" for k, v in query.items())
+        return client.get(f"/api/catalog/{product}/dxf?{params}")
+
+    def test_the_cut_file_measures_what_was_priced(self, priced_client, tmp_path):
+        from laser_pricing.cad.dxf_reader import read_dxf
+        from laser_pricing.api.serialize import geometry_to_json
+
+        preview = priced_client.post(
+            "/api/catalog/tray-4-sides/preview",
+            json={"values": {}, "view": "flat", "thickness_mm": 3.0},
+        ).json()
+        response = self._download(priced_client, thickness_mm=3.0)
+        assert response.status_code == 200, response.text
+
+        path = tmp_path / "cut.dxf"
+        path.write_bytes(response.content)
+        again = geometry_to_json(read_dxf(str(path)).geometry)
+        assert again["cut_length_mm"] == pytest.approx(preview["cut_length_mm"], rel=1e-3)
+        assert again["bbox"]["width_mm"] == pytest.approx(preview["bbox"]["width_mm"], abs=1e-3)
+        assert again["bbox"]["height_mm"] == pytest.approx(preview["bbox"]["height_mm"], abs=1e-3)
+        assert again["holes"] == preview["holes"]
+
+    def test_the_cut_file_carries_no_bend_line(self, priced_client):
+        """**קו כיפוף שנשלח ללייזר נחתך.** החלק יוצא משם חצוי."""
+        import ezdxf, io
+
+        response = self._download(priced_client, thickness_mm=1.0)
+        doc = ezdxf.read(io.StringIO(response.content.decode("utf-8")))
+        layers = {e.dxf.layer for e in doc.modelspace()}
+        assert layers == {"CUT"}, layers
+        assert not [e for e in doc.modelspace() if e.dxftype() in ("LINE", "TEXT", "MTEXT")]
+
+    def test_the_bend_sheet_carries_one_line_per_bend(self, priced_client):
+        import ezdxf, io
+
+        response = self._download(priced_client, target="bend", thickness_mm=1.0)
+        assert response.status_code == 200, response.text
+        doc = ezdxf.read(io.StringIO(response.content.decode("utf-8")))
+        bends = [e for e in doc.modelspace() if e.dxf.layer == "BEND"]
+        assert len(bends) == 4, "למגש ארבע דפנות יש ארבעה כיפופים"
+        assert [e for e in doc.modelspace() if e.dxf.layer == "OUTLINE"], "אין מתאר עזר"
+
+    def test_a_flat_product_has_no_bend_sheet_and_says_so(self, priced_client):
+        response = self._download(priced_client, product="base-plate", target="bend")
+        assert response.status_code == 422
+        assert "אינו מוצר מכופף" in response.json()["detail"]
+
+    def test_the_file_changes_with_thickness_and_the_name_says_which(self, priced_client):
+        """שני קבצים בשם זהה על אותו שולחן הם החלק השגוי שנחתך."""
+        thin = self._download(priced_client, thickness_mm=1.0)
+        thick = self._download(priced_client, thickness_mm=6.0)
+        assert thin.content != thick.content
+        assert "t1-cut.dxf" in thin.headers["content-disposition"]
+        assert "t6-cut.dxf" in thick.headers["content-disposition"]
+
+    def test_the_file_carries_no_identity(self, priced_client):
+        """DXF נוסע. הוא נושא צורה, ולא מי הזמין אותה."""
+        body = self._download(priced_client, thickness_mm=2.0).content.decode("utf-8")
+        # `@` ו-"ezdxf" מופיעים בחתימת הספרייה עצמה ואינם זהות.
+        for secret in ("innon", "ימיש", "לקוח", "quote:", "price", "session"):
+            assert secret not in body, secret
+
+    def test_a_public_signup_cannot_take_the_production_file(self, client, monkeypatch):
+        """מי שנרשם כדי לראות מחיר אחד לא ביקש את קובץ הייצור."""
+        monkeypatch.setenv("APP_PASSWORD", "x")
+        assert client.post(
+            "/api/signup", json={"username": "kobi", "password": "sixteen-chars-ok"}
+        ).status_code in (200, 201)
+        response = client.get("/api/catalog/tray-4-sides/dxf?thickness_mm=1")
+        assert response.status_code == 403
+        assert "פנימי" in response.json()["detail"]

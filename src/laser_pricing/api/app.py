@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 
 from ..cad.base import CadReadError
 from ..cad.dxf_reader import read_dxf
+from ..cad.dxf_writer import DxfError, bend_dxf, cut_dxf
 from ..domain.folding import FlatPanel, bounds as solid_bounds, fold as fold_panels
 from ..domain.geometry import Contour, PartGeometry, circle, rectangle
 from ..domain.part import Part, PartSource
@@ -1597,16 +1598,29 @@ def _require_product(product_id: str) -> catalog_mod.Product:
     return product
 
 
-def _blank(product: catalog_mod.Product, values: dict) -> catalog_mod.Blank:
+def _blank(
+    product: catalog_mod.Product, values: dict, thickness_mm: float | None = None
+) -> catalog_mod.Blank:
+    """הפריסה של המוצר. **עם עובי — מנוכה; בלי — פריסת אפקס.**
+
+    פריסת האפקס היא המידות החיצוניות של המוצר, וזו התשובה הנכונה
+    לשאלה "כמה גדול הדבר הזה". הפריסה המנוכה היא מה שנחתך בפועל,
+    והיא תלויה בעובי — ולכן אותו מוצר בשני עוביים הוא שני קבצים.
+    """
     try:
-        return catalog_mod.build(product, values)
+        return catalog_mod.build(product, values, thickness_mm=thickness_mm)
     except catalog_mod.CatalogError as exc:
         # 400 ולא 422: המידות שהתקבלו אינן ניתנות לייצור, וזו טענה על
         # הקלט ולא על הטבלה. ההודעה אומרת מה הגבול ולא רק "לא חוקי".
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-def _model3d(blank: catalog_mod.Blank, data: dict, thickness: float) -> dict:
+def _model3d(
+    blank: catalog_mod.Blank,
+    data: dict,
+    thickness: float,
+    nominal: catalog_mod.Blank | None = None,
+) -> dict:
     """הפריסה, מקופלת. **מאותם מתארים שתומחרו, ולא ממודל שני.**
 
     החורים נלקחים מהתשובה הדו-ממדית **אחרי הדילול**, ולא מהגיאומטריה
@@ -1644,6 +1658,28 @@ def _model3d(blank: catalog_mod.Blank, data: dict, thickness: float) -> dict:
         for face in faces
     ]
     low, high = solid_bounds(thick_faces)
+    # **המידה שמוצגת היא של המוצר שהוזמן, לא של הרינדור.** הגוף
+    # מצויר מהפריסה המנוכה, וקשת הכיפוף מקורבת בשישה מיתרים; המספר
+    # שהלקוח מודד בו את הארון חייב להיות זה שהוא הזין, ולא תוצאה
+    # של קירוב גרפי שנע בעשיריות מ"מ עם העובי.
+    size = [round(high[i] - low[i], 1) for i in range(3)]
+    if nominal is not None and nominal.panels:
+        exact = fold_panels(nominal.panels, [])
+        thick_exact = list(exact) + [
+            type(face)(
+                outline=[
+                    (
+                        v[0] + face.normal[0] * thickness,
+                        v[1] + face.normal[1] * thickness,
+                        v[2] + face.normal[2] * thickness,
+                    )
+                    for v in face.outline
+                ]
+            )
+            for face in exact
+        ]
+        nlow, nhigh = solid_bounds(thick_exact)
+        size = [round(nhigh[i] - nlow[i], 1) for i in range(3)]
 
     def p3(point) -> list[float]:
         return [round(point[0] - low[0], 2), round(point[1] - low[1], 2), round(point[2] - low[2], 2)]
@@ -1653,7 +1689,7 @@ def _model3d(blank: catalog_mod.Blank, data: dict, thickness: float) -> dict:
         # **המידות של הגוף, לא של הפריסה.** מגש 300×200 עם דופן 50
         # נחתך מפריסה של 400×300, ושתי השורות נכונות — אבל זו
         # שהלקוח מודד בה את הארון היא הזאת.
-        "size_mm": [round(high[i] - low[i], 1) for i in range(3)],
+        "size_mm": size,
         "faces": [
             {
                 "outline": [p3(v) for v in face.outline],
@@ -1688,7 +1724,7 @@ def catalog_preview(product_id: str, body: CatalogPreviewRequest, request: Reque
         raise HTTPException(status_code=429, detail="יותר מדי הדמיות. נסה שוב בעוד כמה דקות.")
 
     product = _require_product(product_id)
-    blank = _blank(product, body.values)
+    blank = _blank(product, body.values, body.thickness_mm)
     geometry = _build_manual_geometry(ManualPartSpec(name=product.name, **blank.spec))
     plan = plan_split(geometry.bbox, _plate())
     # **הדילול הוא של התצוגה בלבד.** השטח, אורך החיתוך ומספר
@@ -1707,9 +1743,89 @@ def catalog_preview(product_id: str, body: CatalogPreviewRequest, request: Reque
     if body.view == "solid":
         # החורים כבר נשלחים פעם אחת בתוך המודל; שליחתם שוב כמתארים
         # דו-ממדיים מכפילה את התשובה בשביל תצוגה שאיש לא רואה כרגע.
-        answer["model"] = _model3d(blank, data, body.thickness_mm)
+        answer["model"] = _model3d(blank, data, body.thickness_mm, _blank(product, body.values))
         answer.pop("contours", None)
     return answer
+
+
+PRODUCTION_TARGETS = ("cut", "bend")
+
+
+@app.get("/api/catalog/{product_id}/dxf")
+def catalog_dxf(product_id: str, request: Request) -> Response:
+    """הפריסה כקובץ למכונה. **`target=cut` ללייזר, `target=bend` למכבש.**
+
+    שני קבצים ולא אחד, כי אלה שתי מכונות: קובץ החיתוך אינו מכיל
+    קווי כיפוף כלל, מפני ש**קו כיפוף שנשלח ללייזר נחתך**.
+
+    **העובי הוא חלק מהזהות של הקובץ ולא קישוט.** ניכוי הכיפוף תלוי
+    בו, ולכן אותו מוצר בשני עוביים הוא שתי פריסות שונות. הוא נכנס
+    לשם הקובץ מאותה סיבה: שני קבצים בשם זהה על אותו שולחן הם החלק
+    השגוי שנחתך.
+
+    **נעול מאחורי `quote:use` ולא פתוח לכל נרשם.** קובץ ייצור הוא
+    ההזמנה עצמה, ומי שרשום כדי לראות מחיר אחד לא ביקש אותו. לפתוח
+    את זה בהמשך זו שורה אחת; קובץ שכבר יצא לא חוזר.
+    """
+    # **בלי `_guard_public_engine` כאן, ובכוונה.** השומר הזה מחזיר 503
+    # כשהטבלה אינה טעונה — נכון להצעת מחיר, וחסר משמעות לקובץ שאין
+    # בו שקל. מי שאין לו `quote:use` מקבל 403 בלי קשר למצב הטבלה,
+    # וזו התשובה הנכונה: הוא לא היה מקבל את הקובץ גם אם היה מחיר.
+    if not _sees_breakdown(request):
+        raise HTTPException(
+            status_code=403,
+            detail="קובץ הייצור נועד לשימוש פנימי. פנה אלינו כדי לקבל את החלק.",
+        )
+    product = _require_product(product_id)
+
+    target = request.query_params.get("target", "cut")
+    if target not in PRODUCTION_TARGETS:
+        raise HTTPException(status_code=400, detail=f"target חייב להיות cut או bend. התקבל {target!r}.")
+    try:
+        thickness = float(request.query_params.get("thickness_mm", "2"))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="thickness_mm אינו מספר.") from None
+    if not 0 < thickness <= 50:
+        raise HTTPException(status_code=400, detail="thickness_mm חייב להיות בין 0 ל-50.")
+
+    values = {
+        param.key: request.query_params[param.key]
+        for param in product.params
+        if param.key in request.query_params
+    }
+    blank = _blank(product, values, thickness)
+    if target == "bend" and not blank.fold_lines:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{product.name} אינו מוצר מכופף — אין לו דף כיפוף. הורד את קובץ החיתוך.",
+        )
+
+    resolved = catalog_mod.resolve(product, values)
+    stamp = "x".join(f"{resolved[param.key]:g}" for param in product.params[:3])
+    try:
+        if target == "cut":
+            payload = cut_dxf(blank.spec)
+        else:
+            payload = bend_dxf(
+                blank.spec,
+                blank.fold_lines,
+                title=f"{product.id} {stamp}",
+                thickness_mm=thickness,
+            )
+    except DxfError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    name = f"{product.id}-{stamp}-t{thickness:g}-{target}.dxf"
+    return Response(
+        content=payload,
+        media_type="application/dxf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{name}"',
+            # קובץ ייצור נגזר מזהות (מי רשאי לראותו) ומהמידות; מטמון
+            # משותף היה מגיש אותו למי שאינו רשאי.
+            "Cache-Control": "private, no-store",
+        },
+    )
 
 
 @app.post("/api/catalog/{product_id}/quote")
@@ -1727,7 +1843,7 @@ def catalog_quote(product_id: str, body: CatalogQuoteRequest, request: Request) 
     _guard_public_engine(request)
     tariff = _require_tariff()
     product = _require_product(product_id)
-    blank = _blank(product, body.values)
+    blank = _blank(product, body.values, body.thickness_mm)
     geometry = _build_manual_geometry(ManualPartSpec(name=product.name, **blank.spec))
 
     try:

@@ -27,7 +27,7 @@ import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..domain.folding import FlatPanel
+from ..domain.folding import BendSpec, FlatPanel, Fold, folds_of, panel_tangents, shift_flat
 
 CATALOG_PATH = Path(__file__).resolve().parents[3] / "config" / "catalog.json"
 """הקטלוג יושב **בעץ ה-git ולא ב-`/var/lib/laser`**, בכוונה.
@@ -772,13 +772,118 @@ def resolve(product: Product, values: dict) -> dict[str, float]:
     return clean
 
 
-def build(product: Product, values: dict) -> Blank:
-    """מידות → פריסה שטוחה. הערכים מנוקים כאן, לא אצל הקורא."""
-    return BUILDERS[product.builder](resolve(product, values))
+def _rect_points(spec: dict) -> list[tuple[float, float]]:
+    w, h = spec["width_mm"], spec["height_mm"]
+    return [(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)]
+
+
+def deduct(blank: Blank, thickness: float, bend: BendSpec | None = None) -> Blank:
+    """פריסת אפקס → פריסה שאפשר לחתוך.
+
+    **עד 27.8.2026 לא היה כאן שלב כזה בכלל.** הבנאים סוכמים מקטעים
+    לפי המידות החיצוניות, וזה נכון לתמחור: הוא שוגה לכיוון של *יותר*
+    חומר. ברגע שמייצאים קובץ לחיתוך זה מפסיק להיות שמרנות והופך
+    לחלק פגום — הפח נמתח בקשת, ומגש שנחתך 400×300 יוצא ‎4 מ"מ גדול
+    מדי בכל כיוון.
+
+    **מוצר שטוח עובר כאן בלי לזוז.** אין לו כיפופים, אין מה לנכות,
+    והפונקציה מחזירה את אותו `Blank`.
+    """
+    if not blank.panels or bend is None:
+        return blank
+    folds = folds_of(blank.panels, thickness, bend)
+    if not folds:
+        return blank
+
+    spec = dict(blank.spec)
+    if spec.get("shape") == "rect":
+        spec = {"shape": "polygon", "points": _rect_points(spec)}
+    if spec.get("shape") != "polygon":
+        # עיגול אינו מתקפל בבנאי קיים; אם יתקפל, עדיף להיכשל כאן
+        # מאשר לייצא קובץ שנראה נכון ואינו.
+        raise CatalogError("ניכוי כיפוף נתמך רק על פריסה מצולעת.")
+
+    spec["points"] = [list(shift_flat(tuple(pt), folds)) for pt in spec["points"]]
+    if spec.get("holes"):
+        moved = []
+        for hole in spec["holes"]:
+            x, y = shift_flat((hole["x_mm"], hole["y_mm"]), folds)
+            moved.append({**hole, "x_mm": round(x, 4), "y_mm": round(y, 4)})
+        spec["holes"] = moved
+    if spec.get("cutouts"):
+        spec["cutouts"] = [
+            [list(shift_flat(tuple(pt), folds)) for pt in cut] for cut in spec["cutouts"]
+        ]
+
+    lines: list[list[float]] = []
+    for index, fold in enumerate(folds):
+        others = [f for i, f in enumerate(folds) if i != index]
+        # מרכז אזור הכיפוף, ולא הקודקוד החד: זה הקו שמפעיל המכבש
+        # מיישר אליו את הסכין.
+        pull = fold.allowance / 2.0 - fold.setback
+        ends = []
+        for point in ((fold.origin[0], fold.origin[1]),
+                      (fold.origin[0] + fold.direction[0] * fold.length,
+                       fold.origin[1] + fold.direction[1] * fold.length)):
+            x, y = shift_flat(point, others)
+            ends.extend([round(x + fold.normal[0] * pull, 4), round(y + fold.normal[1] * pull, 4)])
+        lines.append(ends)
+
+    tangents = panel_tangents(blank.panels, folds)
+    panels = []
+    cursor = 0
+    for panel, shape in zip(blank.panels, tangents):
+        # **אינדקס הכיפוף אינו אינדקס הלוח.** רק לוח עם אב תורם קו,
+        # ולכן מונה נפרד — טעות כאן מקפלת דופן סביב הציר של שכנתה
+        # והגוף יוצא מעוות בשקט.
+        axis, gap = None, 0.0
+        if panel.fold_axis is not None:
+            axis, gap = tuple(lines[cursor]), folds[cursor].allowance
+            cursor += 1
+        panels.append(
+            FlatPanel(
+                outline=[shift_flat(pt, folds) for pt in shape],
+                parent=panel.parent,
+                fold_axis=axis,
+                angle_deg=panel.angle_deg,
+                label=panel.label,
+                bend_gap=gap,
+            )
+        )
+
+    length = sum(
+        math.hypot(line[2] - line[0], line[3] - line[1]) for line in lines
+    )
+    return Blank(
+        spec=spec,
+        bend_count=blank.bend_count,
+        bend_length_mm=round(length, 3),
+        fold_lines=lines,
+        panels=panels,
+    )
+
+
+def build(
+    product: Product,
+    values: dict,
+    thickness_mm: float | None = None,
+    bend: BendSpec | None = None,
+) -> Blank:
+    """מידות → פריסה שטוחה. הערכים מנוקים כאן, לא אצל הקורא.
+
+    `thickness_mm` הוא מה שהופך פריסת אפקס לפריסה שאפשר לחתוך —
+    ניכוי הכיפוף תלוי בעובי, ולכן אותו מוצר בשני עוביים הוא שני
+    קבצים שונים.
+    """
+    blank = BUILDERS[product.builder](resolve(product, values))
+    if thickness_mm is None or not blank.panels:
+        return blank
+    return deduct(blank, thickness_mm, bend or BendSpec())
 
 
 __all__ = [
     "BUILDERS",
+    "BendSpec",
     "Blank",
     "Catalog",
     "CatalogError",
@@ -786,6 +891,7 @@ __all__ = [
     "Param",
     "Product",
     "build",
+    "deduct",
     "load",
     "resolve",
 ]

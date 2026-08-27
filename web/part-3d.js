@@ -9,13 +9,13 @@
  * **וזה לא מודל שני.** ה-`faces` מגיעים מהשרת, מקופלים מאותה פריסה
  * שממנה חושבו השטח ואורך החיתוך. אין כאן גיאומטריה שנוצרת בדפדפן.
  *
- * מה שהתצוגה הזאת במפורש אינה מראה: רדיוס כיפוף. פח אמיתי מתקפל
- * בקשת ולא בקו, והרדיוס תלוי בעובי ובכלי של המכונה. הפינות כאן
- * חדות, בדיוק כמו שהפריסה מחושבת בלי ניכוי כיפוף.
+ * **הפינות כאן מעוגלות מאז 27.8.2026, וזה לא קוסמטיקה.** פח אמיתי
+ * מתקפל בקשת ולא בקו, והשרת מקפל היום סביב רדיוס — אותו רדיוס שממנו
+ * נגזר ניכוי הכיפוף בפריסה. פינה חדה על המסך הייתה מבטיחה מוצר
+ * שהמכבש אינו יודע לייצר, ומידה חיצונית שאינה זו שהוזמנה.
  */
 
 const LIGHT = normalize([-0.35, -0.75, 0.55]);
-const HOLE_WALL_BUDGET = 420;
 
 function normalize(v) {
   const n = Math.hypot(v[0], v[1], v[2]) || 1;
@@ -23,11 +23,18 @@ function normalize(v) {
 }
 
 function shade(normal, base) {
-  /* למברט עם תאורת סביבה. הפח כאן מוצג כמתכת מוברשת ולא כמראה:
-     הבהק הספקולרי היה דורש מודל תאורה שלם, ובלעדיו מתכת מטה נראית
-     יותר משכנעת מפלסטיק מבריק. */
-  const d = Math.abs(normal[0] * LIGHT[0] + normal[1] * LIGHT[1] + normal[2] * LIGHT[2]);
-  const k = 0.42 + 0.58 * d;
+  /* למברט עם תאורת סביבה, **בסימן ולא בערך מוחלט.**
+
+     עד 27.8.2026 עמד כאן `Math.abs`, וזה נראה כמו פרט טכני: הוא
+     נתן לפאה ולהפוכה שלה **בדיוק אותו גוון**. התוצאה היא שקופסה
+     מסובבת לזווית נמוכה מאבדת את ההבדל בין פנים לחוץ — כל הדפנות
+     יוצאות באותו אפור, והגוף נקרא שטוח. פח אמיתי מואר מבחוץ
+     ומוצל מבפנים, וזה מה שאומר לעין איפה החלל.
+
+     החצי האחורי אינו שחור אלא מואר באור מילוי חלש: פאה פנימית
+     בצל מוחלט נראית כמו חור בחלק. */
+  const d = normal[0] * LIGHT[0] + normal[1] * LIGHT[1] + normal[2] * LIGHT[2];
+  const k = d >= 0 ? 0.52 + 0.48 * d : 0.34 + 0.16 * (1 + d);
   return `rgb(${Math.round(base[0] * k)},${Math.round(base[1] * k)},${Math.round(base[2] * k)})`;
 }
 
@@ -84,12 +91,9 @@ function quads(loopA, loopB, normalHint) {
   return out;
 }
 
-function collect(model) {
+function collect(model, wallsOnHoles) {
   const t = model.thickness_mm || 1;
   const pieces = [];
-  let holePoints = 0;
-  for (const face of model.faces) holePoints += face.holes.reduce((s, h) => s + h.length, 0);
-  const wallsOnHoles = holePoints <= HOLE_WALL_BUDGET;
 
   for (const face of model.faces) {
     const prism = polygonFromFace(face, t);
@@ -122,9 +126,21 @@ export function createViewer(canvas, options = {}) {
   const edge = options.edge || 'rgba(20,26,34,.55)';
   let model = null;
   let pieces = [];
+  let coarse = [];
   let yaw = -0.62;
   let pitch = 1.02;
   let frame = 0;
+  let dragging = false;
+
+  /* **שתי רמות פירוט, ולא תקציב חורים.**
+
+     עד 27.8.2026 היה כאן `HOLE_WALL_BUDGET = 420`: מעליו דפנות
+     החורים פשוט לא צוירו. במשרבייה עם שבעים פתחים זה בדיוק מה
+     שקרה — החורים יצאו עיגולים לבנים שטוחים, כאילו הודבקו על
+     הפח ולא נחתכו דרכו, וזה המוצר שהכי חשוב בו שרואים שהוא מנוקב.
+
+     מי שמסובב אינו בוחן פרט, ומי שבוחן פרט אינו מסובב. לכן הגרסה
+     המלאה מצוירת תמיד כשהיד עומדת, והמדוללת רק בזמן הגרירה. */
 
   function draw() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -137,7 +153,8 @@ export function createViewer(canvas, options = {}) {
     const ctx = canvas.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    if (!model || !pieces.length) return;
+    const active = dragging && coarse.length ? coarse : pieces;
+    if (!model || !active.length) return;
 
     const camera = makeCamera(yaw, pitch);
     const centre = model.size_mm.map((s) => s / 2);
@@ -150,7 +167,7 @@ export function createViewer(canvas, options = {}) {
     let maxX = -Infinity;
     let minY = Infinity;
     let maxY = -Infinity;
-    const flat = pieces.map((piece) => {
+    const flat = active.map((piece) => {
       const loops = piece.loops.map((loop) =>
         loop.map((p) => {
           const q = camera(shift(p));
@@ -204,7 +221,6 @@ export function createViewer(canvas, options = {}) {
     });
   }
 
-  let dragging = false;
   let lastX = 0;
   let lastY = 0;
   const start = (event) => {
@@ -225,6 +241,7 @@ export function createViewer(canvas, options = {}) {
   };
   const end = (event) => {
     dragging = false;
+    schedule();
     canvas.style.cursor = 'grab';
     if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
   };
@@ -241,7 +258,8 @@ export function createViewer(canvas, options = {}) {
   return {
     show(next) {
       model = next;
-      pieces = next && next.faces ? collect(next) : [];
+      pieces = next && next.faces ? collect(next, true) : [];
+      coarse = next && next.faces ? collect(next, false) : [];
       schedule();
     },
     reset() {
