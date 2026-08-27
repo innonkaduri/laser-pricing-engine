@@ -17,8 +17,10 @@ main{max-width:660px}
 .rows{display:grid; gap:0}
 .rows>div{display:flex; gap:var(--s4); padding:var(--s3) 0; border-top:1px solid var(--ink-150); font-size:var(--fs-sm)}
 .rows>div:first-child{border-top:0}
-.rows dt{color:var(--ink-500); min-width:120px; margin:0}
-.rows dd{margin:0; font-weight:600; color:var(--ink-900)}
+.rows dt{color:var(--ink-500); min-width:130px; margin:0; flex:none}
+/* `flex:1` על הערך כדי שכל הערכים יתחילו באותו קו. בלעדיו כל שורה
+   מתחילה איפה שהתווית שלה נגמרה, והעמודה נראית שבורה. */
+.rows dd{margin:0; font-weight:600; color:var(--ink-900); flex:1; min-width:0}
 .rows dd.num{font-variant-numeric:tabular-nums; direction:ltr; text-align:right}
 .caps{display:flex; flex-wrap:wrap; gap:6px}
 .danger{border-color:var(--bad-200)}

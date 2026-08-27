@@ -2698,3 +2698,67 @@ class TestTheAccountBelongsToItsOwner:
         raw = body.text
         assert "base-plate" not in raw
         assert "dimensions" not in raw
+
+
+class TestTheSolidViewIsTheSamePartAsTheFlatOne:
+    """הצגת הגוף היא הפריסה מקופלת, ולא מודל שנבנה בנפרד."""
+
+    def test_the_solid_carries_the_same_measurements_as_the_flat(self, priced_client):
+        flat = priced_client.post(
+            "/api/catalog/tray-4-sides/preview", json={"values": {}, "view": "flat"}
+        ).json()
+        solid = priced_client.post(
+            "/api/catalog/tray-4-sides/preview", json={"values": {}, "view": "solid"}
+        ).json()
+        for field in ("cut_length_mm", "net_area_mm2", "pierces", "holes", "bend_count"):
+            assert flat[field] == solid[field], field
+
+    def test_the_solid_reports_the_body_and_the_flat_reports_the_blank(self, priced_client):
+        """מגש 300×200 עם דופן 50 נחתך מפריסה של 400×300. שתיהן נכונות."""
+        solid = priced_client.post(
+            "/api/catalog/tray-4-sides/preview",
+            json={"values": {"width_mm": 300, "depth_mm": 200, "wall_mm": 50}, "view": "solid"},
+        ).json()
+        assert [solid["bbox"]["width_mm"], solid["bbox"]["height_mm"]] == [400.0, 300.0]
+        assert sorted(solid["model"]["size_mm"]) == [50.0, 200.0, 300.0]
+
+    def test_a_flat_product_is_a_body_too_and_its_height_is_the_thickness(self, priced_client):
+        solid = priced_client.post(
+            "/api/catalog/base-plate/preview", json={"values": {}, "view": "solid", "thickness_mm": 6}
+        ).json()
+        assert sorted(solid["model"]["size_mm"]) == [6.0, 200.0, 300.0]
+        assert len(solid["model"]["faces"]) == 1
+
+    def test_each_view_sends_only_what_it_draws(self, priced_client):
+        """שתי התצוגות נושאות את אותם חורים. שליחת שתיהן מכפילה הכול."""
+        flat = priced_client.post(
+            "/api/catalog/mashrabiya-round/preview", json={"values": {}, "view": "flat"}
+        )
+        solid = priced_client.post(
+            "/api/catalog/mashrabiya-round/preview", json={"values": {}, "view": "solid"}
+        )
+        assert "contours" in flat.json() and "model" not in flat.json()
+        assert "model" in solid.json() and "contours" not in solid.json()
+        assert len(solid.content) < 2 * len(flat.content)
+
+    def test_the_holes_survive_the_fold_and_land_on_the_right_panel(self, priced_client):
+        """חורי האטם של המארז יושבים בבסיס, לא באחת הדפנות."""
+        solid = priced_client.post(
+            "/api/catalog/enclosure/preview", json={"values": {}, "view": "solid"}
+        ).json()
+        faces = solid["model"]["faces"]
+        with_holes = [f for f in faces if f["holes"]]
+        assert len(with_holes) == 1
+        assert with_holes[0]["label"] == "בסיס"
+        assert len(with_holes[0]["holes"]) == 3
+
+    def test_the_thickness_changes_the_body_and_never_the_cut_length(self, priced_client):
+        thin = priced_client.post(
+            "/api/catalog/base-plate/preview", json={"values": {}, "view": "solid", "thickness_mm": 1}
+        ).json()
+        thick = priced_client.post(
+            "/api/catalog/base-plate/preview", json={"values": {}, "view": "solid", "thickness_mm": 10}
+        ).json()
+        assert thin["cut_length_mm"] == thick["cut_length_mm"]
+        assert min(thin["model"]["size_mm"]) == 1.0
+        assert min(thick["model"]["size_mm"]) == 10.0

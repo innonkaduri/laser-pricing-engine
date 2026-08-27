@@ -130,6 +130,27 @@ small{font-size:var(--fs-sm)}
 }
 .navlink:hover{color:var(--ink-900); background:var(--ink-100)}
 
+/* **הסרגל העליון בטלפון.** נוסף 27.8.2026 אחרי בדיקת עין ב-390:
+   מרגע שהתווסף קישור שלישי (חשבון · הצעות · קטלוג · תמחור) הסרגל
+   נשבר לשתי שורות, ושם המותג עצמו נשבר לשלוש. שני שינויים ולא
+   הסתרה: תת-הכותרת של המותג יורדת, והקישורים מתקרבים. **אף קישור
+   אינו נעלם** — ניווט שנעלם בטלפון הוא ניווט שאין. */
+@media (max-width:620px){
+  .topbar .wrap,.topbar .wrap-wide{gap:var(--s2); min-height:56px}
+  .brand .name span{display:none}
+  .brand svg{width:26px; height:26px}
+  .brand .name b{font-size:15px}
+  .navlink{padding-inline:7px; font-size:13.5px; min-height:40px; white-space:nowrap}
+  /* **גלילה ולא גלישה.** `.row` עוטף בברירת מחדל, וארבעה קישורים
+     על 390 פיקסלים דחפו את הסרגל לשתי שורות (נמדד: 116 פיקסלים
+     במקום 56). גלילה אופקית שומרת שורה אחת ואינה מסתירה דבר. */
+  .topbar nav.row{
+    flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none;
+    -webkit-overflow-scrolling:touch; min-width:0;
+  }
+  .topbar nav.row::-webkit-scrollbar{display:none}
+}
+
 /* ═══ כפתורים ═══ */
 .btn{
   display:inline-flex; align-items:center; justify-content:center; gap:var(--s2);
