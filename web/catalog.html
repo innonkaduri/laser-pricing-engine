@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>קטלוג מוצרים — ימיש כדורי</title>
+<meta name="description" content="מוצרי פח פרמטריים: בוחרים מוצר, מזיזים את המידות, ומקבלים מחיר מיד.">
+<link rel="preload" as="font" type="font/woff2" href="/fonts/assistant-hebrew.woff2" crossorigin>
+<link rel="stylesheet" href="/brand.css">
+<style>
+/* קטלוג — רשת כרטיסים לפי קטגוריה. כל השאר מ-/brand.css. */
+.hero{
+  background:var(--ink-900); color:#fff; border-radius:var(--r-lg);
+  padding:var(--s6) var(--s6); position:relative; overflow:hidden;
+  display:flex; gap:var(--s6); align-items:center; flex-wrap:wrap;
+}
+/* רשת CAD דהויה — רומזת על שרטוט בלי לצייר אחד. */
+.hero::before{
+  content:''; position:absolute; inset:0; pointer-events:none; opacity:.13;
+  background:
+    linear-gradient(var(--ink-300) 1px, transparent 1px) 0 0/28px 28px,
+    linear-gradient(90deg, var(--ink-300) 1px, transparent 1px) 0 0/28px 28px;
+  mask-image:linear-gradient(to left, #000, transparent 78%);
+}
+.hero>div{position:relative; z-index:1}
+.hero h2{font-size:var(--fs-h2); margin:0 0 var(--s2); color:#fff; letter-spacing:-.02em}
+.hero p{margin:0; color:var(--ink-300); font-size:var(--fs-sm); max-width:52ch; line-height:1.65}
+.hero .cta{position:relative; z-index:1; margin-inline-start:auto}
+
+.cat{margin-top:var(--s10)}
+.cat>header{margin-bottom:var(--s5)}
+.cat h3{font-size:var(--fs-h3); margin:0 0 3px; letter-spacing:-.01em}
+.cat header p{margin:0; font-size:var(--fs-sm); color:var(--ink-500)}
+
+.grid{display:grid; gap:var(--s5); grid-template-columns:repeat(auto-fill, minmax(232px, 1fr))}
+
+.item{
+  display:flex; flex-direction:column; background:var(--paper);
+  border:1px solid var(--ink-150); border-radius:var(--r-md);
+  overflow:hidden; text-decoration:none; color:inherit;
+  transition:border-color var(--dur), box-shadow var(--dur), transform var(--dur);
+}
+.item:hover{border-color:var(--ink-300); box-shadow:var(--shadow-3); transform:translateY(-2px)}
+.item:focus-visible{outline:2px solid var(--flame-600); outline-offset:2px}
+
+.shot{
+  position:relative; aspect-ratio:4/3; background:var(--ink-50);
+  border-bottom:1px solid var(--ink-150);
+  --part-fill:#ccd6e0; --part-hole:#f7f9fb; --part-line:#46536a; --part-fold:#d84315;
+}
+/* המסגרת קובעת את הגובה, ולא התמונה.
+   `aspect-ratio` על .shot ו-`height:100%` על ה-SVG יוצרים תלות
+   מעגלית: הדפדפן נסוג ליחס הפנימי של ה-SVG, וכרטיס של תעלה יצא
+   358 פיקסלים לצד כרטיס של פס ב-188 (נמדד 27.8.2026). עוטף
+   ממוקם-מוחלט שובר את המעגל — לגובה שלו יש ערך מוחלט לפני שה-SVG
+   נשאל בכלל. */
+.shot .fit{position:absolute; inset:var(--s5)}
+.shot svg{width:100%; height:100%; display:block}
+.shot .tag{position:absolute; inset-block-start:var(--s3); inset-inline-start:var(--s3)}
+
+.item .body{padding:var(--s4) var(--s5) var(--s5); display:flex; flex-direction:column; flex:1}
+.item h4{margin:0 0 4px; font-size:15.5px; font-weight:650; letter-spacing:-.01em}
+.item p{margin:0 0 var(--s4); font-size:var(--fs-xs); color:var(--ink-500); line-height:1.6; flex:1}
+.item .go{
+  display:inline-flex; align-items:center; gap:6px; font-size:var(--fs-sm);
+  font-weight:650; color:var(--flame-600);
+}
+.item:hover .go .arrow{transform:translateX(-3px)}
+.item .arrow{transition:transform var(--dur)}
+
+.foot{margin-top:var(--s10); padding:var(--s6) 0; border-top:1px solid var(--ink-150)}
+@media (max-width:560px){
+  .hero{padding:var(--s6) var(--s5)}
+  .hero .cta{margin-inline-start:0}
+  .grid{grid-template-columns:repeat(auto-fill, minmax(158px, 1fr)); gap:var(--s4)}
+  .item .body{padding:var(--s3) var(--s4) var(--s4)}
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap-wide">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M5 8.5A3.5 3.5 0 0 1 8.5 5h9.9L27 13.6v9.9A3.5 3.5 0 0 1 23.5 27h-15A3.5 3.5 0 0 1 5 23.5v-15Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M18.4 5v5.1a3.5 3.5 0 0 0 3.5 3.5H27" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><circle cx="12.4" cy="19.6" r="3" fill="currentColor"/></svg>
+      <span class="name"><b>ימיש כדורי</b><span>חיתוך לייזר</span></span>
+    </a>
+    <span class="spacer"></span>
+    <nav class="row" id="nav"></nav>
+  </div>
+</header>
+
+<main class="wrap-wide" style="padding-block:var(--s6) var(--s4)">
+
+  <h1 style="font-size:var(--fs-h1); letter-spacing:-.03em; margin-bottom:var(--s2)">קטלוג מוצרים</h1>
+  <p class="muted" style="max-width:58ch; margin-bottom:var(--s6); line-height:1.65">
+    בוחרים מוצר, מזיזים את המידות, ורואים את החלק משתנה. המחיר יוצא
+    מאותו מנוע שמתמחר קובץ הנדסי — <bdi>ומטבלת המחירים בלבד</bdi>.
+  </p>
+
+  <section class="hero">
+    <div style="flex:1 1 300px; min-width:0">
+      <h2>כבר יש לך קובץ הנדסי?</h2>
+      <p>
+        אל תחפש מוצר דומה בקטלוג. העלה DXF ותקבל מחיר על החלק שלך —
+        שטח, אורך חיתוך ומספר ניקובים נמדדים מהקובץ עצמו, והוא נמחק
+        מיד אחרי המדידה.
+      </p>
+    </div>
+    <a class="btn btn-primary cta" href="/">להעלאת קובץ</a>
+  </section>
+
+  <div id="state" class="note note-info" style="margin-top:var(--s6)">טוען קטלוג…</div>
+  <div id="catalog"></div>
+  <div id="missing"></div>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap-wide tiny">
+    <bdi>ימיש כדורי</bdi> · המחירים בקטלוג הם הערכה ואינם מסמך מחייב עד לאישור הזמנה.
+  </div>
+</footer>
+
+<script type="module">
+import { drawPart } from '/part-draw.js';
+
+const stateBox = document.getElementById('state');
+const root = document.getElementById('catalog');
+const missing = document.getElementById('missing');
+
+function el(html) {
+  const t = document.createElement('template');
+  t.innerHTML = html.trim();
+  return t.content.firstElementChild;
+}
+
+/* הניווט תלוי בזהות, ולכן הוא נשאל ולא מנוחש. /api/me פתוח לכל מי
+   שנכנס ומחזיר 401 לכל השאר — וזה בדיוק שתי האפשרויות שיש כאן. */
+async function paintNav() {
+  const nav = document.getElementById('nav');
+  let user = null;
+  try {
+    const response = await fetch('/api/me');
+    if (response.ok) user = await response.json();
+  } catch (err) { /* בלי רשת גם ככה אין קטלוג להציג */ }
+  nav.innerHTML = user
+    ? `<a class="navlink" href="/">תמחור מקובץ</a>
+       <button class="btn btn-secondary btn-sm" id="out">יציאה</button>`
+    : `<a class="navlink" href="/login">כניסה</a>
+       <a class="btn btn-primary btn-sm" href="/signup">פתיחת חשבון</a>`;
+  const out = document.getElementById('out');
+  if (out) out.addEventListener('click', async () => {
+    await fetch('/api/logout', { method: 'POST' });
+    location.reload();
+  });
+}
+
+function card(product) {
+  const tag = product.bends
+    ? '<span class="tag tag-flame">כולל כיפוף</span>'
+    : '<span class="tag">חיתוך שטוח</span>';
+  const node = el(`
+    <a class="item" href="/product/${encodeURIComponent(product.id)}">
+      <div class="shot">${tag}<div class="fit"><svg role="img" aria-label="${product.name}"></svg></div></div>
+      <div class="body">
+        <h4></h4>
+        <p></p>
+        <span class="go">עצב ותמחר <span class="arrow">←</span></span>
+      </div>
+    </a>`);
+  // textContent ולא innerHTML: שמות המוצרים מגיעים מקובץ שינון עורך,
+  // ואין סיבה שקובץ נתונים יוכל להזריק תגיות למסך.
+  node.querySelector('h4').textContent = product.name;
+  node.querySelector('p').textContent = product.summary;
+  drawPart(node.querySelector('svg'), product.thumb, { dims: false, pad: 0.1 });
+  return node;
+}
+
+function paint(data) {
+  if (!data.ready || !data.categories.length) {
+    stateBox.className = 'note note-warn';
+    stateBox.textContent =
+      'הקטלוג סגור כרגע: טבלת המחירים אינה מכסה אף אחד מהמוצרים, ' +
+      'ומוצר שאי אפשר לתמחר לא יוצג כאילו אפשר.';
+    return;
+  }
+  stateBox.remove();
+
+  for (const category of data.categories) {
+    const section = el(`
+      <section class="cat">
+        <header><h3></h3><p></p></header>
+        <div class="grid"></div>
+      </section>`);
+    section.querySelector('h3').textContent = category.name;
+    section.querySelector('header p').textContent = category.summary;
+    const grid = section.querySelector('.grid');
+    for (const product of category.products) grid.appendChild(card(product));
+    root.appendChild(section);
+  }
+
+  /* מוצר שנעלם אומר למה. שקט נראה בדיוק כמו קטלוג שלם. */
+  if (data.unavailable.length) {
+    const names = data.unavailable.map((u) => `${u.name} (${u.reason})`).join(' · ');
+    const note = el('<div class="note note-info" style="margin-top:var(--s8)"></div>');
+    note.textContent =
+      `${data.unavailable.length} מוצרים אינם מוצגים כרגע — ` + names + '.';
+    missing.appendChild(note);
+  }
+}
+
+paintNav();
+fetch('/api/catalog')
+  .then((r) => r.json())
+  .then(paint)
+  .catch(() => {
+    stateBox.className = 'note note-bad';
+    stateBox.textContent = 'לא הצלחנו לטעון את הקטלוג. רענן את הדף.';
+  });
+</script>
+
+</body>
+</html>

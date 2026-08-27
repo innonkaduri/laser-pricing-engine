@@ -21,6 +21,7 @@ from laser_pricing.api import identity, tariff_store, usage
 # חייבת לאפס אותו כדי לא לחסום את הבדיקה הבאה.
 from laser_pricing.api.store import STORE
 from laser_pricing.api.app import (
+    _CATALOG_PREVIEWS,
     _EDITOR_ATTEMPTS,
     _ENGINE_CALLS,
     _LOGIN_FAILURES,
@@ -101,6 +102,7 @@ def isolated_users(tmp_path, monkeypatch):
     _SIGNUPS.clear()
     _ENGINE_CALLS.clear()
     _EDITOR_ATTEMPTS.clear()
+    _CATALOG_PREVIEWS.clear()
     # מחסן הגיאומטריות הוא מצב גלובלי בדיוק כמו השאר, והוא **לא** אופס
     # עד 25.8.2026. התוצאה הייתה בדיקה מהבהבת: היא נשענת על כך שגיאומטריה
     # של משתמש אחד עדיין בזיכרון כשאחר מנסה לגנוב אותה, וזה תלוי בכמה
@@ -2027,3 +2029,401 @@ class TestThePublicScreenNeverOffersAFailure:
         offering = [m["name"] for m in gated.get("/api/offering").json()["materials"]]
         config = [m["name"] for m in gated.get("/api/config").json()["materials"]]
         assert offering == config
+
+
+# ---------------------------------------------------------------------------
+# הקטלוג הפרמטרי
+# ---------------------------------------------------------------------------
+
+BENDABLE_TARIFF = {
+    "rates": [
+        {
+            "material_key": "st37",
+            "material_name": "פלדה שחורה",
+            "thickness_mm": 3.0,
+            "plate_price": 900.0,
+            "cut_rate_per_m": 12.0,
+            "pierce_price": 1.5,
+            "bend_rate_per_m": 275.0,
+        }
+    ],
+    "waste_tiers": [
+        {"max_waste_pct": 30, "multiplier": 1.1, "label": "ניצולת טובה"},
+        {"max_waste_pct": 100, "multiplier": 2.0, "label": "ניצולת נמוכה"},
+    ],
+    "vat_pct": 18.0,
+}
+"""אותה טבלה, עם מחיר כיפוף. **ההבדל היחיד הוא `bend_rate_per_m`.**
+
+`TEST_TARIFF` בכוונה חסרה אותו: היא מייצגת את מצב הקופסה שבו החיתוך
+מתומחר והכיפוף לא, וזה בדיוק המצב שבו מוצר מכופף חייב להיעלם מהקטלוג
+במקום להיכשל בלחיצה.
+"""
+
+
+class TestTheCatalogIsData:
+    """הקטלוג בוחר בנאי מרשימה סגורה ונופל בטעינה, לא אצל המבקר."""
+
+    def test_every_product_builds_from_its_own_defaults(self):
+        from laser_pricing.api import catalog as catalog_mod
+
+        loaded = catalog_mod.load()
+        assert loaded.products, "הקטלוג ריק"
+        for product in loaded.products:
+            blank = catalog_mod.build(product, product.defaults())
+            assert blank.spec["shape"] in ("rect", "circle", "polygon")
+            assert blank.spec["holes"], f'{product.id}: ברירות המחדל לא ייצרו חורים'
+
+    def test_a_builder_that_does_not_exist_fails_at_load_not_at_request(self, tmp_path):
+        from laser_pricing.api import catalog as catalog_mod
+
+        broken = tmp_path / "catalog.json"
+        broken.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "categories": [{"key": "x", "name": "X"}],
+                    "products": [
+                        {
+                            "id": "p",
+                            "category": "x",
+                            "name": "P",
+                            "builder": "המצאה",
+                            "params": [],
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        with pytest.raises(catalog_mod.CatalogError) as caught:
+            catalog_mod.load(broken)
+        assert "המצאה" in str(caught.value)
+
+    def test_defaults_outside_the_slider_range_fail_at_load(self, tmp_path):
+        """מסך שנפתח על ערך שנדחה מיד הוא הבאג שנתפס בעין ב-26.8."""
+        from laser_pricing.api import catalog as catalog_mod
+
+        broken = tmp_path / "catalog.json"
+        broken.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "categories": [{"key": "x", "name": "X"}],
+                    "products": [
+                        {
+                            "id": "p",
+                            "category": "x",
+                            "name": "P",
+                            "builder": "rect_plate",
+                            "params": [
+                                {"key": "width_mm", "name": "רוחב", "min": 40, "max": 100, "default": 900},
+                                {"key": "height_mm", "name": "גובה", "min": 40, "max": 100, "default": 80},
+                                {"key": "hole_dia_mm", "name": "חור", "min": 3, "max": 20, "default": 9},
+                                {"key": "hole_inset_mm", "name": "שפה", "min": 5, "max": 40, "default": 15},
+                            ],
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        with pytest.raises(catalog_mod.CatalogError):
+            catalog_mod.load(broken)
+
+    def test_impossible_combinations_are_refused_with_the_limit_in_the_message(self):
+        """חור גדול מהמרחק לשפה — והשגיאה אומרת מה הגבול."""
+        from laser_pricing.api import catalog as catalog_mod
+
+        loaded = catalog_mod.load()
+        plate = loaded.get("base-plate")
+        with pytest.raises(catalog_mod.CatalogError) as caught:
+            catalog_mod.build(plate, {"width_mm": 300, "height_mm": 200, "hole_dia_mm": 40, "hole_inset_mm": 5})
+        assert "22" in str(caught.value)  # 40/2 + 2
+
+    def test_a_value_outside_the_range_is_refused_by_the_server_not_the_slider(self):
+        """המחוון הוא HTML. מי שקורא ל-API אינו רואה אותו בכלל."""
+        from laser_pricing.api import catalog as catalog_mod
+
+        loaded = catalog_mod.load()
+        plate = loaded.get("base-plate")
+        with pytest.raises(catalog_mod.CatalogError) as caught:
+            catalog_mod.resolve(plate, {"width_mm": 99_000})
+        assert "1400" in str(caught.value)
+
+
+class TestTheCatalogNeverOffersAFailingChoice:
+    def test_a_bent_product_disappears_when_the_table_cannot_price_bending(self, priced_client):
+        """`TEST_TARIFF` מתמחרת חיתוך ולא כיפוף — הזווית לא תופיע."""
+        data = priced_client.get("/api/catalog").json()
+        shown = {p["id"] for c in data["categories"] for p in c["products"]}
+        assert "base-plate" in shown
+        assert "angle-bracket" not in shown
+        assert "u-channel" not in shown
+
+    def test_and_it_says_so_instead_of_vanishing_quietly(self, priced_client):
+        """שקט נראה כמו מערכת עובדת. זה מה שהפיל את הגיבוי."""
+        data = priced_client.get("/api/catalog").json()
+        missing = {u["id"]: u["reason"] for u in data["unavailable"]}
+        assert "angle-bracket" in missing
+        assert "כיפוף" in missing["angle-bracket"]
+
+    def test_the_bent_product_returns_once_bending_has_a_price(self, client):
+        assert client.put("/api/tariff", json=BENDABLE_TARIFF).status_code == 200
+        data = client.get("/api/catalog").json()
+        shown = {p["id"] for c in data["categories"] for p in c["products"]}
+        assert "angle-bracket" in shown
+        assert not data["unavailable"]
+
+    def test_every_listed_product_lists_only_materials_that_can_price_it(self, priced_client):
+        data = priced_client.get("/api/catalog").json()
+        for category in data["categories"]:
+            for product in category["products"]:
+                assert product["materials"], f'{product["id"]} הוצג בלי חומרים'
+                for material in product["materials"]:
+                    assert material["thicknesses"]
+
+    def test_an_empty_table_shows_no_catalog_rather_than_a_free_one(self, client):
+        data = client.get("/api/catalog").json()
+        assert data["ready"] is False
+        assert data["categories"] == []
+        assert len(data["unavailable"]) == 7
+
+
+class TestTheCatalogCarriesNoPrices:
+    def test_browsing_the_catalog_needs_no_account(self, priced_client, monkeypatch):
+        """מי שנוחת מגוגל רואה מה מייצרים כאן. את המחיר — לא.
+
+        `APP_PASSWORD` מדליק את השער. בלעדיו הבדיקה הזאת ירוקה על
+        שרת פתוח לגמרי ואינה בודקת דבר — וזו בדיוק התאונה של 18.8.
+        """
+        monkeypatch.setenv("APP_PASSWORD", "sod")
+        assert priced_client.get("/api/dashboard").status_code == 401  # השער אכן דלוק
+        assert priced_client.get("/api/catalog").status_code == 200
+        assert priced_client.get("/catalog").status_code == 200
+
+    def test_the_listing_itself_contains_no_money(self, priced_client):
+        raw = priced_client.get("/api/catalog").text
+        for field in ("plate_price", "cut_rate_per_m", "pierce_price", "margin_pct", "total"):
+            assert field not in raw
+
+    def test_the_preview_is_open_and_returns_shape_without_price(self, priced_client):
+        """ההדמיה אינה נוגעת בטבלה — היא מחזירה את מה שהמבקר הקליד."""
+        response = priced_client.post(
+            "/api/catalog/base-plate/preview",
+            json={"values": {"width_mm": 400, "height_mm": 250, "hole_dia_mm": 9, "hole_inset_mm": 20}},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["bbox"]["width_mm"] == pytest.approx(400.0)
+        assert data["holes"] == 4
+        assert data["contours"], "אין מתארים לצייר"
+        assert "total" not in json.dumps(data)
+        assert "price" not in json.dumps(data)
+
+    def test_the_preview_marks_where_a_bent_part_folds(self, priced_client):
+        data = priced_client.post("/api/catalog/angle-bracket/preview", json={"values": {}}).json()
+        assert data["bend_count"] == 1
+        assert len(data["fold_lines"]) == 1
+        # קו הכיפוף יושב בסוף השוק הראשונה, ברירת המחדל 80 מ"מ.
+        assert data["fold_lines"][0][0] == pytest.approx(80.0)
+
+    def test_no_catalog_product_needs_splitting_at_its_largest(self):
+        """התקרות בקטלוג נבחרו כך שאין מוצר שדורש ריתוך.
+
+        `weld_rate_per_m` בטבלה החיה הוא 0 (נמדד מהקופסה 27.8.2026),
+        ולכן חלק שדורש פיצול מחזיר 422 — כלומר מחוון שהקצה שלו מוביל
+        לשגיאה. הבדיקה מותחת כל מידה למקסימום ומשאירה את המונים
+        במינימום: **מונה חורים אינו משנה את המעטפת**, והוא זה שנופל
+        על צפיפות הרבה לפני שהמעטפת מעניינת.
+        """
+        from laser_pricing.api import catalog as catalog_mod
+        from laser_pricing.nesting.plate import STANDARD_PLATE
+        from laser_pricing.nesting.splitting import plan_split
+        from laser_pricing.api.app import ManualPartSpec, _build_manual_geometry
+
+        loaded = catalog_mod.load()
+        for product in loaded.products:
+            # פרמטר בלי יחידה הוא מונה, ולא מידה.
+            values = {p.key: (p.min if not p.unit else p.max) for p in product.params}
+            blank = catalog_mod.build(product, values)
+            geometry = _build_manual_geometry(ManualPartSpec(name=product.name, **blank.spec))
+            plan = plan_split(geometry.bbox, STANDARD_PLATE)
+            assert plan.piece_count == 1, f"{product.id} במקסימום דורש {plan.piece_count} חתיכות"
+
+
+class TestTheCatalogPriceComesFromTheTable:
+    def test_a_configured_product_is_priced_by_the_same_engine_as_a_typed_part(self, priced_client):
+        """אותן מידות, שני מסלולים, אותו מחיר — עד האגורה."""
+        values = {"width_mm": 400, "height_mm": 250, "hole_dia_mm": 20, "hole_inset_mm": 40}
+        catalog_total = priced_client.post(
+            "/api/catalog/base-plate/quote",
+            json={"values": values, "material_key": "st37", "thickness_mm": 3, "quantity": 2},
+        ).json()["quote"]["total"]
+
+        holes = [
+            {"diameter_mm": 20, "x_mm": x, "y_mm": y}
+            for x in (40, 360)
+            for y in (40, 210)
+        ]
+        geometry_id = _manual(priced_client, width_mm=400, height_mm=250, holes=holes)["geometry_id"]
+        typed_total = priced_client.post(
+            "/api/quote",
+            json={
+                "parts": [
+                    {
+                        "geometry_id": geometry_id,
+                        "material_key": "st37",
+                        "thickness_mm": 3,
+                        "quantity": 2,
+                    }
+                ]
+            },
+        ).json()["total"]
+
+        assert catalog_total == pytest.approx(typed_total)
+
+    def test_a_material_missing_from_the_table_returns_422_and_not_a_reasonable_number(
+        self, priced_client
+    ):
+        response = priced_client.post(
+            "/api/catalog/base-plate/quote",
+            json={"values": {}, "material_key": "inox", "thickness_mm": 3},
+        )
+        assert response.status_code == 422
+
+    def test_the_price_requires_an_account_even_though_the_catalog_does_not(
+        self, priced_client, monkeypatch
+    ):
+        monkeypatch.setenv("APP_PASSWORD", "sod")  # בלי זה השער כבוי והבדיקה ריקה
+        response = priced_client.post(
+            "/api/catalog/base-plate/quote",
+            json={"values": {}, "material_key": "st37", "thickness_mm": 3},
+            headers={"Accept": "text/html"},
+        )
+        # 401 בגוף הגולמי, לא 303 למסך כניסה: נתיב API שמפנה נראה
+        # מבחוץ בדיוק כמו נתיב פתוח.
+        assert response.status_code == 401
+
+    def test_a_public_user_gets_one_number_and_not_the_breakdown(self, client):
+        assert client.put("/api/tariff", json=TEST_TARIFF).status_code == 200
+        assert client.post("/api/signup", json={"username": "roni", "password": "sh8-tov-meod"}).status_code == 201
+        data = client.post(
+            "/api/catalog/base-plate/quote",
+            json={"values": {}, "material_key": "st37", "thickness_mm": 3},
+        ).json()
+        quote = data["quote"]
+        assert quote["detailed"] is False
+        assert quote["total"] > 0
+        for leaked in ("lines", "groups", "material_cost", "cutting_cost", "billed_area_mm2"):
+            assert leaked not in quote
+
+    def test_a_catalog_quote_is_written_to_the_usage_log(self, priced_client):
+        """מסלול תמחור חדש שאינו נרשם הוא חור בטלמטריה, לא פיצ'ר."""
+        assert usage.summary()["collected"] is False
+        priced_client.post(
+            "/api/catalog/base-plate/quote",
+            json={"values": {}, "material_key": "st37", "thickness_mm": 3},
+        )
+        after = usage.summary()
+        assert after["collected"] is True
+        assert after["count"] == 1
+        # ושם המוצר אינו נגזר מלקוח — הוא קבוע בקטלוג — אבל הרישום
+        # ממילא אינו נושא שם חלק. הכלל נבדק כאן שוב על המסלול החדש.
+        assert "part_name" not in json.dumps(after, ensure_ascii=False)
+
+    def test_an_unknown_product_is_404_and_not_an_empty_screen(self, priced_client):
+        assert priced_client.get("/product/אין-כזה").status_code == 404
+        assert priced_client.post("/api/catalog/אין-כזה/preview", json={"values": {}}).status_code == 404
+
+    def test_impossible_dimensions_return_400_with_the_limit(self, priced_client):
+        response = priced_client.post(
+            "/api/catalog/base-plate/quote",
+            json={
+                "values": {"width_mm": 300, "height_mm": 200, "hole_dia_mm": 40, "hole_inset_mm": 5},
+                "material_key": "st37",
+                "thickness_mm": 3,
+            },
+        )
+        assert response.status_code == 400
+        assert "22" in response.json()["detail"]
+
+
+class TestNoScreenUsesATokenThatDoesNotExist:
+    """`var(--לא-קיים)` נכשל **בשקט** — וזה הזן שנרדף כאן כל החודש.
+
+    CSS מתעלם מהצהרה עם משתנה שאינו מוגדר, ולא אומר מילה: אין שגיאה
+    בקונסולה, אין מסך אדום, והדף פשוט נראה קצת אחר. **נמצא ב-27.8.2026**
+    בשתי צורות בבת אחת — `--s7` ו-`--s9`, שני שלבים שאינם קיימים
+    בסולם המרווחים ושהשתמשתי בהם בקטלוג החדש (ה-hero יצא בלי ריפוד
+    בכלל), ושרידים של אוצר המילים הישן — `--muted`, `--bad`, `--ok`,
+    `--warn`, `--accent`, `--card`, `--line`, `--text` — ש**נשארו
+    בשלושה מסכים שכבר נמצאים בפרודקשן** אחרי המעבר ל-brand.css.
+    """
+
+    ROOT = Path(__file__).resolve().parents[1] / "web"
+
+    def _defined(self) -> set[str]:
+        import re
+
+        css = (self.ROOT / "brand.css").read_text(encoding="utf-8")
+        root = css.split(":root{", 1)[1].split("\n}", 1)[0]
+        return set(re.findall(r"(--[a-z0-9-]+)\s*:", root))
+
+    def test_every_token_a_screen_asks_for_is_defined(self):
+        import re
+
+        defined = self._defined()
+        missing: dict[str, set[str]] = {}
+        for page in sorted(self.ROOT.glob("*.html")):
+            text = page.read_text(encoding="utf-8")
+            local = set(re.findall(r"(--[a-z0-9-]+)\s*:", text))
+            gap = set(re.findall(r"var\((--[a-z0-9-]+)", text)) - defined - local
+            if gap:
+                missing[page.name] = gap
+        assert not missing, f"טוקנים שאינם מוגדרים: {missing}"
+
+    def test_brand_css_does_not_ask_for_a_token_it_never_defines(self):
+        import re
+
+        css = (self.ROOT / "brand.css").read_text(encoding="utf-8")
+        declared = set(re.findall(r"(--[a-z0-9-]+)\s*:", css))
+        used = set(re.findall(r"var\((--[a-z0-9-]+)", css))
+        assert not used - declared
+
+    def test_the_spacing_scale_has_no_holes_that_look_like_steps(self):
+        """`--s7` נראה כמו שלב קיים. הבדיקה אומרת אילו שלבים באמת יש."""
+        defined = self._defined()
+        steps = sorted(int(t[3:]) for t in defined if t.startswith("--s") and t[3:].isdigit())
+        assert steps == [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24]
+
+
+class TestTheCatalogIsReachable:
+    """מסך שאיש אינו מקשר אליו אינו קיים, גם אם הוא מחזיר 200."""
+
+    ROOT = Path(__file__).resolve().parents[1] / "web"
+
+    def test_the_landing_page_links_to_it(self):
+        text = (self.ROOT / "landing.html").read_text(encoding="utf-8")
+        assert 'href="/catalog"' in text
+
+    def test_the_public_pricing_screen_links_to_it(self):
+        text = (self.ROOT / "quote.html").read_text(encoding="utf-8")
+        assert 'href="/catalog"' in text
+
+    def test_the_drawing_module_is_served_without_a_session(self, priced_client, monkeypatch):
+        """הקטלוג ציבורי, ולכן הקוד שמצייר את החלקים חייב להיות ציבורי.
+
+        `/static` נמצא מאחורי השער — קובץ שהיה יושב שם היה נטען
+        לכולם בפיתוח ונשבר בפרודקשן, כלומר בדיוק אחרי הפריסה.
+        """
+        monkeypatch.setenv("APP_PASSWORD", "sod")
+        response = priced_client.get("/part-draw.js")
+        assert response.status_code == 200
+        assert "javascript" in response.headers["content-type"]
+        assert priced_client.get("/static/part-draw.js").status_code == 401
+
+    def test_both_screens_use_the_same_drawing_module(self):
+        for name in ("catalog.html", "product.html"):
+            text = (self.ROOT / name).read_text(encoding="utf-8")
+            assert "from '/part-draw.js'" in text, name

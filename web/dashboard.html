@@ -175,7 +175,7 @@ function render(d) {
       <div class="card">
         <h2>תמחורים שנרשמו</h2>
         <div class="none"><b>לא נאסף.</b> ${esc(q.reason || '')}</div>
-        ${q.write_failures ? `<p class="quiet" style="color:var(--bad)">
+        ${q.write_failures ? `<p class="quiet" style="color:var(--bad-600)">
           ${count(q.write_failures, 'כתיבה', 'כתיבות')} לרישום נכשלו.</p>` : ''}
       </div>`);
   } else {
@@ -200,7 +200,7 @@ function render(d) {
         ${q.rotated_files ? `<p class="quiet">
           ${count(q.rotated_files, 'קובץ', 'קבצים')} ישנים התגלגלו ואינם בסיכום הזה —
           הם על הדיסק ובגיבוי, ולא נמחקו.</p>` : ''}
-        ${q.write_failures ? `<p class="quiet" style="color:var(--bad)">
+        ${q.write_failures ? `<p class="quiet" style="color:var(--bad-600)">
           ${count(q.write_failures, 'כתיבה', 'כתיבות')} לרישום נכשלו — המספרים למעלה חסרים.</p>` : ''}
       </div>
 
@@ -302,7 +302,7 @@ function render(d) {
             <td>${esc(m.name)}</td>
             <td class="num">${num(m.rows)}</td>
             <td class="num">${m.priced_rows ? num(m.priced_rows) : '<span class="tag bad">0</span>'}</td>
-            <td style="font-size:13px; color:var(--muted)">${allEmpty.length ? esc(allEmpty.join(' · ')) : '—'}</td>
+            <td style="font-size:13px; color:var(--ink-500)">${allEmpty.length ? esc(allEmpty.join(' · ')) : '—'}</td>
           </tr>`;
         }).join('')}</tbody>
       </table></div>

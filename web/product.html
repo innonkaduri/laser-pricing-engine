@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>עיצוב מוצר — ימיש כדורי</title>
+<link rel="preload" as="font" type="font/woff2" href="/fonts/assistant-hebrew.woff2" crossorigin>
+<link rel="stylesheet" href="/brand.css">
+<style>
+/* קונפיגורטור — תצוגה משמאל, מחוונים מימין. */
+.split{display:grid; grid-template-columns:380px minmax(0,1fr); gap:var(--s6); align-items:start}
+@media (max-width:900px){ .split{grid-template-columns:1fr; gap:var(--s5)} }
+
+.stage{
+  position:sticky; top:var(--s5); background:var(--ink-50);
+  border:1px solid var(--ink-150); border-radius:var(--r-lg);
+  padding:var(--s6); --part-fill:#ccd6e0; --part-hole:#fbfcfd;
+  --part-line:#2b3648; --part-fold:#d84315; --part-dim:#7a8899;
+}
+.stage svg.part{width:100%; aspect-ratio:4/3; display:block}
+/* בטלפון התצוגה עולה **מעל** המחוונים ונשארת דבוקה.
+   בסדר ה-DOM המחוונים ראשונים, כי הם הפעולה. בעמודה אחת זה הפך
+   קונפיגורטור לטופס: מזיזים מחוון ולא רואים כלום, כי החלק נמצא
+   מסך שלם מתחת. גובה מוגבל כדי שהמחוון שגוררים יישאר על המסך. */
+@media (max-width:900px){
+  .stage{order:-1; position:sticky; top:0; z-index:5; padding:var(--s4);
+         border-radius:0 0 var(--r-lg) var(--r-lg); border-block-start:0}
+  .stage svg.part{aspect-ratio:auto; height:19vh}
+  /* חמישה תאים בשורה אחת. שתי שורות העלו את הפאנל ל-384 פיקסלים
+     מתוך 844 — כמעט חצי מסך למשהו שאמור להשאיר מקום למחוונים. */
+  .stage .readout{margin-top:var(--s3); padding-top:var(--s3);
+                  grid-template-columns:repeat(5,1fr); gap:var(--s2)}
+  .stage .readout .k{font-size:10.5px}
+  .stage .readout .v{font-size:13.5px}
+  .stage #foldnote{display:none !important}
+}
+
+.readout{
+  display:grid; grid-template-columns:repeat(auto-fit, minmax(84px,1fr)); gap:var(--s3);
+  margin-top:var(--s5); padding-top:var(--s5); border-top:1px solid var(--ink-200);
+}
+.readout div{min-width:0}
+.readout .k{font-size:11.5px; color:var(--ink-500); font-weight:600}
+/* `direction:ltr` הוא חובה ולא סגנון: "140 × 50" בפסקה RTL מתהפך
+   ל-"50 × 140", כי ה-× הוא תו ניטרלי בין שני מספרים. `text-align:right`
+   מחזיר את היישור לקצה שממנו קוראים, כדי שהערך יעמוד מתחת לתווית
+   שלו ולא ייסע שמאלה. הבאג הזה נתפס בעין שלוש פעמים ב-26.8. */
+.readout .v{
+  font-size:16px; font-weight:700; color:var(--ink-900); margin-top:2px;
+  font-variant-numeric:tabular-nums; direction:ltr; text-align:right;
+}
+
+.ctrl{margin-bottom:var(--s5)}
+.ctrl .top{display:flex; align-items:baseline; gap:var(--s3); margin-bottom:6px}
+.ctrl .top label{font-size:var(--fs-xs); font-weight:650; color:var(--ink-700); margin:0}
+.ctrl .top .spacer{flex:1}
+.ctrl input[type=number]{
+  width:88px; min-height:34px; padding:4px var(--s3); font-size:var(--fs-sm);
+  font-variant-numeric:tabular-nums; direction:ltr; text-align:center;
+}
+.ctrl .range{
+  width:100%; -webkit-appearance:none; appearance:none; height:4px; border-radius:999px;
+  background:var(--ink-200); outline:none; margin:0; direction:ltr;
+}
+.ctrl .range::-webkit-slider-thumb{
+  -webkit-appearance:none; width:19px; height:19px; border-radius:50%;
+  background:var(--flame-600); border:2px solid #fff; box-shadow:var(--shadow-2); cursor:grab;
+}
+.ctrl .range::-moz-range-thumb{
+  width:19px; height:19px; border-radius:50%; border:2px solid #fff;
+  background:var(--flame-600); box-shadow:var(--shadow-2); cursor:grab;
+}
+.ctrl .range:focus-visible{outline:2px solid var(--flame-600); outline-offset:4px}
+.ctrl .ends{
+  display:flex; justify-content:space-between; font-size:11px; color:var(--ink-400);
+  margin-top:4px; font-variant-numeric:tabular-nums; direction:ltr;
+}
+.ctrl .why{font-size:11.5px; color:var(--ink-500); margin:4px 0 0; line-height:1.5}
+
+.pricebox{
+  margin-top:var(--s5); padding:var(--s5); border-radius:var(--r-md);
+  background:var(--ink-900); color:#fff;
+}
+.pricebox .amount{
+  font-size:32px; font-weight:750; letter-spacing:-.03em; line-height:1.1;
+  font-variant-numeric:tabular-nums; direction:ltr; text-align:right;
+}
+.pricebox .sub{font-size:var(--fs-xs); color:var(--ink-300); margin-top:6px; line-height:1.6}
+.crumb{display:flex; gap:6px; align-items:center; font-size:var(--fs-xs); color:var(--ink-500); margin-bottom:var(--s3)}
+.crumb a{color:var(--ink-600); font-weight:600}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap-wide">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M5 8.5A3.5 3.5 0 0 1 8.5 5h9.9L27 13.6v9.9A3.5 3.5 0 0 1 23.5 27h-15A3.5 3.5 0 0 1 5 23.5v-15Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M18.4 5v5.1a3.5 3.5 0 0 0 3.5 3.5H27" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><circle cx="12.4" cy="19.6" r="3" fill="currentColor"/></svg>
+      <span class="name"><b>ימיש כדורי</b><span>חיתוך לייזר</span></span>
+    </a>
+    <span class="spacer"></span>
+    <nav class="row"><a class="navlink" href="/catalog">כל הקטלוג</a><a class="navlink" href="/">תמחור מקובץ</a></nav>
+  </div>
+</header>
+
+<main class="wrap-wide" style="padding-block:var(--s6) var(--s10)">
+
+  <div class="crumb"><a href="/catalog">קטלוג</a><span>›</span><span id="crumb-name">…</span></div>
+  <h1 id="title" style="font-size:var(--fs-h2); letter-spacing:-.02em; margin-bottom:var(--s2)">טוען…</h1>
+  <p id="about" class="muted" style="max-width:60ch; line-height:1.65; margin-bottom:var(--s6)"></p>
+
+  <div class="split">
+
+    <section>
+      <div class="card">
+        <div id="controls"></div>
+
+        <div class="field" style="margin-bottom:var(--s4)">
+          <label class="lbl" for="material">חומר</label>
+          <select id="material"></select>
+        </div>
+        <div class="row" style="gap:var(--s4); margin-bottom:var(--s5)">
+          <div class="field" style="flex:1; min-width:120px">
+            <label class="lbl" for="thickness">עובי</label>
+            <select id="thickness"></select>
+          </div>
+          <div class="field" style="width:104px">
+            <label class="lbl" for="qty">כמות</label>
+            <input id="qty" type="number" min="1" step="1" value="1">
+          </div>
+        </div>
+
+        <div class="note note-bad hidden" id="error" style="margin-bottom:var(--s4)"></div>
+        <button class="btn btn-primary btn-block" id="go">חשב מחיר</button>
+
+        <div class="pricebox hidden" id="pricebox">
+          <div class="amount" id="amount">—</div>
+          <div class="sub" id="pricesub"></div>
+        </div>
+
+        <p class="tiny" style="margin-top:var(--s4)">
+          התצוגה מתעדכנת בכל תזוזה. המחיר מחושב רק בלחיצה — הוא נשען
+          על טבלת המחירים, ולא על הערכה.
+        </p>
+      </div>
+    </section>
+
+    <section class="stage">
+      <svg class="part" role="img" aria-label="תצוגת החלק"></svg>
+      <div class="readout" id="readout"></div>
+      <p class="tiny" id="foldnote" style="margin-top:var(--s4); display:none">
+        הקו הכתום המקווקו הוא קו הכיפוף. התצוגה היא הפריסה השטוחה — מה שנחתך לפני הכיפוף.
+      </p>
+    </section>
+
+  </div>
+</main>
+
+<script type="module">
+import { drawPart } from '/part-draw.js';
+
+const id = decodeURIComponent(location.pathname.replace(/^\/product\//, ''));
+const svg = document.querySelector('svg.part');
+const errorBox = document.getElementById('error');
+const priceBox = document.getElementById('pricebox');
+const goButton = document.getElementById('go');
+
+let product = null;
+const values = {};
+
+function fail(message, kind = 'bad') {
+  /* החומרה נקבעת בכל קריאה ולא נגררת: אותה תיבה מציגה גם הזמנה
+     להירשם (info) וגם מוצר שאינו זמין (warn), ובלי איפוס שגיאת
+     מידות אחריהן הייתה מוצגת בכחול רגוע כאילו הכל בסדר. */
+  errorBox.className = `note note-${kind}`;
+  errorBox.textContent = message;
+  errorBox.classList.remove('hidden');
+}
+function clearError() { errorBox.classList.add('hidden'); }
+
+const NUM = new Intl.NumberFormat('he-IL', { maximumFractionDigits: 1 });
+
+/* ₪ מוצמד ידנית ולא דרך `style:'currency'`.
+   הפורמט של Intl מחזיר סימני כיוון (RLM) בתוך המחרוזת, והם נלחמים
+   ב-`direction:ltr` שהמספר חייב — התוצאה היא שקל שקופץ לצד הלא נכון.
+   וזו גם אותה צורה בדיוק שמסך התמחור מציג כבר היום. */
+const money = (n) =>
+  '₪' + Number(n).toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/* ---- ציור ומדידה ---- */
+
+let pending = 0;
+function schedule() {
+  /* המחוון מייצר עשרות אירועים בגרירה אחת. השהיה קצרה הופכת אותם
+     לבקשה אחת, וגם שומרת על תקרת ההדמיות שלא תתמלא מגרירה יחידה. */
+  clearTimeout(pending);
+  pending = setTimeout(preview, 110);
+}
+
+let inFlight = null;
+async function preview() {
+  const mine = {};
+  inFlight = mine;
+  try {
+    const response = await fetch(`/api/catalog/${encodeURIComponent(id)}/preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (inFlight !== mine) return; // תשובה של גרירה קודמת — התעלם
+    if (!response.ok) {
+      fail(data.detail || 'צירוף המידות הזה אינו ניתן לייצור.');
+      return;
+    }
+    clearError();
+    drawPart(svg, data, { dims: true });
+    paintReadout(data);
+  } catch (err) {
+    fail('אין קשר לשרת. נסה שוב.');
+  }
+}
+
+function paintReadout(data) {
+  const cells = [
+    ['מידות חוץ', `${NUM.format(data.bbox.width_mm)} × ${NUM.format(data.bbox.height_mm)}`],
+    ['אורך חיתוך', `${NUM.format(data.cut_length_mm / 1000)} מ׳`],
+    ['חורים', String(data.holes)],
+    ['ניקובים', String(data.pierces)],
+  ];
+  if (data.bend_count) cells.push(['כיפופים', String(data.bend_count)]);
+  document.getElementById('readout').innerHTML = cells
+    .map(([k, v]) => `<div><div class="k">${k}</div><div class="v">${v}</div></div>`)
+    .join('');
+  document.getElementById('foldnote').style.display = data.bend_count ? '' : 'none';
+}
+
+/* ---- מחוונים ---- */
+
+function control(param) {
+  const wrap = document.createElement('div');
+  wrap.className = 'ctrl';
+  wrap.innerHTML = `
+    <div class="top">
+      <label for="p-${param.key}"></label>
+      <span class="spacer"></span>
+      <input type="number" id="n-${param.key}" min="${param.min}" max="${param.max}" step="${param.step}">
+    </div>
+    <input class="range" type="range" id="p-${param.key}"
+           min="${param.min}" max="${param.max}" step="${param.step}">
+    <div class="ends"><span>${param.min}</span><span>${param.max}</span></div>`;
+  wrap.querySelector('label').textContent = param.unit
+    ? `${param.name} (${param.unit})`
+    : param.name;
+  if (param.help) {
+    const why = document.createElement('p');
+    why.className = 'why';
+    why.textContent = param.help;
+    wrap.appendChild(why);
+  }
+
+  const range = wrap.querySelector('.range');
+  const number = wrap.querySelector('input[type=number]');
+  range.value = number.value = param.default;
+  values[param.key] = param.default;
+
+  /* שני הפקדים כותבים את אותו ערך. המספר מאפשר להקליד מידה מדויקת
+     שהמחוון לא יתפוס, והמחוון מאפשר לחפש. */
+  const set = (raw, mirror) => {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return;
+    values[param.key] = Math.min(param.max, Math.max(param.min, n));
+    mirror.value = values[param.key];
+    schedule();
+  };
+  range.addEventListener('input', () => set(range.value, number));
+  number.addEventListener('change', () => set(number.value, range));
+  return wrap;
+}
+
+/* ---- חומר ועובי ---- */
+
+function paintMaterials() {
+  const materialSelect = document.getElementById('material');
+  materialSelect.innerHTML = product.materials
+    .map((m) => `<option value="${m.key}">${m.name}</option>`)
+    .join('');
+  materialSelect.addEventListener('change', paintThicknesses);
+  paintThicknesses();
+}
+
+function paintThicknesses() {
+  const key = document.getElementById('material').value;
+  const material = product.materials.find((m) => m.key === key);
+  document.getElementById('thickness').innerHTML = material.thicknesses
+    .map((t) => `<option value="${t}">${t} מ״מ</option>`)
+    .join('');
+}
+
+/* ---- מחיר ---- */
+
+goButton.addEventListener('click', async () => {
+  goButton.disabled = true;
+  goButton.textContent = 'מחשב…';
+  clearError();
+  try {
+    const response = await fetch(`/api/catalog/${encodeURIComponent(id)}/quote`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        values,
+        material_key: document.getElementById('material').value,
+        thickness_mm: Number(document.getElementById('thickness').value),
+        quantity: Math.max(1, Number(document.getElementById('qty').value) || 1),
+      }),
+    });
+
+    if (response.status === 401) {
+      /* לא שגיאה — זה השלב הבא. הקטלוג פתוח, המחיר דורש חשבון. */
+      priceBox.classList.add('hidden');
+      errorBox.className = 'note note-info';
+      errorBox.innerHTML =
+        'המחיר דורש חשבון. <a href="/signup" style="font-weight:700">פתיחת חשבון</a> ' +
+        'לוקחת פחות מדקה, או <a href="/login" style="font-weight:700">כניסה</a> אם כבר יש לך.';
+      errorBox.classList.remove('hidden');
+      return;
+    }
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      fail(data.detail || 'לא הצלחנו לתמחר את החלק הזה.');
+      priceBox.classList.add('hidden');
+      return;
+    }
+    paintPrice(data.quote, Number(document.getElementById('qty').value) || 1);
+  } catch (err) {
+    fail('אין קשר לשרת. נסה שוב.');
+  } finally {
+    goButton.disabled = false;
+    goButton.textContent = 'חשב מחיר';
+  }
+});
+
+function paintPrice(quote, quantity) {
+  priceBox.classList.remove('hidden');
+  document.getElementById('amount').textContent = money(quote.total);
+  const each = quantity > 1 ? ` · ${money(quote.total / quantity)} ליחידה` : '';
+  document.getElementById('pricesub').textContent =
+    `כולל מע״מ${each}. ${quote.price_origin || ''}`;
+}
+
+/* ---- טעינה ---- */
+
+fetch('/api/catalog')
+  .then((r) => r.json())
+  .then((data) => {
+    for (const category of data.categories) {
+      const found = category.products.find((p) => p.id === id);
+      if (found) product = found;
+    }
+    if (!product) {
+      const gone = (data.unavailable || []).find((u) => u.id === id);
+      document.getElementById('title').textContent = gone ? gone.name : 'המוצר אינו זמין';
+      fail(
+        gone
+          ? `${gone.name} אינו ניתן לתמחור כרגע: ${gone.reason}.`
+          : 'המוצר הזה אינו מופיע בקטלוג כרגע.',
+        'warn'
+      );
+      goButton.disabled = true;
+      return;
+    }
+
+    document.title = `${product.name} — ימיש כדורי`;
+    document.getElementById('title').textContent = product.name;
+    document.getElementById('crumb-name').textContent = product.name;
+    document.getElementById('about').textContent = product.description || product.summary;
+
+    const controls = document.getElementById('controls');
+    for (const param of product.params) controls.appendChild(control(param));
+    paintMaterials();
+    preview();
+  })
+  .catch(() => {
+    fail('לא הצלחנו לטעון את המוצר. רענן את הדף.');
+  });
+</script>
+
+</body>
+</html>

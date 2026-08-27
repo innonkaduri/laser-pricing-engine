@@ -36,6 +36,7 @@ from ..nesting.plate import check_manufacturability
 from ..nesting.splitting import plan_split
 from ..pricing.engine import PricingError, price_order
 from ..pricing.tariff import InvalidTariffError, MissingTariffError
+from . import catalog as catalog_mod
 from . import identity, usage
 from .serialize import geometry_to_json, public_quote_to_json, quote_to_json
 from .simple_tariff import MONEY_FIELDS, apply_form, to_form
@@ -123,6 +124,14 @@ def _running_commit() -> str | None:
 RUNNING_COMMIT = _running_commit()
 """ה-SHA שנטען עם התהליך. `None` כשאין `.git` (פריסה מתוך ארכיון)."""
 
+CATALOG = catalog_mod.load()
+"""הקטלוג נטען פעם אחת, בעליית התהליך, **ומפיל אותה אם הוא שבור.**
+
+קטלוג שנטען בעצלתיים היה הופך שגיאת הקלדה ב-JSON ל-500 אצל המבקר
+הראשון שלוחץ על "קטלוג", שעות אחרי הפריסה. כאן הוא נופל בשנייה
+הראשונה, `deploy.sh` רואה שהיחידה לא עלתה, וההודעה מצביעה על השורה.
+"""
+
 app = FastAPI(
     title="מנוע תמחור לייזר",
     description="תמחור חיתוך לייזר לפי טבלת התמחור של ינון.",
@@ -168,7 +177,17 @@ def _is_font_path(path: str) -> bool:
     return path.startswith("/fonts/") and path.endswith(".woff2")
 
 
-def _is_brand_css(path: str) -> bool:
+OPEN_ASSETS = ("/brand.css", "/part-draw.js")
+"""נכסים שכל מסך ציבורי צריך, ולכן אינם יכולים לשבת מאחורי השער.
+
+`brand.css` הוא מערכת העיצוב. `part-draw.js` הוא הקוד שהופך מתאר
+שהשרת החזיר לנתיב SVG — **וקוד ציור אחד ולא שניים**: הקטלוג מצייר
+תמונות ממוזערות והקונפיגורטור מצייר תצוגה חיה, ושני עותקים של אותה
+המרה היו נפרדים בשקט בדיוק כמו שבעת קבצי ה-CSS שנפרדו לפני כן.
+"""
+
+
+def _is_open_asset(path: str) -> bool:
     """מערכת העיצוב, פתוחה מאותה סיבה בדיוק כמו הגופן.
 
     **קובץ אחד לשבעה מסכים.** קודם כל מסך נשא עותק של ה-CSS שלו,
@@ -176,7 +195,25 @@ def _is_brand_css(path: str) -> bool:
     כפתור שקיבל רדיוס אחר כאן ושם, וצבע שתוקן במסך אחד ולא בשישה.
     אין בו שום נתון: טוקנים ורכיבים בלבד.
     """
-    return path == "/brand.css"
+    return path in OPEN_ASSETS
+
+
+def _is_open_catalog(path: str) -> bool:
+    """הקטלוג נגלל בלי חשבון. **המחיר לא.**
+
+    זו אותה חלוקה שזאמיט עושים, ומאותה סיבה: מי שנוחת מגוגל צריך
+    לראות מה מייצרים כאן לפני שיחליט לפתוח חשבון, ומסך הרשמה אינו
+    תשובה לשאלה "מה אתם עושים". ההדמיה פתוחה גם היא — היא בנויה
+    ממידות שהמבקר עצמו הקליד ואינה נוגעת בטבלה בכלל.
+
+    `/api/catalog/<id>/quote` **אינו** ברשימה, ולכן הוא נופל לשער
+    הרגיל ודורש `quote:total` לפחות. שם נמצא המספר.
+    """
+    if path in ("/catalog", "/api/catalog"):
+        return True
+    if path.startswith("/product/"):
+        return True
+    return path.startswith("/api/catalog/") and path.endswith("/preview")
 
 
 def _is_editor_path(path: str) -> bool:
@@ -282,7 +319,7 @@ def _wants_html(request: Request) -> bool:
     return request.method == "GET" and "text/html" in request.headers.get("accept", "")
 
 
-CACHEABLE_ASSETS = ("/fonts/", "/static/", "/brand.css")
+CACHEABLE_ASSETS = ("/fonts/", "/static/") + OPEN_ASSETS
 """מה שזהה לכל אדם ולכן מותר לשמור. כל השאר — לא."""
 
 
@@ -326,7 +363,13 @@ async def auth_gate(request: Request, call_next):
 
 
 async def _decide(request: Request, call_next, path: str):
-    if path in OPEN_PATHS or _is_font_path(path) or _is_brand_css(path) or not _gate_is_on():
+    if (
+        path in OPEN_PATHS
+        or _is_font_path(path)
+        or _is_open_asset(path)
+        or _is_open_catalog(path)
+        or not _gate_is_on()
+    ):
         return await call_next(request)
 
     user = identity.current_user(request)
@@ -1305,6 +1348,265 @@ def quote(body: QuoteRequest, request: Request) -> dict:
     return quote_to_json(result) if _sees_breakdown(request) else public_quote_to_json(result)
 
 
+# ---- קטלוג ----
+
+CATALOG_PREVIEW_PER_IP = 240
+CATALOG_PREVIEW_WINDOW_SECONDS = 3600
+_CATALOG_PREVIEWS: dict[str, list[float]] = {}
+"""הדמיה אינה תמחור, ולכן היא מוגבלת אחרת.
+
+ההדמיה אינה נוגעת בטבלה ואינה מחזירה שקל, אבל היא כן בונה עיגולים
+ב-256 צלעות על **שתי ליבות המשותפות לחמישה פרויקטים**. 240 לשעה הם
+בערך ארבע לדקה — יותר ממה שאדם שמזיז מחוונים מייצר, ורחוק ממה
+שסקריפט צריך כדי להטריד את הקופסה.
+
+**המספר הזה אינו קשור ל-`PUBLIC_ENGINE_CALLS`, ואסור לבלבל.** שם
+12 לשעה מגנים על *טבלת המחירים*; כאן אין מה להגן עליו מלבד המעבד.
+"""
+
+
+class CatalogQuoteRequest(BaseModel):
+    values: dict[str, float | int | str | None] = Field(default_factory=dict)
+    material_key: str
+    thickness_mm: float = Field(gt=0)
+    quantity: int = Field(default=1, ge=1)
+
+
+class CatalogPreviewRequest(BaseModel):
+    values: dict[str, float | int | str | None] = Field(default_factory=dict)
+
+
+def _catalog_materials(product: catalog_mod.Product) -> list[dict]:
+    """אילו חומרים יכולים לתמחר **את המוצר הזה**, ולא בכלל.
+
+    `_priced_materials` שואל אם יש מחיר פלטה ומחיר חיתוך. זה מספיק
+    לחלק שטוח ואינו מספיק למוצר מכופף: המנוע דוחה כיפוף בשורה שאין
+    בה `bend_price` ולא `bend_rate_per_m` — 422 נכון לחלוטין, ומסך
+    שבור לגמרי. מוצר מכופף שאין לו חומר שיודע לתמחר כיפוף פשוט לא
+    יופיע בקטלוג, מאותה סיבה שאלומיניום לא מופיע בדף הנחיתה.
+    """
+    tariff = STATE.tariff
+    if tariff is None:
+        return []
+
+    usable: dict[str, dict] = {}
+    for rate in tariff.rates.values():
+        if rate.plate_price <= 0 or rate.cut_rate_per_m <= 0:
+            continue
+        if product.bends and rate.bend_price <= 0 and rate.bend_rate_per_m <= 0:
+            continue
+        entry = usable.setdefault(
+            rate.material_key,
+            {"key": rate.material_key, "name": rate.material_name, "thicknesses": []},
+        )
+        entry["thicknesses"].append(rate.thickness_mm)
+    return [
+        {"key": m["key"], "name": m["name"], "thicknesses": sorted(m["thicknesses"])}
+        for m in sorted(usable.values(), key=lambda m: str(m["name"]))
+    ]
+
+
+THUMBNAIL_POINTS = 48
+_THUMBNAILS: dict[str, dict] = {}
+
+
+def _thumbnail(product: catalog_mod.Product) -> dict:
+    """החלק בברירות המחדל שלו, מדולל לכרטיס בקטלוג.
+
+    **הכרטיס מצייר את החלק ולא איור שלו.** לא צילמנו את המוצרים ואין
+    לנו סטודיו, אבל גם אם היה — תצלום מתיישן ברגע שמישהו משנה בנאי,
+    והמסך ימשיך להראות את החלק הישן לצד המחיר החדש. כאן אין מה
+    שיתיישן: אלה אותם מתארים שמהם מחושב אורך החיתוך.
+
+    נבנה פעם אחת ונשמר. ברירות המחדל אינן משתנות בזמן ריצה, ובנייה
+    חוזרת בכל טעינת קטלוג הייתה שבעה חישובי גיאומטריה על **שתי
+    ליבות המשותפות לחמישה פרויקטים**.
+    """
+    cached = _THUMBNAILS.get(product.id)
+    if cached is not None:
+        return cached
+
+    blank = catalog_mod.build(product, product.defaults())
+    geometry = _build_manual_geometry(ManualPartSpec(name=product.name, **blank.spec))
+    data = geometry_to_json(geometry)
+    thumb = {
+        "bbox": data["bbox"],
+        "fold_lines": blank.fold_lines,
+        "contours": [
+            {
+                "points": c["points"][:: max(1, len(c["points"]) // THUMBNAIL_POINTS)],
+                "hole": c["hole"],
+                "closed": c["closed"],
+            }
+            for c in data["contours"]
+        ],
+    }
+    _THUMBNAILS[product.id] = thumb
+    return thumb
+
+
+def _product_to_json(product: catalog_mod.Product, materials: list[dict]) -> dict:
+    return {
+        "thumb": _thumbnail(product),
+        "id": product.id,
+        "category": product.category,
+        "name": product.name,
+        "summary": product.summary,
+        "description": product.description,
+        "bends": product.bends,
+        "params": [p.to_json() for p in product.params],
+        "materials": materials,
+    }
+
+
+@app.get("/api/catalog")
+def get_catalog() -> dict:
+    """הקטלוג כפי שהוא ניתן לתמחור **היום**. בלי זהות ובלי מחירים.
+
+    מוצר שאין לו אף חומר שיודע לתמחר אותו אינו נכנס לקטגוריות — אבל
+    גם אינו נעלם בשקט: הוא נספר ב-`unavailable` עם הסיבה. **שקט זה
+    מה שגרם לגיבוי לדווח `ok:true` על מסד ריק במשך ארבעה ימים**,
+    ומסך שמראה חמישה מוצרים מתוך שבעה בלי לומר מילה הוא אותו זן.
+
+    הסיבה שמופיעה שם אומרת ששדה בטבלה ריק, ולא מה ערכו. זה כבר
+    פומבי ב-`/api/offering` ובמוני `/health`.
+    """
+    categories: dict[str, dict] = {
+        c.key: {"key": c.key, "name": c.name, "summary": c.summary, "products": []}
+        for c in CATALOG.categories
+    }
+    unavailable: list[dict] = []
+
+    for product in CATALOG.products:
+        materials = _catalog_materials(product)
+        if not materials:
+            unavailable.append(
+                {
+                    "id": product.id,
+                    "name": product.name,
+                    "reason": (
+                        "אין בטבלה חומר עם מחיר כיפוף"
+                        if product.bends
+                        else "אין בטבלה חומר עם מחיר פלטה ומחיר חיתוך"
+                    ),
+                }
+            )
+            continue
+        categories[product.category]["products"].append(_product_to_json(product, materials))
+
+    live = [c for c in categories.values() if c["products"]]
+    return {
+        "ready": STATE.is_ready and bool(live),
+        "version": CATALOG.version,
+        "categories": live,
+        "product_count": sum(len(c["products"]) for c in live),
+        "unavailable": unavailable,
+        "signup_open": SIGNUP_MODE != "closed",
+    }
+
+
+def _require_product(product_id: str) -> catalog_mod.Product:
+    product = CATALOG.get(product_id)
+    if product is None:
+        raise HTTPException(status_code=404, detail=f'אין מוצר בשם "{product_id}" בקטלוג.')
+    return product
+
+
+def _blank(product: catalog_mod.Product, values: dict) -> catalog_mod.Blank:
+    try:
+        return catalog_mod.build(product, values)
+    except catalog_mod.CatalogError as exc:
+        # 400 ולא 422: המידות שהתקבלו אינן ניתנות לייצור, וזו טענה על
+        # הקלט ולא על הטבלה. ההודעה אומרת מה הגבול ולא רק "לא חוקי".
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/catalog/{product_id}/preview")
+def catalog_preview(product_id: str, body: CatalogPreviewRequest, request: Request) -> dict:
+    """הצורה, בלי מחיר. **פתוח לכולם, ובכוונה.**
+
+    זו הנקודה שבה הקטלוג מרגיש כמו קונפיגורטור ולא כמו טופס: המחוון
+    זז והחלק משתנה מיד. הוא יכול להיות פתוח **מפני שאין בו טבלה** —
+    הוא מחזיר גיאומטריה שנבנתה מהמידות שהמבקר עצמו הקליד, ואותו קוד
+    בדיוק ירוץ אם יקליד אותן ב-/api/manual.
+
+    **ובכוונה אין כאן מחיר גם לא למי שמחובר.** מחיר על כל תזוזת
+    מחוון היה שורף את 12 התמחורים לשעה בעשר שניות, וגם היה הופך את
+    שחזור הטבלה מ"תשע קריאות" למשהו שקורה מעצמו.
+    """
+    if not _rate_ok(
+        _CATALOG_PREVIEWS,
+        _client_ip(request),
+        CATALOG_PREVIEW_PER_IP,
+        CATALOG_PREVIEW_WINDOW_SECONDS,
+    ):
+        raise HTTPException(status_code=429, detail="יותר מדי הדמיות. נסה שוב בעוד כמה דקות.")
+
+    product = _require_product(product_id)
+    blank = _blank(product, body.values)
+    geometry = _build_manual_geometry(ManualPartSpec(name=product.name, **blank.spec))
+    plan = plan_split(geometry.bbox, _plate())
+    return {
+        "product_id": product.id,
+        "name": product.name,
+        "values": catalog_mod.resolve(product, body.values),
+        "bend_count": blank.bend_count,
+        "bend_length_mm": round(blank.bend_length_mm, 2),
+        "fold_lines": blank.fold_lines,
+        "fits_single_plate": plan.piece_count == 1,
+        **geometry_to_json(geometry),
+    }
+
+
+@app.post("/api/catalog/{product_id}/quote")
+def catalog_quote(product_id: str, body: CatalogQuoteRequest, request: Request) -> dict:
+    """מידות → מחיר. **דרך אותו מנוע בדיוק כמו חלק שהוקלד ביד.**
+
+    הגיאומטריה אינה נכנסת ל-`STORE`, ובכוונה: הקונפיגורטור מייצר
+    חלק חדש בכל לחיצה, והחנות הייתה מתמלאת בעשרות גרסאות של אותה
+    פלטה עד שהתקרה של הבעלים הייתה נגמרת מעצמה. ההצעה כאן היא בקשה
+    אחת שלמה — מידות פנימה, מחיר החוצה.
+
+    צורת התשובה נקבעת ב-`serialize` כמו בכל מקום אחר: ציבורי מקבל
+    מספר אחד, פנימי מקבל פירוק.
+    """
+    _guard_public_engine(request)
+    tariff = _require_tariff()
+    product = _require_product(product_id)
+    blank = _blank(product, body.values)
+    geometry = _build_manual_geometry(ManualPartSpec(name=product.name, **blank.spec))
+
+    try:
+        part = Part(
+            name=product.name,
+            geometry=geometry,
+            material_key=body.material_key,
+            thickness_mm=body.thickness_mm,
+            quantity=body.quantity,
+            source=PartSource.MANUAL,
+            bend_count=blank.bend_count,
+            bend_length_mm=blank.bend_length_mm,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        result = price_order([part], tariff)
+    except MissingTariffError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except PricingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    usage.record_quote(result, _current(request))
+    quote_json = quote_to_json(result) if _sees_breakdown(request) else public_quote_to_json(result)
+    return {
+        "product_id": product.id,
+        "values": catalog_mod.resolve(product, body.values),
+        "bend_count": blank.bend_count,
+        "quote": quote_json,
+    }
+
+
 # ---- טבלת התמחור ----
 
 
@@ -1519,6 +1821,15 @@ if WEB_DIR.exists():
             headers={"Cache-Control": "public, max-age=3600"},
         )
 
+    @app.get("/part-draw.js")
+    def part_draw_js() -> FileResponse:
+        """ציור המתאר. פתוח, כי הקטלוג נגלל בלי חשבון."""
+        return FileResponse(
+            WEB_DIR / "part-draw.js",
+            media_type="application/javascript; charset=utf-8",
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+
     @app.get("/fonts/{name}")
     def font(name: str) -> FileResponse:
         """Assistant, מתארח אצלנו. רק woff2, ורק מהתיקייה הזאת."""
@@ -1533,6 +1844,23 @@ if WEB_DIR.exists():
             # הגופן אינו משתנה. שנה של מטמון חוסכת את הבקשה לגמרי.
             headers={"Cache-Control": "public, max-age=31536000, immutable"},
         )
+
+    @app.get("/catalog")
+    def catalog_page() -> FileResponse:
+        """הקטלוג. פתוח, כמו דף הנחיתה ומאותה סיבה."""
+        return FileResponse(WEB_DIR / "catalog.html")
+
+    @app.get("/product/{product_id}")
+    def product_page(product_id: str) -> FileResponse:
+        """הקונפיגורטור. **404 על מוצר שאינו קיים, ולא מסך ריק.**
+
+        המסך נטען מאותו קובץ לכל המוצרים והוא קורא את המזהה מהכתובת,
+        ולכן בלי הבדיקה הזאת כל שרשור אותיות היה מחזיר 200 עם שלד
+        שנשאר ריק לנצח — כתובת שנראית תקינה ומסך ששבור בשקט.
+        """
+        if CATALOG.get(product_id) is None:
+            raise HTTPException(status_code=404, detail=f'אין מוצר בשם "{product_id}".')
+        return FileResponse(WEB_DIR / "product.html")
 
     @app.get("/dashboard")
     def dashboard_page() -> FileResponse:

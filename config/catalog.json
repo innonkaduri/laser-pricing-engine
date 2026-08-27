@@ -1,0 +1,146 @@
+{
+  "_README": [
+    "קטלוג המוצרים הפרמטרי. הקובץ הזה הוא **נתונים**, לא קוד: הוא בוחר בנאי",
+    "מתוך הרשימה הסגורה ב-src/laser_pricing/api/catalog.py ונותן לו גבולות.",
+    "",
+    "*** אלה אינם המוצרים של ימיש כדורי. ***",
+    "אלה שבעה חלקי פח גנריים שכל חיתוך לייזר חותך, והם קיימים כדי שהמנגנון",
+    "יעמוד על רגליו לפני שינון עונה על השאלה הפתוחה: אילו 4-6 מוצרים ימיש",
+    "באמת מייצרת, ולכל אחד — אילו מידות משתנות ומה המינימום והמקסימום שלהן.",
+    "ברגע שיש תשובה, מחליפים את products כאן ולא נוגעים בשורת קוד אחת.",
+    "",
+    "התקרות של המידות אינן שרירותיות: הפלטה היא 3000x1500 עם שוליים של 20,",
+    "כלומר 2960x1460 שמישים. כל מוצר כאן נחסם ל-1400 מ\"מ לכל כיוון, ולכן",
+    "אף צירוף מידות בקטלוג אינו דורש פיצול וריתוך. זו החלטה ולא מקריות:",
+    "weld_rate_per_m בטבלה הוא 0, וחלק שדורש ריתוך היה מחזיר 422 מהמחוון."
+  ],
+  "version": 1,
+  "categories": [
+    {
+      "key": "plates",
+      "name": "פלטות ואוגנים",
+      "summary": "בסיסים, אוגנים ודיסקיות — חיתוך שטוח עם חורי עיגון."
+    },
+    {
+      "key": "brackets",
+      "name": "זוויות ומחזיקים",
+      "summary": "חלקים מכופפים: זווית 90° ותעלת U, בפריסה ובכיפוף."
+    },
+    {
+      "key": "strips",
+      "name": "פסים ולוחיות",
+      "summary": "פסי חיזוק מחוררים ולוחיות סימון."
+    }
+  ],
+  "products": [
+    {
+      "id": "base-plate",
+      "category": "plates",
+      "name": "פלטת בסיס מחוררת",
+      "summary": "מלבן עם ארבעה חורי עיגון בפינות.",
+      "description": "החלק הנפוץ ביותר בחיתוך לייזר: פלטה מלבנית עם ארבעה חורים בפינות לעיגון או להברגה. המידות, קוטר החורים והמרחק שלהם מהשפה — הכל משתנה.",
+      "builder": "rect_plate",
+      "bends": false,
+      "params": [
+        { "key": "width_mm", "name": "רוחב", "unit": "מ\"מ", "min": 40, "max": 1400, "step": 5, "default": 300 },
+        { "key": "height_mm", "name": "גובה", "unit": "מ\"מ", "min": 40, "max": 1400, "step": 5, "default": 200 },
+        { "key": "hole_dia_mm", "name": "קוטר חור", "unit": "מ\"מ", "min": 3, "max": 40, "step": 0.5, "default": 9, "help": "חור 9 מ\"מ מתאים לבורג M8." },
+        { "key": "hole_inset_mm", "name": "מרחק מהשפה", "unit": "מ\"מ", "min": 5, "max": 150, "step": 1, "default": 20 }
+      ]
+    },
+    {
+      "id": "disc-flange",
+      "category": "plates",
+      "name": "אוגן עגול",
+      "summary": "דיסקית עם קדח מרכזי וחורי ברגים על מעגל.",
+      "description": "אוגן לחיבור צנרת או ציר: קדח מרכזי, ומסביבו חורי ברגים במרווחים שווים על מעגל. מספר הברגים וקוטר מעגל הברגים נבחרים בנפרד.",
+      "builder": "disc_flange",
+      "bends": false,
+      "params": [
+        { "key": "outer_dia_mm", "name": "קוטר חיצוני", "unit": "מ\"מ", "min": 60, "max": 1400, "step": 5, "default": 200 },
+        { "key": "bore_dia_mm", "name": "קדח מרכזי", "unit": "מ\"מ", "min": 10, "max": 900, "step": 1, "default": 60 },
+        { "key": "bolt_count", "name": "מספר ברגים", "unit": "", "min": 3, "max": 16, "step": 1, "default": 6 },
+        { "key": "bolt_dia_mm", "name": "קוטר חור בורג", "unit": "מ\"מ", "min": 4, "max": 40, "step": 0.5, "default": 11 },
+        { "key": "bolt_circle_dia_mm", "name": "קוטר מעגל הברגים", "unit": "מ\"מ", "min": 30, "max": 1300, "step": 5, "default": 140 }
+      ]
+    },
+    {
+      "id": "square-flange",
+      "category": "plates",
+      "name": "אוגן מרובע",
+      "summary": "ריבוע עם קדח מרכזי וארבעה ברגים בפינות.",
+      "description": "אוגן מרובע לעיגון מיסב, ציר או צינור. קדח אחד במרכז וארבעה חורי ברגים בפינות.",
+      "builder": "square_flange",
+      "bends": false,
+      "params": [
+        { "key": "side_mm", "name": "צלע", "unit": "מ\"מ", "min": 50, "max": 1400, "step": 5, "default": 160 },
+        { "key": "bore_dia_mm", "name": "קדח מרכזי", "unit": "מ\"מ", "min": 10, "max": 900, "step": 1, "default": 80 },
+        { "key": "bolt_dia_mm", "name": "קוטר חור בורג", "unit": "מ\"מ", "min": 4, "max": 40, "step": 0.5, "default": 11 },
+        { "key": "bolt_inset_mm", "name": "מרחק בורג מהשפה", "unit": "מ\"מ", "min": 6, "max": 200, "step": 1, "default": 18 }
+      ]
+    },
+    {
+      "id": "angle-bracket",
+      "category": "brackets",
+      "name": "זווית 90°",
+      "summary": "שתי שוקיים בכיפוף אחד, עם חורים בכל שוק.",
+      "description": "זווית חיזוק או תלייה. המחיר מכיל את החיתוך של הפריסה השטוחה ואת הכיפוף עצמו. שים לב: הפריסה מחושבת כסכום שתי השוקיים בלי ניכוי כיפוף — כלומר מוסיפה מעט חומר ולא מחסירה.",
+      "builder": "angle_bracket",
+      "bends": true,
+      "params": [
+        { "key": "leg_a_mm", "name": "שוק א׳", "unit": "מ\"מ", "min": 25, "max": 600, "step": 5, "default": 80 },
+        { "key": "leg_b_mm", "name": "שוק ב׳", "unit": "מ\"מ", "min": 25, "max": 600, "step": 5, "default": 60 },
+        { "key": "width_mm", "name": "רוחב", "unit": "מ\"מ", "min": 20, "max": 1400, "step": 5, "default": 50 },
+        { "key": "hole_dia_mm", "name": "קוטר חור", "unit": "מ\"מ", "min": 3, "max": 30, "step": 0.5, "default": 9 },
+        { "key": "holes_per_leg", "name": "חורים בכל שוק", "unit": "", "min": 1, "max": 4, "step": 1, "default": 2 }
+      ]
+    },
+    {
+      "id": "u-channel",
+      "category": "brackets",
+      "name": "תעלת U",
+      "summary": "בסיס ושתי דפנות, בשני כיפופים.",
+      "description": "תעלה או מסילה: בסיס ושתי דפנות מכופפות. החורים יושבים בדפנות. גם כאן הפריסה היא סכום המקטעים, בלי ניכוי כיפוף.",
+      "builder": "u_channel",
+      "bends": true,
+      "params": [
+        { "key": "base_mm", "name": "רוחב הבסיס", "unit": "מ\"מ", "min": 30, "max": 600, "step": 5, "default": 100 },
+        { "key": "leg_mm", "name": "גובה הדופן", "unit": "מ\"מ", "min": 15, "max": 250, "step": 5, "default": 40 },
+        { "key": "length_mm", "name": "אורך התעלה", "unit": "מ\"מ", "min": 50, "max": 1400, "step": 10, "default": 300 },
+        { "key": "hole_dia_mm", "name": "קוטר חור", "unit": "מ\"מ", "min": 3, "max": 30, "step": 0.5, "default": 9 },
+        { "key": "holes_per_side", "name": "חורים בכל דופן", "unit": "", "min": 1, "max": 6, "step": 1, "default": 2 }
+      ]
+    },
+    {
+      "id": "perforated-strip",
+      "category": "strips",
+      "name": "פס מחורר",
+      "summary": "פס ישר עם שורת חורים במרווחים שווים.",
+      "description": "פס חיזוק, פס תלייה או סרגל עיגון. החורים מתפרסים במרווחים שווים בין השוליים.",
+      "builder": "perforated_strip",
+      "bends": false,
+      "params": [
+        { "key": "length_mm", "name": "אורך", "unit": "מ\"מ", "min": 60, "max": 1400, "step": 10, "default": 500 },
+        { "key": "width_mm", "name": "רוחב", "unit": "מ\"מ", "min": 15, "max": 300, "step": 5, "default": 40 },
+        { "key": "hole_count", "name": "מספר חורים", "unit": "", "min": 1, "max": 40, "step": 1, "default": 6 },
+        { "key": "hole_dia_mm", "name": "קוטר חור", "unit": "מ\"מ", "min": 3, "max": 30, "step": 0.5, "default": 9 },
+        { "key": "end_margin_mm", "name": "שוליים בקצה", "unit": "מ\"מ", "min": 6, "max": 200, "step": 1, "default": 20 }
+      ]
+    },
+    {
+      "id": "name-plate",
+      "category": "strips",
+      "name": "לוחית סימון",
+      "summary": "לוחית מלבנית עם שני חורי תלייה.",
+      "description": "שילוט מתכת, לוחית מספר או תווית ציוד. שני חורים על ציר האורך.",
+      "builder": "name_plate",
+      "bends": false,
+      "params": [
+        { "key": "width_mm", "name": "רוחב", "unit": "מ\"מ", "min": 30, "max": 600, "step": 5, "default": 120 },
+        { "key": "height_mm", "name": "גובה", "unit": "מ\"מ", "min": 15, "max": 400, "step": 5, "default": 60 },
+        { "key": "hole_dia_mm", "name": "קוטר חור", "unit": "מ\"מ", "min": 2.5, "max": 20, "step": 0.5, "default": 5 },
+        { "key": "hole_inset_mm", "name": "מרחק מהשפה", "unit": "מ\"מ", "min": 5, "max": 100, "step": 1, "default": 10 }
+      ]
+    }
+  ]
+}

@@ -157,6 +157,7 @@ footer .wrap{display:flex; gap:var(--s4); flex-wrap:wrap; align-items:center}
       <span class="name"><b>ימיש כדורי</b><span>חיתוך לייזר</span></span>
     </a>
     <span class="spacer"></span>
+    <a class="navlink" href="/catalog">קטלוג מוצרים</a>
     <a class="navlink" href="/login">כניסה</a>
     <a class="btn btn-primary btn-sm" href="/signup">פתיחת חשבון</a>
   </div>
@@ -175,7 +176,10 @@ footer .wrap{display:flex; gap:var(--s4); flex-wrap:wrap; align-items:center}
         </p>
         <div class="cta">
           <a class="btn btn-primary" href="/signup">פתיחת חשבון — חינם</a>
-          <a class="btn btn-secondary" href="#how">איך זה עובד</a>
+          <!-- הקטלוג פתוח בלי חשבון, ולכן הוא הכפתור השני ולא
+               "איך זה עובד": מי שנוחת כאן יכול לראות מוצר אמיתי
+               משתנה לפני שהוא מחליט להירשם. -->
+          <a class="btn btn-secondary" href="/catalog">לקטלוג המוצרים</a>
         </div>
         <p class="fineprint">פחות מדקה. בלי אימייל ובלי טלפון.</p>
       </div>

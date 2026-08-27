@@ -85,7 +85,7 @@ table td{padding:var(--s2) 5px}
         <span id="start-status" style="font-size:15px"></span>
       </div>
       <p style="margin:16px 0 0">
-        <a href="#" id="show-all" style="color:var(--accent)">יש לי את כל המחירים — הצג את הטבלה המלאה</a>
+        <a href="#" id="show-all" style="color:var(--flame-600)">יש לי את כל המחירים — הצג את הטבלה המלאה</a>
       </p>
     </div>
 
@@ -225,13 +225,13 @@ $('#start-save').addEventListener('click', async () => {
   const cut = Number($('#start-cut').value || 0);
 
   if (plate <= 0 && cut <= 0) {
-    status.style.color = 'var(--bad)';
+    status.style.color = 'var(--bad-600)';
     status.textContent = 'צריך לפחות אחד משני המספרים.';
     return;
   }
 
   btn.disabled = true;
-  status.style.color = 'var(--muted)';
+  status.style.color = 'var(--ink-500)';
   status.textContent = 'שומר…';
   try {
     const body = JSON.parse(JSON.stringify(FORM));
@@ -247,10 +247,10 @@ $('#start-save').addEventListener('click', async () => {
     FORM = fresh.form;
     render(fresh);
     showFull();
-    $('#status').style.color = res.ready ? 'var(--ok)' : 'var(--warn)';
+    $('#status').style.color = res.ready ? 'var(--ok-600)' : 'var(--warn-600)';
     $('#status').textContent = res.message;
   } catch (err) {
-    status.style.color = 'var(--bad)';
+    status.style.color = 'var(--bad-600)';
     status.textContent = 'לא נשמר: ' + err.message;
   } finally {
     btn.disabled = false;
@@ -410,11 +410,11 @@ function dirty() {
   const wild = outlierCount();
   if (wild) {
     // מסומן, לא חסום. אם אלה המחירים שלו — שישמור.
-    status.style.color = 'var(--warn)';
+    status.style.color = 'var(--warn-600)';
     status.textContent = `לא נשמר עדיין · ${wild} ערכים נראים חריגים (מסומנים בצהוב) — בדוק אותם`;
     return;
   }
-  status.style.color = 'var(--muted)';
+  status.style.color = 'var(--ink-500)';
   // הוא צריך לדעת שההקלדה שלו לא תלך לאיבוד אם הטלפון ננעל.
   status.textContent = 'לא נשמר עדיין — ההקלדה שמורה במכשיר. לחץ "שמור מחירים".';
 }
@@ -501,7 +501,7 @@ $('#save').addEventListener('click', async () => {
   const btn = $('#save');
   const status = $('#status');
   btn.disabled = true;
-  status.style.color = 'var(--muted)';
+  status.style.color = 'var(--ink-500)';
   status.textContent = 'שומר…';
   try {
     const res = await api('/api/prices', {
@@ -510,13 +510,13 @@ $('#save').addEventListener('click', async () => {
       body: JSON.stringify(collect()),
     });
     clearDraft();
-    status.style.color = res.ready ? 'var(--ok)' : 'var(--warn)';
+    status.style.color = res.ready ? 'var(--ok-600)' : 'var(--warn-600)';
     status.textContent = res.message;
     const fresh = await api('/api/prices');
     FORM = fresh.form;
     render(fresh);
   } catch (err) {
-    status.style.color = 'var(--bad)';
+    status.style.color = 'var(--bad-600)';
     status.textContent = 'לא נשמר: ' + err.message;
   } finally {
     btn.disabled = false;
