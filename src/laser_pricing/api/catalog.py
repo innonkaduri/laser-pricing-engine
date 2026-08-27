@@ -350,6 +350,216 @@ def _u_channel(v: dict[str, float]) -> Blank:
     )
 
 
+# ---- פח מכופף: הפריסה היא צלב, והמגרעות הן מה שמאפשר לקפל ----
+#
+# **הפריסה אינה סכום המקטעים המדויק.** פח מתקפל סביב הסיב הנייטרלי
+# ומאבד מהאורך, והניכוי תלוי בעובי וברדיוס הכלי של המכונה. מספר
+# שהומצא כאן היה נראה בדיוק כמו מספר שנמדד, ולכן הפריסה היא הסכום
+# הפשוט: הוא **מוסיף** חומר, כלומר טועה לטובת מי שמייצר ולא לרעתו.
+
+
+def _tray_outline(width: float, depth: float, wall: float, four_sides: bool) -> list[tuple]:
+    """מתאר הפריסה של מגש. ארבע דפנות = צלב; שלוש = צלב בלי הדופן העליונה.
+
+    המגרעות בפינות אינן קישוט: בלי להסיר אותן שתי דפנות סמוכות היו
+    חופפות באותו חומר בזווית, והחלק פשוט אינו מתקפל.
+    """
+    w, d, t = width, depth, wall
+    if four_sides:
+        return [
+            (t, 0.0), (t + w, 0.0), (t + w, t), (w + 2 * t, t),
+            (w + 2 * t, t + d), (t + w, t + d), (t + w, d + 2 * t), (t, d + 2 * t),
+            (t, t + d), (0.0, t + d), (0.0, t), (t, t),
+        ]
+    return [
+        (t, 0.0), (t + w, 0.0), (t + w, t), (w + 2 * t, t),
+        (w + 2 * t, t + d), (0.0, t + d), (0.0, t), (t, t),
+    ]
+
+
+def _tray(v: dict[str, float], four_sides: bool) -> Blank:
+    width, depth, wall = v["width_mm"], v["depth_mm"], v["wall_mm"]
+    _demand(
+        wall * 2 < min(width, depth),
+        f'דופן בגובה {wall:g} מ"מ גבוהה מדי לבסיס {width:g}×{depth:g} מ"מ.',
+    )
+    outline = _tray_outline(width, depth, wall, four_sides)
+    folds = [
+        [wall, wall, wall + width, wall],
+        [wall, wall, wall, wall + depth],
+        [wall + width, wall, wall + width, wall + depth],
+    ]
+    bends, bend_length = 3, width + 2 * depth
+    if four_sides:
+        folds.append([wall, wall + depth, wall + width, wall + depth])
+        bends, bend_length = 4, 2 * width + 2 * depth
+    return Blank(
+        spec={"shape": "polygon", "points": outline},
+        bend_count=bends,
+        bend_length_mm=bend_length,
+        fold_lines=folds,
+    )
+
+
+def _tray_3_sides(v: dict[str, float]) -> Blank:
+    """מגש פתוח בצד אחד — מדף, מגירה, תעלת כבלים."""
+    return _tray(v, four_sides=False)
+
+
+def _tray_4_sides(v: dict[str, float]) -> Blank:
+    """קופסה פתוחה מלמעלה: בסיס וארבע דפנות."""
+    return _tray(v, four_sides=True)
+
+
+def _enclosure(v: dict[str, float]) -> Blank:
+    """מארז: מגש ארבע דפנות עם חורי כניסה לכבלים בבסיס."""
+    blank = _tray(v, four_sides=True)
+    width, depth, wall = v["width_mm"], v["depth_mm"], v["wall_mm"]
+    dia, count = v["gland_dia_mm"], int(v["gland_count"])
+
+    _demand(
+        depth >= dia + 2 * EDGE_CLEARANCE_MM,
+        f'עומק הבסיס ({depth:g} מ"מ) קטן מדי לחור בקוטר {dia:g} מ"מ.',
+    )
+    span = width / (count + 1)
+    _demand(
+        span >= dia + EDGE_CLEARANCE_MM,
+        f'{count} חורים בקוטר {dia:g} מ"מ צפופים מדי לרוחב {width:g} מ"מ.',
+    )
+    # החורים בבסיס בלבד — הבסיס מתחיל ב-(wall, wall) בפריסה.
+    holes = [
+        _hole(dia, wall + width * (i + 1) / (count + 1), wall + depth / 2)
+        for i in range(count)
+    ]
+    return Blank(
+        spec=blank.spec | {"holes": holes},
+        bend_count=blank.bend_count,
+        bend_length_mm=blank.bend_length_mm,
+        fold_lines=blank.fold_lines,
+    )
+
+
+def _floating_shelf(v: dict[str, float]) -> Blank:
+    """מדף צף: גב לתלייה, משטח, ושפה קדמית. שני כיפופים."""
+    width, depth = v["width_mm"], v["depth_mm"]
+    back, lip = v["back_mm"], v["lip_mm"]
+    dia, count = v["hole_dia_mm"], int(v["hole_count"])
+
+    flat = back + depth + lip
+    _demand(
+        back >= dia + 2 * EDGE_CLEARANCE_MM,
+        f'גובה הגב ({back:g} מ"מ) קטן מדי לחור תלייה בקוטר {dia:g} מ"מ.',
+    )
+    span = width / (count + 1)
+    _demand(
+        span >= dia + EDGE_CLEARANCE_MM,
+        f'{count} חורי תלייה בקוטר {dia:g} מ"מ צפופים מדי לרוחב {width:g} מ"מ.',
+    )
+    holes = [
+        _hole(dia, width * (i + 1) / (count + 1), back / 2) for i in range(count)
+    ]
+    return Blank(
+        spec={"shape": "rect", "width_mm": width, "height_mm": flat, "holes": holes},
+        bend_count=2,
+        bend_length_mm=2 * width,
+        fold_lines=[[0.0, back, width, back], [0.0, back + depth, width, back + depth]],
+    )
+
+
+def _rect_frame(v: dict[str, float]) -> Blank:
+    """מסגרת: מלבן עם מלבן שנחתך מתוכו.
+
+    **החיתוך הפנימי אינו עיגול, וזה כל החידוש כאן.** עד 27.8.2026
+    "חור" בקלט הידני היה עיגול בלבד, ולכן מסגרת — המוצר הבסיסי ביותר
+    בחיתוך לייזר אחרי הפלטה — לא הייתה ניתנת להזמנה.
+    """
+    width, height, border = v["width_mm"], v["height_mm"], v["border_mm"]
+    _demand(
+        2 * border + 20 <= min(width, height),
+        f'מסגרת ברוחב {border:g} מ"מ אינה משאירה פתח במלבן {width:g}×{height:g} מ"מ. '
+        f'המקסימום כאן הוא {(min(width, height) - 20) / 2:g} מ"מ.',
+    )
+    inner = [
+        (border, border),
+        (width - border, border),
+        (width - border, height - border),
+        (border, height - border),
+    ]
+    return Blank(
+        spec={"shape": "rect", "width_mm": width, "height_mm": height, "cutouts": [inner]}
+    )
+
+
+# ---- לוחות מנוקבים: משרבייה, גדר, חיפוי ----
+
+
+def _grid_centers(size: float, count: int, margin: float, opening: float, axis: str) -> list[float]:
+    """מרכזי הפתחים על ציר אחד, ובדיקה שהם לא נוגעים זה בזה."""
+    _demand(
+        margin >= opening / 2 + EDGE_CLEARANCE_MM,
+        f'שוליים של {margin:g} מ"מ קטנים מדי לפתח של {opening:g} מ"מ.',
+    )
+    if count == 1:
+        return [size / 2]
+    span = size - 2 * margin
+    _demand(span > 0, f'השוליים גדולים מהלוח בציר ה{axis}.')
+    pitch = span / (count - 1)
+    _demand(
+        pitch >= opening + EDGE_CLEARANCE_MM,
+        f'{count} פתחים בציר ה{axis} צפופים מדי על {size:g} מ"מ — '
+        f'המרווח ביניהם {pitch:.1f} מ"מ, והפתח {opening:g} מ"מ.',
+    )
+    return [margin + span * i / (count - 1) for i in range(count)]
+
+
+def _panel_grid(v: dict[str, float], opening_w: float, opening_h: float):
+    width, height, margin = v["width_mm"], v["height_mm"], v["margin_mm"]
+    cols, rows = int(v["cols"]), int(v["rows"])
+    xs = _grid_centers(width, cols, margin, opening_w, "רוחב")
+    ys = _grid_centers(height, rows, margin, opening_h, "גובה")
+    return width, height, xs, ys
+
+
+def _panel_round_grid(v: dict[str, float]) -> Blank:
+    """לוח מנוקב בעיגולים — משרבייה, גדר, חיפוי מאוורר."""
+    dia = v["opening_mm"]
+    width, height, xs, ys = _panel_grid(v, dia, dia)
+    holes = [_hole(dia, x, y) for x in xs for y in ys]
+    return Blank(
+        spec={"shape": "rect", "width_mm": width, "height_mm": height, "holes": holes}
+    )
+
+
+def _panel_square_grid(v: dict[str, float]) -> Blank:
+    """לוח מנוקב בריבועים."""
+    side = v["opening_mm"]
+    width, height, xs, ys = _panel_grid(v, side, side)
+    half = side / 2
+    cutouts = [
+        [(x - half, y - half), (x + half, y - half), (x + half, y + half), (x - half, y + half)]
+        for x in xs
+        for y in ys
+    ]
+    return Blank(
+        spec={"shape": "rect", "width_mm": width, "height_mm": height, "cutouts": cutouts}
+    )
+
+
+def _panel_slot_grid(v: dict[str, float]) -> Blank:
+    """לוח מנוקב בחריצים אנכיים — הדגם שנראה כמו סורג."""
+    slot_w, slot_h = v["opening_mm"], v["slot_height_mm"]
+    width, height, xs, ys = _panel_grid(v, slot_w, slot_h)
+    hw, hh = slot_w / 2, slot_h / 2
+    cutouts = [
+        [(x - hw, y - hh), (x + hw, y - hh), (x + hw, y + hh), (x - hw, y + hh)]
+        for x in xs
+        for y in ys
+    ]
+    return Blank(
+        spec={"shape": "rect", "width_mm": width, "height_mm": height, "cutouts": cutouts}
+    )
+
+
 BUILDERS = {
     "rect_plate": _rect_plate,
     "name_plate": _name_plate,
@@ -358,13 +568,25 @@ BUILDERS = {
     "perforated_strip": _perforated_strip,
     "angle_bracket": _angle_bracket,
     "u_channel": _u_channel,
+    "tray_3_sides": _tray_3_sides,
+    "tray_4_sides": _tray_4_sides,
+    "enclosure": _enclosure,
+    "floating_shelf": _floating_shelf,
+    "rect_frame": _rect_frame,
+    "panel_round_grid": _panel_round_grid,
+    "panel_square_grid": _panel_square_grid,
+    "panel_slot_grid": _panel_slot_grid,
 }
 """**רשימה סגורה.** הקטלוג בוחר בנאי בשם, ולא מתאר חישוב.
 
 זו ההחלטה שמונעת מהקטלוג להפוך לשפת תכנות: קובץ JSON שמכיל נוסחאות
 היה דורש מפרש, ומפרש שמריץ מה שכתוב בקובץ הוא בדיוק הדבר שאסור
-לחשוף לרשת. כאן הקובץ בוחר מבין שבע פונקציות בדוקות ומספק להן
-מספרים — ותו לא.
+לחשוף לרשת. כאן הקובץ בוחר מבין פונקציות בדוקות ומספק להן מספרים —
+ותו לא.
+
+**ובנאי אחד משרת כמה מוצרים.** "גדר משרבייה" ו"משרבייה" הן אותה
+פונקציה עם גבולות אחרים, ו"פרופיל ישר" הוא הפס המחורר בטווח אחר.
+זה מה שהופך הרחבת קטלוג לעריכת JSON ולא לכתיבת קוד.
 """
 
 

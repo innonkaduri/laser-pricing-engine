@@ -219,3 +219,46 @@ def quote_to_json(quote: Quote) -> dict:
         "is_quotable": quote.is_quotable,
         "has_split_parts": quote.has_split_parts,
     }
+
+
+PREVIEW_POINT_BUDGET = 1200
+
+
+def thin_for_preview(data: dict, budget: int = PREVIEW_POINT_BUDGET) -> dict:
+    """מדלל את **כל** המתארים יחד לתקציב נקודות אחד.
+
+    `contour_to_json` מדלל כל מתאר ל-400 נקודות בנפרד, וזה נכון לחלק
+    אחד עם מתאר אחד. **משרבייה שוברת את ההנחה:** 96 עיגולים ×‏ 120
+    צלעות כל אחד הם 11,520 נקודות ו-**229KB לתשובה אחת** — נמדד
+    27.8.2026 — והקונפיגורטור שולח אותה בכל תזוזת מחוון.
+
+    התקציב הוא **של התצוגה בלבד**, בדיוק כמו הדילול שמעליו: השטח,
+    אורך החיתוך ומספר הניקובים כבר חושבו על המתאר המלא לפני שהגענו
+    לכאן, ואינם נוגעים במה שקורה בפונקציה הזאת.
+
+    **מינימום 8 נקודות למתאר.** עיגול שדולל לארבע נקודות מצויר
+    כמעוין, והמסך היה מראה חלק אחר מזה שתומחר.
+
+    **והנקודות מעוגלות לעשירית מילימטר.** התצוגה הגדולה ביותר היא
+    כמה מאות פיקסלים; שלוש ספרות אחרי הנקודה הן דיוק של מיקרון
+    שאיש אינו רואה, והן שליש מגודל התשובה.
+    """
+    contours = data.get("contours") or []
+    if not contours:
+        return data
+
+    total = sum(len(c["points"]) for c in contours)
+    if total <= budget:
+        thinned = [_coarse(c, len(c["points"])) for c in contours]
+        return data | {"contours": thinned}
+
+    ratio = budget / total
+    thinned = [_coarse(c, max(8, int(len(c["points"]) * ratio))) for c in contours]
+    return data | {"contours": thinned, "preview_thinned": True}
+
+
+def _coarse(contour: dict, wanted: int) -> dict:
+    points = contour["points"]
+    if wanted < len(points):
+        points = points[:: max(1, len(points) // wanted)]
+    return contour | {"points": [[round(x, 1), round(y, 1)] for x, y in points]}

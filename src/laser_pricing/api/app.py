@@ -38,7 +38,12 @@ from ..pricing.engine import PricingError, price_order
 from ..pricing.tariff import InvalidTariffError, MissingTariffError
 from . import catalog as catalog_mod
 from . import identity, usage
-from .serialize import geometry_to_json, public_quote_to_json, quote_to_json
+from .serialize import (
+    geometry_to_json,
+    public_quote_to_json,
+    quote_to_json,
+    thin_for_preview,
+)
 from .simple_tariff import MONEY_FIELDS, apply_form, to_form
 from .store import STORE, GeometryExpired, StoredGeometry
 from .tariff_store import STATE
@@ -537,6 +542,19 @@ class ManualPartSpec(BaseModel):
     diameter_mm: float | None = Field(default=None, gt=0)
     points: list[tuple[float, float]] | None = None
     holes: list[HoleSpec] = Field(default_factory=list)
+    cutouts: list[list[tuple[float, float]]] = Field(default_factory=list)
+    """חיתוכים פנימיים שאינם עגולים — מלבן, חריץ, משושה, כל מצולע.
+
+    **נוסף 27.8.2026 בשביל הקטלוג, ולא כפיצ'ר בפני עצמו.** בלעדיו
+    "חור" פירושו עיגול, ולכן מסגרת, משרבייה וכל פח מכופף שדורש
+    מגרעת פינה היו מחוץ להישג יד — כלומר בדיוק המוצרים שממלאים
+    קטלוג של חיתוך לייזר.
+
+    **המנוע לא היה צריך לשנות דבר.** `PartGeometry` ממיין גוף מול
+    חור לפי הכלה, ולא לפי צורה: מצולע סגור בתוך מתאר אחר הוא חור
+    מאותו רגע שהוא נכנס לרשימה. מה שהיה חסר הוא רק הדרך להגיד
+    את זה בקלט.
+    """
 
 
 class PartRequest(BaseModel):
@@ -1406,7 +1424,13 @@ def _catalog_materials(product: catalog_mod.Product) -> list[dict]:
     ]
 
 
-THUMBNAIL_POINTS = 48
+THUMBNAIL_POINT_BUDGET = 200
+"""תקציב הנקודות לתמונה ממוזערת אחת, לכל החלק ולא לכל מתאר.
+
+הכרטיס מצויר ב-211×147 פיקסלים. משרבייה עם 70 עיגולים, כל אחד
+ב-256 צלעות, היא 17,920 נקודות לתמונה בגודל בול דואר — וכל אלה
+נשלחים ב-`/api/catalog` פעם אחת לכל שישה-עשר המוצרים.
+"""
 _THUMBNAILS: dict[str, dict] = {}
 
 
@@ -1428,16 +1452,12 @@ def _thumbnail(product: catalog_mod.Product) -> dict:
 
     blank = catalog_mod.build(product, product.defaults())
     geometry = _build_manual_geometry(ManualPartSpec(name=product.name, **blank.spec))
-    data = geometry_to_json(geometry)
+    data = thin_for_preview(geometry_to_json(geometry), THUMBNAIL_POINT_BUDGET)
     thumb = {
         "bbox": data["bbox"],
         "fold_lines": blank.fold_lines,
         "contours": [
-            {
-                "points": c["points"][:: max(1, len(c["points"]) // THUMBNAIL_POINTS)],
-                "hole": c["hole"],
-                "closed": c["closed"],
-            }
+            {"points": c["points"], "hole": c["hole"], "closed": c["closed"]}
             for c in data["contours"]
         ],
     }
@@ -1554,7 +1574,9 @@ def catalog_preview(product_id: str, body: CatalogPreviewRequest, request: Reque
         "bend_length_mm": round(blank.bend_length_mm, 2),
         "fold_lines": blank.fold_lines,
         "fits_single_plate": plan.piece_count == 1,
-        **geometry_to_json(geometry),
+        # **הדילול הוא של התצוגה בלבד.** השטח, אורך החיתוך ומספר
+        # הניקובים שבתשובה חושבו על המתאר המלא לפני השורה הזאת.
+        **thin_for_preview(geometry_to_json(geometry)),
     }
 
 
@@ -1766,6 +1788,23 @@ def _build_manual_geometry(spec: ManualPartSpec) -> PartGeometry:
         if radius * 2 > min(span_w, span_h):
             raise ValueError(f'קוטר החור {hole.diameter_mm} מ"מ גדול מהחלק עצמו.')
         contours.append(circle(radius, center=center, segments=_hole_segments(radius)))
+
+    for index, polygon in enumerate(spec.cutouts):
+        if len(polygon) < 3:
+            raise ValueError(f"חיתוך פנימי #{index + 1} דורש לפחות 3 נקודות.")
+        cut = Contour(points=[(float(x), float(y)) for x, y in polygon], closed=True)
+        inner = cut.bbox
+        if (
+            inner.min_x < box.min_x
+            or inner.min_y < box.min_y
+            or inner.max_x > box.max_x
+            or inner.max_y > box.max_y
+        ):
+            # בלי הבדיקה הזאת מצולע שחורג היה מסווג כ**גוף שני** ולא
+            # כחור, החלק היה נראה תקין, והשטח הנטו היה גדל במקום
+            # לקטון. שגיאה שקטה שמייקרת הצעה.
+            raise ValueError(f"חיתוך פנימי #{index + 1} חורג מגבולות החלק.")
+        contours.append(cut)
 
     return PartGeometry(contours=contours)
 

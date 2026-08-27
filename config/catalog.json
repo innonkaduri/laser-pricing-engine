@@ -2,37 +2,248 @@
   "_README": [
     "קטלוג המוצרים הפרמטרי. הקובץ הזה הוא **נתונים**, לא קוד: הוא בוחר בנאי",
     "מתוך הרשימה הסגורה ב-src/laser_pricing/api/catalog.py ונותן לו גבולות.",
+    "בנאי אחד משרת כמה מוצרים — 'גדר משרבייה' ו'משרבייה' הן אותה פונקציה",
+    "עם גבולות אחרים. הרחבת הקטלוג היא עריכת הקובץ הזה, לא כתיבת קוד.",
     "",
-    "*** אלה אינם המוצרים של ימיש כדורי. ***",
-    "אלה שבעה חלקי פח גנריים שכל חיתוך לייזר חותך, והם קיימים כדי שהמנגנון",
-    "יעמוד על רגליו לפני שינון עונה על השאלה הפתוחה: אילו 4-6 מוצרים ימיש",
-    "באמת מייצרת, ולכל אחד — אילו מידות משתנות ומה המינימום והמקסימום שלהן.",
-    "ברגע שיש תשובה, מחליפים את products כאן ולא נוגעים בשורת קוד אחת.",
+    "*** מקור המבנה: shop.zammit.co.il/catalog, בהוראת ינון 27.8.2026. ***",
+    "הקטגוריות והמוצרים כאן מקבילים לשלהם: מוצרי פח, פרופילים וזוויות,",
+    "משרביות וגדרות. מה שאין כאן הוא מה שהמנוע אינו יודע לתמחר —",
+    "שולחנות, עגלות וכלובים הם מכלולים מרותכים וצבועים, ואנחנו מתמחרים",
+    "חלק חתוך אחד (עם כיפוף). להציג אותם היה להבטיח מה שאין.",
+    "",
+    "**המחיר כאן הוא לחיתוך ולכיפוף בלבד.** בלי צביעה, גילוון, ריתוך",
+    "הרכבה או פרזול. זה כתוב בתיאור של כל מוצר שדורש את זה, ולא באותיות",
+    "קטנות בתחתית.",
     "",
     "התקרות של המידות אינן שרירותיות: הפלטה היא 3000x1500 עם שוליים של 20,",
-    "כלומר 2960x1460 שמישים. כל מוצר כאן נחסם ל-1400 מ\"מ לכל כיוון, ולכן",
-    "אף צירוף מידות בקטלוג אינו דורש פיצול וריתוך. זו החלטה ולא מקריות:",
-    "weld_rate_per_m בטבלה הוא 0, וחלק שדורש ריתוך היה מחזיר 422 מהמחוון."
+    "כלומר 2960x1460 שמישים. כל פריסה כאן נחסמת כך שאף צירוף מידות אינו",
+    "דורש פיצול וריתוך — weld_rate_per_m בטבלה הוא 0, וחלק שדורש ריתוך היה",
+    "מחזיר 422 מקצה המחוון. יש בדיקה שמותחת כל מוצר למקסימום ומוודאת זאת."
   ],
-  "version": 1,
+  "version": 2,
   "categories": [
+    {
+      "key": "sheet",
+      "name": "מוצרי פח",
+      "summary": "מגשים, מארזים ומדפים — פריסה שטוחה שמתקפלת לגוף."
+    },
+    {
+      "key": "profiles",
+      "name": "פרופילים וזוויות",
+      "summary": "פסים, זוויות, תעלות ומסגרות."
+    },
+    {
+      "key": "screens",
+      "name": "משרביות וגדרות",
+      "summary": "לוחות מנוקבים לחיפוי, להצללה ולגדר."
+    },
     {
       "key": "plates",
       "name": "פלטות ואוגנים",
       "summary": "בסיסים, אוגנים ודיסקיות — חיתוך שטוח עם חורי עיגון."
     },
     {
-      "key": "brackets",
-      "name": "זוויות ומחזיקים",
-      "summary": "חלקים מכופפים: זווית 90° ותעלת U, בפריסה ובכיפוף."
-    },
-    {
-      "key": "strips",
-      "name": "פסים ולוחיות",
-      "summary": "פסי חיזוק מחוררים ולוחיות סימון."
+      "key": "signs",
+      "name": "לוחיות וסימון",
+      "summary": "שילוט מתכת ולוחיות ציוד."
     }
   ],
   "products": [
+    {
+      "id": "tray-3-sides",
+      "category": "sheet",
+      "name": "פח מכופף 3 צדדים",
+      "summary": "מגש פתוח בצד אחד, בשלושה כיפופים.",
+      "description": "בסיס ושלוש דפנות — מדף, מגירה או תעלת כבלים. הפריסה השטוחה מוצגת עם המגרעות בפינות: בלעדיהן שתי דפנות סמוכות היו חופפות באותו חומר והחלק לא היה מתקפל. המחיר הוא לחיתוך ולכיפוף, בלי צביעה וגילוון.",
+      "builder": "tray_3_sides",
+      "bends": true,
+      "params": [
+        { "key": "width_mm", "name": "רוחב הבסיס", "unit": "מ\"מ", "min": 60, "max": 1000, "step": 5, "default": 300 },
+        { "key": "depth_mm", "name": "עומק הבסיס", "unit": "מ\"מ", "min": 50, "max": 800, "step": 5, "default": 200 },
+        { "key": "wall_mm", "name": "גובה הדופן", "unit": "מ\"מ", "min": 10, "max": 220, "step": 5, "default": 40 }
+      ]
+    },
+    {
+      "id": "tray-4-sides",
+      "category": "sheet",
+      "name": "פח מכופף 4 צדדים",
+      "summary": "קופסה פתוחה מלמעלה, בארבעה כיפופים.",
+      "description": "בסיס וארבע דפנות — מגש, תבנית או קופסה. הפריסה היא צלב עם ארבע מגרעות פינה. המחיר הוא לחיתוך ולכיפוף, בלי צביעה, גילוון או ריתוך פינות.",
+      "builder": "tray_4_sides",
+      "bends": true,
+      "params": [
+        { "key": "width_mm", "name": "רוחב הבסיס", "unit": "מ\"מ", "min": 60, "max": 900, "step": 5, "default": 300 },
+        { "key": "depth_mm", "name": "עומק הבסיס", "unit": "מ\"מ", "min": 50, "max": 700, "step": 5, "default": 200 },
+        { "key": "wall_mm", "name": "גובה הדופן", "unit": "מ\"מ", "min": 10, "max": 220, "step": 5, "default": 50 }
+      ]
+    },
+    {
+      "id": "enclosure",
+      "category": "sheet",
+      "name": "מארז חשמל",
+      "summary": "קופסה בארבעה כיפופים, עם חורי כניסה לכבלים.",
+      "description": "מארז פתוח מלמעלה עם חורי אטם בבסיס. חור 20 מ\"מ מתאים לאטם PG13.5, חור 25 מ\"מ ל-PG21. המחיר הוא לגוף החתוך והמכופף — בלי מכסה, בלי צביעה ובלי פרזול.",
+      "builder": "enclosure",
+      "bends": true,
+      "params": [
+        { "key": "width_mm", "name": "רוחב", "unit": "מ\"מ", "min": 80, "max": 900, "step": 5, "default": 300 },
+        { "key": "depth_mm", "name": "עומק", "unit": "מ\"מ", "min": 60, "max": 700, "step": 5, "default": 200 },
+        { "key": "wall_mm", "name": "גובה הדופן", "unit": "מ\"מ", "min": 20, "max": 220, "step": 5, "default": 80 },
+        { "key": "gland_dia_mm", "name": "קוטר חור אטם", "unit": "מ\"מ", "min": 8, "max": 50, "step": 0.5, "default": 20, "help": "‎20 מ\"מ ל-PG13.5, ‎25 מ\"מ ל-PG21." },
+        { "key": "gland_count", "name": "מספר חורים", "unit": "", "min": 1, "max": 8, "step": 1, "default": 3 }
+      ]
+    },
+    {
+      "id": "floating-shelf",
+      "category": "sheet",
+      "name": "מדף צף",
+      "summary": "גב לתלייה, משטח ושפה קדמית — שני כיפופים.",
+      "description": "מדף שנתלה על הקיר בלי תמיכה גלויה. הגב נושא את חורי התלייה, והשפה הקדמית נותנת לו קשיחות. המחיר הוא לחיתוך ולכיפוף בלבד.",
+      "builder": "floating_shelf",
+      "bends": true,
+      "params": [
+        { "key": "width_mm", "name": "אורך המדף", "unit": "מ\"מ", "min": 150, "max": 1400, "step": 10, "default": 600 },
+        { "key": "depth_mm", "name": "עומק המשטח", "unit": "מ\"מ", "min": 80, "max": 400, "step": 5, "default": 200 },
+        { "key": "back_mm", "name": "גובה הגב", "unit": "מ\"מ", "min": 30, "max": 250, "step": 5, "default": 80 },
+        { "key": "lip_mm", "name": "גובה השפה", "unit": "מ\"מ", "min": 10, "max": 150, "step": 5, "default": 25 },
+        { "key": "hole_dia_mm", "name": "קוטר חור תלייה", "unit": "מ\"מ", "min": 4, "max": 20, "step": 0.5, "default": 8 },
+        { "key": "hole_count", "name": "חורי תלייה", "unit": "", "min": 2, "max": 10, "step": 1, "default": 4 }
+      ]
+    },
+
+    {
+      "id": "profile-flat",
+      "category": "profiles",
+      "name": "פרופיל ישר מחורר",
+      "summary": "פס ישר עם שורת חורים במרווחים שווים.",
+      "description": "פס חיזוק, פס תלייה או סרגל עיגון. החורים מתפרסים במרווחים שווים בין השוליים.",
+      "builder": "perforated_strip",
+      "bends": false,
+      "params": [
+        { "key": "length_mm", "name": "אורך", "unit": "מ\"מ", "min": 60, "max": 1400, "step": 10, "default": 500 },
+        { "key": "width_mm", "name": "רוחב", "unit": "מ\"מ", "min": 15, "max": 300, "step": 5, "default": 40 },
+        { "key": "hole_count", "name": "מספר חורים", "unit": "", "min": 1, "max": 40, "step": 1, "default": 6 },
+        { "key": "hole_dia_mm", "name": "קוטר חור", "unit": "מ\"מ", "min": 3, "max": 30, "step": 0.5, "default": 9 },
+        { "key": "end_margin_mm", "name": "שוליים בקצה", "unit": "מ\"מ", "min": 6, "max": 200, "step": 1, "default": 20 }
+      ]
+    },
+    {
+      "id": "angle-bracket",
+      "category": "profiles",
+      "name": "פרופיל כיפוף יחיד (זווית 90°)",
+      "summary": "שתי שוקיים בכיפוף אחד, עם חורים בכל שוק.",
+      "description": "זווית חיזוק או תלייה. המחיר מכיל את החיתוך של הפריסה השטוחה ואת הכיפוף עצמו. הפריסה מחושבת כסכום שתי השוקיים בלי ניכוי כיפוף — כלומר מוסיפה מעט חומר ולא מחסירה.",
+      "builder": "angle_bracket",
+      "bends": true,
+      "params": [
+        { "key": "leg_a_mm", "name": "שוק א׳", "unit": "מ\"מ", "min": 25, "max": 600, "step": 5, "default": 80 },
+        { "key": "leg_b_mm", "name": "שוק ב׳", "unit": "מ\"מ", "min": 25, "max": 600, "step": 5, "default": 60 },
+        { "key": "width_mm", "name": "רוחב", "unit": "מ\"מ", "min": 20, "max": 1400, "step": 5, "default": 50 },
+        { "key": "hole_dia_mm", "name": "קוטר חור", "unit": "מ\"מ", "min": 3, "max": 30, "step": 0.5, "default": 9 },
+        { "key": "holes_per_leg", "name": "חורים בכל שוק", "unit": "", "min": 1, "max": 4, "step": 1, "default": 2 }
+      ]
+    },
+    {
+      "id": "u-channel",
+      "category": "profiles",
+      "name": "פרופיל כיפוף כפול (תעלת U)",
+      "summary": "בסיס ושתי דפנות, בשני כיפופים.",
+      "description": "תעלה או מסילה: בסיס ושתי דפנות מכופפות. החורים יושבים בדפנות. גם כאן הפריסה היא סכום המקטעים, בלי ניכוי כיפוף.",
+      "builder": "u_channel",
+      "bends": true,
+      "params": [
+        { "key": "base_mm", "name": "רוחב הבסיס", "unit": "מ\"מ", "min": 30, "max": 600, "step": 5, "default": 100 },
+        { "key": "leg_mm", "name": "גובה הדופן", "unit": "מ\"מ", "min": 15, "max": 250, "step": 5, "default": 40 },
+        { "key": "length_mm", "name": "אורך התעלה", "unit": "מ\"מ", "min": 50, "max": 1400, "step": 10, "default": 300 },
+        { "key": "hole_dia_mm", "name": "קוטר חור", "unit": "מ\"מ", "min": 3, "max": 30, "step": 0.5, "default": 9 },
+        { "key": "holes_per_side", "name": "חורים בכל דופן", "unit": "", "min": 1, "max": 6, "step": 1, "default": 2 }
+      ]
+    },
+    {
+      "id": "rect-frame",
+      "category": "profiles",
+      "name": "מסגרת מרובעת",
+      "summary": "מלבן עם מלבן שנחתך מתוכו.",
+      "description": "מסגרת לתמונה, לפתח או לחיזוק. רוחב המסגרת אחיד בכל הצדדים.",
+      "builder": "rect_frame",
+      "bends": false,
+      "params": [
+        { "key": "width_mm", "name": "רוחב חיצוני", "unit": "מ\"מ", "min": 80, "max": 1400, "step": 5, "default": 400 },
+        { "key": "height_mm", "name": "גובה חיצוני", "unit": "מ\"מ", "min": 80, "max": 1400, "step": 5, "default": 300 },
+        { "key": "border_mm", "name": "רוחב המסגרת", "unit": "מ\"מ", "min": 5, "max": 300, "step": 1, "default": 30 }
+      ]
+    },
+
+    {
+      "id": "mashrabiya-round",
+      "category": "screens",
+      "name": "משרבייה — דגם עגול",
+      "summary": "לוח מנוקב ברשת עיגולים.",
+      "description": "חיפוי מחורר להצללה, לאוורור או לקישוט. מספר העיגולים והמרווח ביניהם נבחרים בנפרד, והתצוגה מראה את הדגם המדויק שייחתך.",
+      "builder": "panel_round_grid",
+      "bends": false,
+      "params": [
+        { "key": "width_mm", "name": "רוחב הלוח", "unit": "מ\"מ", "min": 200, "max": 1400, "step": 10, "default": 900 },
+        { "key": "height_mm", "name": "גובה הלוח", "unit": "מ\"מ", "min": 200, "max": 1400, "step": 10, "default": 600 },
+        { "key": "opening_mm", "name": "קוטר הפתח", "unit": "מ\"מ", "min": 8, "max": 120, "step": 1, "default": 40 },
+        { "key": "cols", "name": "פתחים לרוחב", "unit": "", "min": 2, "max": 24, "step": 1, "default": 10 },
+        { "key": "rows", "name": "פתחים לגובה", "unit": "", "min": 2, "max": 20, "step": 1, "default": 7 },
+        { "key": "margin_mm", "name": "שוליים", "unit": "מ\"מ", "min": 10, "max": 200, "step": 5, "default": 60 }
+      ]
+    },
+    {
+      "id": "mashrabiya-square",
+      "category": "screens",
+      "name": "משרבייה — דגם מרובע",
+      "summary": "לוח מנוקב ברשת ריבועים.",
+      "description": "אותו רעיון כמו הדגם העגול, בפתח מרובע. הריבועים נחתכים כמצולעים ולא כעיגולים, ולכן אורך החיתוך שונה — והמחיר איתו.",
+      "builder": "panel_square_grid",
+      "bends": false,
+      "params": [
+        { "key": "width_mm", "name": "רוחב הלוח", "unit": "מ\"מ", "min": 200, "max": 1400, "step": 10, "default": 900 },
+        { "key": "height_mm", "name": "גובה הלוח", "unit": "מ\"מ", "min": 200, "max": 1400, "step": 10, "default": 600 },
+        { "key": "opening_mm", "name": "צלע הפתח", "unit": "מ\"מ", "min": 8, "max": 120, "step": 1, "default": 40 },
+        { "key": "cols", "name": "פתחים לרוחב", "unit": "", "min": 2, "max": 24, "step": 1, "default": 10 },
+        { "key": "rows", "name": "פתחים לגובה", "unit": "", "min": 2, "max": 20, "step": 1, "default": 7 },
+        { "key": "margin_mm", "name": "שוליים", "unit": "מ\"מ", "min": 10, "max": 200, "step": 5, "default": 60 }
+      ]
+    },
+    {
+      "id": "mashrabiya-slot",
+      "category": "screens",
+      "name": "משרבייה — דגם חריצים",
+      "summary": "לוח מנוקב בחריצים אנכיים, כמו סורג.",
+      "description": "חריצים מאורכים במקום פתחים עגולים. מתאים לחיפוי שצריך להסתיר ולאוורר בו-זמנית.",
+      "builder": "panel_slot_grid",
+      "bends": false,
+      "params": [
+        { "key": "width_mm", "name": "רוחב הלוח", "unit": "מ\"מ", "min": 200, "max": 1400, "step": 10, "default": 800 },
+        { "key": "height_mm", "name": "גובה הלוח", "unit": "מ\"מ", "min": 200, "max": 1400, "step": 10, "default": 700 },
+        { "key": "opening_mm", "name": "רוחב החריץ", "unit": "מ\"מ", "min": 5, "max": 60, "step": 1, "default": 16 },
+        { "key": "slot_height_mm", "name": "אורך החריץ", "unit": "מ\"מ", "min": 20, "max": 300, "step": 5, "default": 90 },
+        { "key": "cols", "name": "חריצים לרוחב", "unit": "", "min": 2, "max": 24, "step": 1, "default": 12 },
+        { "key": "rows", "name": "שורות", "unit": "", "min": 1, "max": 12, "step": 1, "default": 4 },
+        { "key": "margin_mm", "name": "שוליים", "unit": "מ\"מ", "min": 10, "max": 200, "step": 5, "default": 60 }
+      ]
+    },
+    {
+      "id": "fence-panel",
+      "category": "screens",
+      "name": "גדר משרבייה — פאנל",
+      "summary": "פאנל גדר מנוקב, בגובה של גדר.",
+      "description": "אותו בנאי כמו המשרבייה, בגבולות של פאנל גדר: רחב ונמוך יותר, עם פתחים גדולים ושוליים רחבים לחיבור למסגרת. המחיר הוא לפאנל החתוך — בלי עמודים, מסגרת, גילוון או צביעה.",
+      "builder": "panel_round_grid",
+      "bends": false,
+      "params": [
+        { "key": "width_mm", "name": "רוחב הפאנל", "unit": "מ\"מ", "min": 400, "max": 1400, "step": 10, "default": 1200 },
+        { "key": "height_mm", "name": "גובה הפאנל", "unit": "מ\"מ", "min": 300, "max": 1400, "step": 10, "default": 900 },
+        { "key": "opening_mm", "name": "קוטר הפתח", "unit": "מ\"מ", "min": 20, "max": 160, "step": 5, "default": 70 },
+        { "key": "cols", "name": "פתחים לרוחב", "unit": "", "min": 2, "max": 16, "step": 1, "default": 8 },
+        { "key": "rows", "name": "פתחים לגובה", "unit": "", "min": 2, "max": 14, "step": 1, "default": 6 },
+        { "key": "margin_mm", "name": "שוליים", "unit": "מ\"מ", "min": 20, "max": 250, "step": 5, "default": 80 }
+      ]
+    },
+
     {
       "id": "base-plate",
       "category": "plates",
@@ -79,60 +290,13 @@
         { "key": "bolt_inset_mm", "name": "מרחק בורג מהשפה", "unit": "מ\"מ", "min": 6, "max": 200, "step": 1, "default": 18 }
       ]
     },
-    {
-      "id": "angle-bracket",
-      "category": "brackets",
-      "name": "זווית 90°",
-      "summary": "שתי שוקיים בכיפוף אחד, עם חורים בכל שוק.",
-      "description": "זווית חיזוק או תלייה. המחיר מכיל את החיתוך של הפריסה השטוחה ואת הכיפוף עצמו. שים לב: הפריסה מחושבת כסכום שתי השוקיים בלי ניכוי כיפוף — כלומר מוסיפה מעט חומר ולא מחסירה.",
-      "builder": "angle_bracket",
-      "bends": true,
-      "params": [
-        { "key": "leg_a_mm", "name": "שוק א׳", "unit": "מ\"מ", "min": 25, "max": 600, "step": 5, "default": 80 },
-        { "key": "leg_b_mm", "name": "שוק ב׳", "unit": "מ\"מ", "min": 25, "max": 600, "step": 5, "default": 60 },
-        { "key": "width_mm", "name": "רוחב", "unit": "מ\"מ", "min": 20, "max": 1400, "step": 5, "default": 50 },
-        { "key": "hole_dia_mm", "name": "קוטר חור", "unit": "מ\"מ", "min": 3, "max": 30, "step": 0.5, "default": 9 },
-        { "key": "holes_per_leg", "name": "חורים בכל שוק", "unit": "", "min": 1, "max": 4, "step": 1, "default": 2 }
-      ]
-    },
-    {
-      "id": "u-channel",
-      "category": "brackets",
-      "name": "תעלת U",
-      "summary": "בסיס ושתי דפנות, בשני כיפופים.",
-      "description": "תעלה או מסילה: בסיס ושתי דפנות מכופפות. החורים יושבים בדפנות. גם כאן הפריסה היא סכום המקטעים, בלי ניכוי כיפוף.",
-      "builder": "u_channel",
-      "bends": true,
-      "params": [
-        { "key": "base_mm", "name": "רוחב הבסיס", "unit": "מ\"מ", "min": 30, "max": 600, "step": 5, "default": 100 },
-        { "key": "leg_mm", "name": "גובה הדופן", "unit": "מ\"מ", "min": 15, "max": 250, "step": 5, "default": 40 },
-        { "key": "length_mm", "name": "אורך התעלה", "unit": "מ\"מ", "min": 50, "max": 1400, "step": 10, "default": 300 },
-        { "key": "hole_dia_mm", "name": "קוטר חור", "unit": "מ\"מ", "min": 3, "max": 30, "step": 0.5, "default": 9 },
-        { "key": "holes_per_side", "name": "חורים בכל דופן", "unit": "", "min": 1, "max": 6, "step": 1, "default": 2 }
-      ]
-    },
-    {
-      "id": "perforated-strip",
-      "category": "strips",
-      "name": "פס מחורר",
-      "summary": "פס ישר עם שורת חורים במרווחים שווים.",
-      "description": "פס חיזוק, פס תלייה או סרגל עיגון. החורים מתפרסים במרווחים שווים בין השוליים.",
-      "builder": "perforated_strip",
-      "bends": false,
-      "params": [
-        { "key": "length_mm", "name": "אורך", "unit": "מ\"מ", "min": 60, "max": 1400, "step": 10, "default": 500 },
-        { "key": "width_mm", "name": "רוחב", "unit": "מ\"מ", "min": 15, "max": 300, "step": 5, "default": 40 },
-        { "key": "hole_count", "name": "מספר חורים", "unit": "", "min": 1, "max": 40, "step": 1, "default": 6 },
-        { "key": "hole_dia_mm", "name": "קוטר חור", "unit": "מ\"מ", "min": 3, "max": 30, "step": 0.5, "default": 9 },
-        { "key": "end_margin_mm", "name": "שוליים בקצה", "unit": "מ\"מ", "min": 6, "max": 200, "step": 1, "default": 20 }
-      ]
-    },
+
     {
       "id": "name-plate",
-      "category": "strips",
+      "category": "signs",
       "name": "לוחית סימון",
       "summary": "לוחית מלבנית עם שני חורי תלייה.",
-      "description": "שילוט מתכת, לוחית מספר או תווית ציוד. שני חורים על ציר האורך.",
+      "description": "שילוט מתכת, לוחית מספר או תווית ציוד. שני חורים על ציר האורך. חריטה או הדפסה אינן כלולות במחיר.",
       "builder": "name_plate",
       "bends": false,
       "params": [

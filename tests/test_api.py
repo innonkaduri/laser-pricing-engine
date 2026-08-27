@@ -2061,18 +2061,64 @@ BENDABLE_TARIFF = {
 """
 
 
+def catalog_mod_products():
+    from laser_pricing.api import catalog as catalog_mod
+
+    return catalog_mod.load().products
+
+
 class TestTheCatalogIsData:
     """הקטלוג בוחר בנאי מרשימה סגורה ונופל בטעינה, לא אצל המבקר."""
 
-    def test_every_product_builds_from_its_own_defaults(self):
+    def test_every_product_builds_a_real_geometry_from_its_own_defaults(self):
+        """לא "הבנאי לא זרק" אלא "יצא חלק שאפשר לחתוך".
+
+        מגש אינו מכיל חורים כלל ומסגרת אינה מכילה עיגול אחד, ולכן
+        "יש חורים" אינה הבדיקה. מה שכן חייב להתקיים לכל מוצר: מתאר
+        סגור בעל שטח חיובי, אורך חיתוך גדול מאפס, ומספר קווי כיפוף
+        שתואם למספר הכיפופים שמחויבים בהצעה.
+        """
         from laser_pricing.api import catalog as catalog_mod
+        from laser_pricing.api.app import ManualPartSpec, _build_manual_geometry
 
         loaded = catalog_mod.load()
         assert loaded.products, "הקטלוג ריק"
         for product in loaded.products:
             blank = catalog_mod.build(product, product.defaults())
             assert blank.spec["shape"] in ("rect", "circle", "polygon")
-            assert blank.spec["holes"], f'{product.id}: ברירות המחדל לא ייצרו חורים'
+            geometry = _build_manual_geometry(ManualPartSpec(name=product.name, **blank.spec))
+            assert geometry.outer_contours, f"{product.id}: אין מתאר חיצוני"
+            assert geometry.cut_length > 0, f"{product.id}: אורך חיתוך אפס"
+            assert geometry.net_area > 0, f"{product.id}: שטח נטו אפס"
+            # **קו כיפוף לכל כיפוף שמחויב.** חלק שמחויב על ארבעה
+            # כיפופים ומצייר שלושה קווים הוא מסך שמשקר על המחיר.
+            assert len(blank.fold_lines) == blank.bend_count, product.id
+            assert product.bends == (blank.bend_count > 0), product.id
+
+    def test_a_cutout_is_classified_as_a_hole_and_not_as_a_second_body(self):
+        """מצולע פנימי מקטין את השטח הנטו. אם לא — הוא גוף, וההצעה מנופחת."""
+        from laser_pricing.api import catalog as catalog_mod
+        from laser_pricing.api.app import ManualPartSpec, _build_manual_geometry
+
+        loaded = catalog_mod.load()
+        frame = loaded.get("rect-frame")
+        blank = catalog_mod.build(frame, {"width_mm": 400, "height_mm": 300, "border_mm": 30})
+        geometry = _build_manual_geometry(ManualPartSpec(name="מסגרת", **blank.spec))
+        assert len(geometry.outer_contours) == 1
+        assert len(geometry.hole_contours) == 1
+        # 400×300 פחות הפתח הפנימי 340×240
+        assert geometry.net_area == pytest.approx(400 * 300 - 340 * 240)
+
+    def test_a_cutout_that_leaves_the_part_is_refused_and_not_silently_a_body(self):
+        from laser_pricing.api.app import ManualPartSpec, _build_manual_geometry
+
+        spec = ManualPartSpec(
+            shape="rect", width_mm=100, height_mm=100,
+            cutouts=[[(50, 50), (150, 50), (150, 90), (50, 90)]],
+        )
+        with pytest.raises(ValueError) as caught:
+            _build_manual_geometry(spec)
+        assert "חורג" in str(caught.value)
 
     def test_a_builder_that_does_not_exist_fails_at_load_not_at_request(self, tmp_path):
         from laser_pricing.api import catalog as catalog_mod
@@ -2187,7 +2233,7 @@ class TestTheCatalogNeverOffersAFailingChoice:
         data = client.get("/api/catalog").json()
         assert data["ready"] is False
         assert data["categories"] == []
-        assert len(data["unavailable"]) == 7
+        assert len(data["unavailable"]) == len(catalog_mod_products())
 
 
 class TestTheCatalogCarriesNoPrices:
@@ -2427,3 +2473,72 @@ class TestTheCatalogIsReachable:
         for name in ("catalog.html", "product.html"):
             text = (self.ROOT / name).read_text(encoding="utf-8")
             assert "from '/part-draw.js'" in text, name
+
+
+class TestTheConfiguratorStaysLightEnoughToDrag:
+    """התצוגה נשלחת בכל תזוזת מחוון. משקל הוא כאן תכונה, לא פרט.
+
+    **נמדד 27.8.2026:** משרבייה של 70 עיגולים, כל אחד ב-256 צלעות,
+    היא 11,520 נקודות ו-**229KB לתשובה אחת**. בטלפון בשדה זה מחוון
+    שנתקע. הדילול הוא של התצוגה בלבד — השטח ואורך החיתוך שבאותה
+    תשובה חושבו על המתאר המלא.
+    """
+
+    CEILING_KB = 40
+
+    def test_no_product_sends_more_than_the_ceiling_at_any_extreme(self, priced_client):
+        from laser_pricing.api import catalog as catalog_mod
+
+        loaded = catalog_mod.load()
+        worst = ("", 0.0)
+        for product in loaded.products:
+            corners = [
+                product.defaults(),
+                {p.key: (p.min if not p.unit else p.max) for p in product.params},
+                {p.key: p.max for p in product.params},
+                {p.key: p.min for p in product.params},
+            ]
+            for values in corners:
+                response = priced_client.post(
+                    f"/api/catalog/{product.id}/preview", json={"values": values}
+                )
+                if response.status_code == 400:
+                    continue  # צירוף שאינו ניתן לייצור — נבדק במקום אחר
+                assert response.status_code == 200, response.text
+                kb = len(response.content) / 1024
+                if kb > worst[1]:
+                    worst = (product.id, kb)
+        assert worst[1] < self.CEILING_KB, f"{worst[0]} שולח {worst[1]:.1f}KB"
+
+    def test_thinning_never_touches_the_measurements(self):
+        """המספרים בתשובה הם של המתאר המלא, לא של מה שצויר."""
+        from laser_pricing.api import catalog as catalog_mod
+        from laser_pricing.api.app import ManualPartSpec, _build_manual_geometry
+        from laser_pricing.api.serialize import geometry_to_json, thin_for_preview
+
+        loaded = catalog_mod.load()
+        panel = loaded.get("mashrabiya-round")
+        blank = catalog_mod.build(panel, panel.defaults())
+        geometry = _build_manual_geometry(ManualPartSpec(name="משרבייה", **blank.spec))
+        full = geometry_to_json(geometry)
+        thin = thin_for_preview(full)
+
+        assert thin["preview_thinned"] is True
+        assert sum(len(c["points"]) for c in thin["contours"]) < sum(
+            len(c["points"]) for c in full["contours"]
+        )
+        for field in ("cut_length_mm", "net_area_mm2", "gross_area_mm2", "pierces", "holes"):
+            assert thin[field] == full[field], field
+
+    def test_a_circle_never_becomes_a_diamond(self):
+        """דילול עד ארבע נקודות היה מצייר חלק אחר מזה שתומחר."""
+        from laser_pricing.api.serialize import thin_for_preview
+
+        data = {
+            "contours": [
+                {"points": [[i, i] for i in range(256)], "hole": True, "closed": True}
+                for _ in range(300)
+            ]
+        }
+        thin = thin_for_preview(data, budget=100)
+        assert all(len(c["points"]) >= 8 for c in thin["contours"])

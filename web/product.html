@@ -18,6 +18,12 @@
   --part-line:#2b3648; --part-fold:#d84315; --part-dim:#7a8899;
 }
 .stage svg.part{width:100%; aspect-ratio:4/3; display:block}
+/* צירוף מידות שאי אפשר לייצר משאיר את הציור האחרון התקין על המסך —
+   מסך שמתרוקן באמצע גרירה גרוע יותר. אבל ציור שאינו מתאים למחוונים
+   חייב **להיראות** לא מתאים, אחרת המספרים שמתחתיו נקראים כמדידה
+   של מה שנבחר. */
+.stage.stale{opacity:.4; filter:grayscale(1)}
+.stage.stale .readout{visibility:hidden}
 /* בטלפון התצוגה עולה **מעל** המחוונים ונשארת דבוקה.
    בסדר ה-DOM המחוונים ראשונים, כי הם הפעולה. בעמודה אחת זה הפך
    קונפיגורטור לטופס: מזיזים מחוון ולא רואים כלום, כי החלק נמצא
@@ -168,6 +174,17 @@ const goButton = document.getElementById('go');
 let product = null;
 const values = {};
 
+let buildable = true;
+
+function setBuildable(ok) {
+  /* אי אפשר לתמחר צירוף שאי אפשר לייצר. בלי זה הכפתור נשאר פעיל,
+     הלחיצה מחזירה **את אותה שגיאה בדיוק** מהשרת, והמשתמש לומד רק
+     שהמערכת חוזרת על עצמה. */
+  buildable = ok;
+  goButton.disabled = !ok;
+  document.querySelector('.stage').classList.toggle('stale', !ok);
+}
+
 function fail(message, kind = 'bad') {
   /* החומרה נקבעת בכל קריאה ולא נגררת: אותה תיבה מציגה גם הזמנה
      להירשם (info) וגם מוצר שאינו זמין (warn), ובלי איפוס שגיאת
@@ -176,7 +193,12 @@ function fail(message, kind = 'bad') {
   errorBox.textContent = message;
   errorBox.classList.remove('hidden');
 }
-function clearError() { errorBox.classList.add('hidden'); }
+function clearError() {
+  /* גם מרוקן ולא רק מסתיר: טקסט שגיאה שנשאר ב-DOM מוקרא בקורא מסך
+     ומופיע בכל חיפוש בדף, הרבה אחרי שהמצב שיצר אותו נפתר. */
+  errorBox.classList.add('hidden');
+  errorBox.textContent = '';
+}
 
 const NUM = new Intl.NumberFormat('he-IL', { maximumFractionDigits: 1 });
 
@@ -210,10 +232,12 @@ async function preview() {
     const data = await response.json().catch(() => ({}));
     if (inFlight !== mine) return; // תשובה של גרירה קודמת — התעלם
     if (!response.ok) {
+      setBuildable(false);
       fail(data.detail || 'צירוף המידות הזה אינו ניתן לייצור.');
       return;
     }
     clearError();
+    setBuildable(true);
     drawPart(svg, data, { dims: true });
     paintReadout(data);
   } catch (err) {
@@ -222,8 +246,12 @@ async function preview() {
 }
 
 function paintReadout(data) {
+  /* **"מידות חוץ" משקר על חלק מכופף.** מגש עם בסיס 300×200 ודופן 50
+     מוצג כ-400×300, כי זו הפריסה השטוחה — וזה גם מה שנחתך ומה
+     שמתומחר. לקוח שקרא "מידות חוץ" חשב שהזמין מגש אחר. */
   const cells = [
-    ['מידות חוץ', `${NUM.format(data.bbox.width_mm)} × ${NUM.format(data.bbox.height_mm)}`],
+    [data.bend_count ? 'מידות הפריסה' : 'מידות חוץ',
+     `${NUM.format(data.bbox.width_mm)} × ${NUM.format(data.bbox.height_mm)}`],
     ['אורך חיתוך', `${NUM.format(data.cut_length_mm / 1000)} מ׳`],
     ['חורים', String(data.holes)],
     ['ניקובים', String(data.pierces)],
@@ -271,6 +299,10 @@ function control(param) {
     if (!Number.isFinite(n)) return;
     values[param.key] = Math.min(param.max, Math.max(param.min, n));
     mirror.value = values[param.key];
+    /* המחיר שייך למידות שממנו חושב. ברגע שמידה זזה הוא מתייחס
+       לחלק אחר, ומספר ישן שנשאר על המסך ליד מחוונים חדשים הוא
+       בדיוק סוג הטעות ששולחים ללקוח. */
+    priceBox.classList.add('hidden');
     schedule();
   };
   range.addEventListener('input', () => set(range.value, number));
@@ -336,7 +368,7 @@ goButton.addEventListener('click', async () => {
   } catch (err) {
     fail('אין קשר לשרת. נסה שוב.');
   } finally {
-    goButton.disabled = false;
+    goButton.disabled = !buildable;
     goButton.textContent = 'חשב מחיר';
   }
 });
