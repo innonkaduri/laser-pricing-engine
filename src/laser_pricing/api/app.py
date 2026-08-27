@@ -1797,6 +1797,20 @@ class PartQuoteRequest(BaseModel):
     material_key: str
     thickness_mm: float = Field(gt=0)
     quantity: int = Field(default=1, ge=1)
+    record: bool = False
+    """האם זו **הצעה** או רק חישוב תוך כדי עריכה.
+
+    **חישוב מחדש אינו הצעת מחיר.** העורך מתמחר בכל גרירה של חור
+    ובכל שינוי זווית — עשרות פעמים בדקה. אילו כל אחת מהן הייתה
+    נרשמת, `quotes.db` היה מתמלא בגרסאות ביניים של אותו חלק עד
+    שהתקרה של המשתמש (200 הצעות) הייתה נגמרת תוך דקה, וההיסטוריה
+    שלו — שהיא מסך של לקוח מול עצמו — הייתה הופכת ללוג עריכה.
+    אותו נימוק בדיוק חל על `usage.jsonl`: הוא טלמטריה על **הצעות**,
+    ומאה מדידות של אותו חלק מזייפות אותה.
+
+    ברירת המחדל היא `False` בכוונה: מי שמוסיף מסלול חדש ושוכח את
+    השדה מקבל התנהגות שקטה ולא רישום מזויף.
+    """
 
 
 class PartFileRequest(BaseModel):
@@ -1902,6 +1916,14 @@ def part_quote(body: PartQuoteRequest, request: Request) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except (MissingTariffError, PricingError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if not body.record:
+        return {
+            "bend_count": blank.bend_count,
+            "quote": quote_to_json(result)
+            if _sees_breakdown(request)
+            else public_quote_to_json(result),
+        }
 
     usage.record_quote(result, _current(request))
     user = _current(request)

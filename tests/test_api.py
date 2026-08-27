@@ -3072,3 +3072,55 @@ class TestTheEditorIsNotASecondEngine:
         )
         assert response.status_code == 400
         assert "חוצה" in response.json()["detail"]
+
+
+class TestRecalculatingIsNotQuoting:
+    """העורך מתמחר בכל גרירה. **חישוב מחדש אינו הצעת מחיר.**
+
+    בלי ההפרדה הזאת `quotes.db` היה מתמלא בגרסאות ביניים של אותו חלק
+    עד שתקרת 200 ההצעות של המשתמש נגמרת תוך דקה, וההיסטוריה שלו —
+    שהיא מסך של לקוח מול עצמו — הייתה הופכת ללוג עריכה.
+    """
+
+    DOC = {"outline": [[0, 0], [300, 0], [300, 200], [0, 200]]}
+
+    def _price(self, client, **extra):
+        return client.post(
+            "/api/part/quote",
+            json={"doc": self.DOC, "material_key": "st37", "thickness_mm": 3.0, **extra},
+        )
+
+    def _rows(self) -> int:
+        # נספר מהמסד ולא דרך `/api/history`: המסך הזה דורש חשבון אישי,
+        # והטענה כאן היא על הכתיבה ולא על מי רשאי לקרוא אותה.
+        return history.for_user("", limit=1)["count"]
+
+    def test_a_live_recalculation_returns_a_price_and_records_nothing(self, priced_client):
+        before = self._rows()
+        for _ in range(5):
+            assert self._price(priced_client).status_code == 200
+        assert self._rows() == before, "חמישה חישובים נרשמו כחמש הצעות"
+
+    def test_saving_records_exactly_once(self, priced_client, monkeypatch):
+        """**היסטוריה נכתבת רק למי שיש לו שם.** אורח בפיתוח וקישור
+        העריכה של אבא אינם חשבון, ואין למי לשייך את השורה — ולכן
+        הבדיקה נכנסת עם משתמש אמיתי ולא נשענת על ברירת מחדל."""
+        monkeypatch.setenv("APP_PASSWORD", "x")
+        assert priced_client.post(
+            "/api/signup", json={"username": "orit", "password": "sixteen-chars-ok"}
+        ).status_code in (200, 201)
+
+        before = history.for_user("orit", limit=1)["count"]
+        assert self._price(priced_client, record=True).status_code == 200
+        after = history.for_user("orit", limit=1)
+        assert after["count"] == before + 1
+        assert after["items"][0]["source"] == "editor"
+
+        # ואותה קריאה בלי `record` אינה מוסיפה שורה שנייה.
+        assert self._price(priced_client).status_code == 200
+        assert history.for_user("orit", limit=1)["count"] == before + 1
+
+    def test_both_paths_return_the_same_number(self, priced_client):
+        live = self._price(priced_client).json()["quote"]["total"]
+        saved = self._price(priced_client, record=True).json()["quote"]["total"]
+        assert live == saved, "מחיר שנרשם חייב להיות המחיר שהוצג"
