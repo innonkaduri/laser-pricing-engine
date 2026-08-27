@@ -335,6 +335,24 @@ def _wants_html(request: Request) -> bool:
     return request.method == "GET" and "text/html" in request.headers.get("accept", "")
 
 
+CODE_ASSET_CACHE = "public, no-cache"
+"""מדיניות המטמון של הקוד שרץ בדפדפן — CSS ו-JS.
+
+**`no-cache` אינו "בלי מטמון".** הדפדפן שומר את הקובץ ומשתמש בו,
+אבל **מאמת מול השרת** בכל טעינה; אם ה-`ETag` לא השתנה חוזר 304 ריק,
+כלומר כמעט אותו חיסכון עם `max-age`, בלי הסיכון.
+
+**והסיכון נמדד 27.8.2026.** `part-3d.js` הוגש עם `max-age=3600`.
+תיקנתי בו את הסיבוב, פרסתי, והדפדפן המשיך להריץ את הגרסה הישנה —
+בעוד שה-HTML שנטען לצדו כבר היה חדש. **HTML חדש עם JS ישן הוא לא
+"תיקון שטרם הגיע" אלא מצב שלישי שאיש לא בדק:** מסך שקורא לפונקציות
+שאינן קיימות, או להפך. במקרה הזה זה נראה כאילו התיקון לא עבד, וזו
+הטעות הזולה; הגרסה היקרה היא מסך שנראה תקין ומתנהג אחרת.
+
+הגופנים נשארים עם שנה ו-`immutable` — הם באמת אינם משתנים.
+"""
+
+
 CACHEABLE_ASSETS = ("/fonts/", "/static/") + OPEN_ASSETS
 """מה שזהה לכל אדם ולכן מותר לשמור. כל השאר — לא."""
 
@@ -2526,7 +2544,7 @@ if WEB_DIR.exists():
         return FileResponse(
             WEB_DIR / name,
             media_type="application/javascript; charset=utf-8",
-            headers={"Cache-Control": "public, max-age=3600"},
+            headers={"Cache-Control": CODE_ASSET_CACHE},
         )
 
     @app.get("/brand.css")
@@ -2535,9 +2553,7 @@ if WEB_DIR.exists():
         return FileResponse(
             WEB_DIR / "brand.css",
             media_type="text/css; charset=utf-8",
-            # קצר יותר מהגופן: העיצוב כן משתנה, ופריסה חייבת להיראות
-            # מיד. שעה מספיקה כדי לחסוך את הבקשה בתוך אותו ביקור.
-            headers={"Cache-Control": "public, max-age=3600"},
+            headers={"Cache-Control": CODE_ASSET_CACHE},
         )
 
     @app.get("/part-draw.js")

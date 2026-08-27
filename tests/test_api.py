@@ -1967,12 +1967,20 @@ class TestIdentityDependentPagesAreNeverCached:
             assert "no-store" in r.headers.get("cache-control", ""), path
 
     def test_the_font_and_the_design_system_are_still_cached(self, gated):
-        """הם זהים לכל אדם. לבטל להם את המטמון היה מעניש בלי סיבה."""
+        """הם זהים לכל אדם, ולכן נשמרים — אבל לא באותה מדיניות.
+
+        **הבדיקה הזאת נעלה עד 27.8.2026 את הבאג עצמו:** היא דרשה
+        `max-age` ב-`brand.css`, וזו בדיוק הכותרת שגרמה לדפדפן
+        להריץ JS ישן לצד HTML חדש אחרי פריסה. היום הדרישה היא
+        **שהקובץ יישמר ויאומת**, לא שיישמר ויוקפא.
+        """
         font = gated.get("/fonts/assistant-hebrew.woff2")
-        assert "immutable" in font.headers["cache-control"]
+        assert "immutable" in font.headers["cache-control"], "גופן באמת אינו משתנה"
+
         css = gated.get("/brand.css")
-        assert "no-store" not in css.headers.get("cache-control", "")
-        assert "max-age" in css.headers["cache-control"]
+        header = css.headers["cache-control"]
+        assert "no-store" not in header, "לבטל מטמון לגמרי היה מעניש בלי סיבה"
+        assert "no-cache" in header, header
 
     def _login(self, client):
         assert client.post(
@@ -3124,3 +3132,24 @@ class TestRecalculatingIsNotQuoting:
         live = self._price(priced_client).json()["quote"]["total"]
         saved = self._price(priced_client, record=True).json()["quote"]["total"]
         assert live == saved, "מחיר שנרשם חייב להיות המחיר שהוצג"
+
+
+class TestCodeAssetsRevalidate:
+    """CSS ו-JS חייבים להיבדק מול השרת בכל טעינה.
+
+    **נמדד 27.8.2026:** `part-3d.js` הוגש עם `max-age=3600`, תיקון
+    לסיבוב נפרס, והדפדפן המשיך להריץ את הישן לצד HTML חדש. זה לא
+    "תיקון שטרם הגיע" אלא מצב שלישי שאיש לא בדק.
+    """
+
+    def test_scripts_and_styles_are_revalidated(self, client):
+        for path in ("/brand.css", "/part-3d.js", "/part-draw.js", "/shell.js"):
+            header = client.get(path).headers["cache-control"]
+            assert "no-cache" in header, f"{path}: {header}"
+            assert "max-age" not in header, f"{path}: {header}"
+
+    def test_fonts_stay_immutable(self, client):
+        """הגופן באמת אינו משתנה, ואין סיבה לשלם עליו בקשה."""
+        response = client.get("/fonts/assistant-hebrew.woff2")
+        assert response.status_code == 200
+        assert "immutable" in response.headers["cache-control"]

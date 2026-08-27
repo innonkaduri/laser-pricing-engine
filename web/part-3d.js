@@ -127,10 +127,12 @@ export function createViewer(canvas, options = {}) {
   let model = null;
   let pieces = [];
   let coarse = [];
-  let yaw = -0.62;
-  let pitch = 1.02;
+  let radius = 1;
   let frame = 0;
   let dragging = false;
+  let panning = false;
+  const HOME = { yaw: -0.62, pitch: 1.02, zoom: 1, panX: 0, panY: 0 };
+  const cam = { ...HOME };
 
   /* **שתי רמות פירוט, ולא תקציב חורים.**
 
@@ -156,38 +158,33 @@ export function createViewer(canvas, options = {}) {
     const active = dragging && coarse.length ? coarse : pieces;
     if (!model || !active.length) return;
 
-    const camera = makeCamera(yaw, pitch);
+    const camera = makeCamera(cam.yaw, cam.pitch);
     const centre = model.size_mm.map((s) => s / 2);
     const shift = (p) => [p[0] - centre[0], p[1] - centre[1], p[2] - centre[2]];
 
-    /* קנה המידה נגזר מהמצולעים המוקרנים בפועל ולא מהתיבה החוסמת:
-       גוף מסובב תופס על המסך משהו אחר מהתיבה שלו, וסקאלה מהתיבה
-       הייתה משאירה שוליים משתנים בזמן סיבוב. */
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minY = Infinity;
-    let maxY = -Infinity;
     const flat = active.map((piece) => {
-      const loops = piece.loops.map((loop) =>
-        loop.map((p) => {
-          const q = camera(shift(p));
-          if (q[0] < minX) minX = q[0];
-          if (q[0] > maxX) maxX = q[0];
-          if (q[2] < minY) minY = q[2];
-          if (q[2] > maxY) maxY = q[2];
-          return q;
-        })
-      );
+      const loops = piece.loops.map((loop) => loop.map((p) => camera(shift(p))));
       let depth = 0;
       let count = 0;
       for (const loop of loops) for (const q of loop) { depth += q[1]; count++; }
       return { loops, depth: depth / count, normal: camera(piece.normal) };
     });
 
-    const pad = 14;
-    const scale = Math.min((w - pad * 2) / (maxX - minX || 1), (h - pad * 2) / (maxY - minY || 1));
-    const ox = w / 2 - ((minX + maxX) / 2) * scale;
-    const oy = h / 2 + ((minY + maxY) / 2) * scale;
+    /* **קנה המידה נגזר מרדיוס הגוף ולא מתיבת ההיטל.**
+
+       עד 27.8.2026 הוא חושב מהמצולעים המוקרנים, כלומר **מחדש בכל
+       פריים**. הכוונה הייתה לשמור שוליים קבועים; התוצאה היא שהחלק
+       גדל ומתכווץ תוך כדי שמסובבים אותו ונצמד תמיד לשולי המסגרת.
+       העין מפרשת שינוי גודל כתנועה קדימה, ולכן כל גרירה הרגישה
+       כאילו היא גם מקרבת — וזו הסיבה המרכזית שהסיבוב הרגיש שבור.
+
+       רדיוס הכדור החוסם אינו תלוי בזווית, ולכן הגודל על המסך קבוע
+       והסיבוב הוא סיבוב בלבד. */
+    // 0.5 הוא בדיוק המצב שבו הכדור החוסם ממלא את הצלע הקצרה.
+    // 0.48 משאיר שוליים דקים ומבטיח שהגוף לא ייגזר בשום זווית.
+    const scale = (Math.min(w, h) * 0.48 / radius) * cam.zoom;
+    const ox = w / 2 + cam.panX;
+    const oy = h / 2 + cam.panY;
 
     // אלגוריתם הצייר: הרחוק נצבע ראשון. מספיק לגוף פח שאין בו
     // פאות שחודרות זו את זו.
@@ -225,22 +222,48 @@ export function createViewer(canvas, options = {}) {
   let lastY = 0;
   const start = (event) => {
     dragging = true;
+    // הזזה: כפתור אמצעי, ימני, או Shift — שלוש הדרכים שאנשים מנסים.
+    panning = event.button === 1 || event.button === 2 || event.shiftKey;
     lastX = event.clientX;
     lastY = event.clientY;
     canvas.setPointerCapture(event.pointerId);
-    canvas.style.cursor = 'grabbing';
+    canvas.style.cursor = panning ? 'move' : 'grabbing';
+    event.preventDefault();
   };
   const move = (event) => {
     if (!dragging) return;
-    yaw += (event.clientX - lastX) * 0.011;
-    // גבול הנטייה: מעבר לו הגוף מתהפך, והמשתמש מאבד את הכיוון.
-    pitch = Math.max(0.06, Math.min(Math.PI - 0.06, pitch - (event.clientY - lastY) * 0.011));
+    const dx = event.clientX - lastX;
+    const dy = event.clientY - lastY;
     lastX = event.clientX;
     lastY = event.clientY;
+
+    if (panning) {
+      cam.panX += dx;
+      cam.panY += dy;
+      schedule();
+      return;
+    }
+
+    /* **שני הסימנים היו הפוכים, ותוקנו 27.8.2026.**
+
+       גרירה ימינה סובבה את הגוף שמאלה, וגרירה מטה הראתה **פחות**
+       מלמעלה במקום יותר. המוסכמה שכל תוכנת CAD מחזיקה היא שהגוף
+       הולך אחרי היד — כאילו מסובבים אותו באצבע — ולא שהמצלמה נעה
+       הפוך. שני מינוסים, וזה כל התיקון.
+
+       והרגישות נגזרת מגובה הקנבס במקום להיות 0.011 רדיאן לפיקסל:
+       המספר הקבוע היה מהיר מדי על מסך גדול ואיטי מדי על טלפון.
+       חצי מסך = חצי סיבוב, בכל גודל. */
+    const speed = Math.PI / Math.max(240, canvas.clientHeight);
+    cam.yaw -= dx * speed;
+    // מעבר ל-90° רואים את התחתית והתמונה מתהפכת. זה סיבוב לגיטימי
+    // ומבלבל למי שבודק מוצר, ולכן הגבול עוצר רגע לפני.
+    cam.pitch = Math.max(0.05, Math.min(Math.PI / 2 - 0.02, cam.pitch + dy * speed));
     schedule();
   };
   const end = (event) => {
     dragging = false;
+    panning = false;
     schedule();
     canvas.style.cursor = 'grab';
     if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
@@ -249,6 +272,26 @@ export function createViewer(canvas, options = {}) {
   canvas.addEventListener('pointermove', move);
   canvas.addEventListener('pointerup', end);
   canvas.addEventListener('pointercancel', end);
+  // בלי זה, גרירה בכפתור ימני פותחת תפריט הקשר באמצע הסיבוב.
+  canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+  canvas.addEventListener('dblclick', () => { Object.assign(cam, HOME); schedule(); });
+  canvas.addEventListener(
+    'wheel',
+    (event) => {
+      event.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      // הנקודה שמתחת לסמן נשארת תחתיו, בדיוק כמו בתצוגה הדו-ממדית.
+      const x = event.clientX - rect.left - rect.width / 2 - cam.panX;
+      const y = event.clientY - rect.top - rect.height / 2 - cam.panY;
+      const next = Math.min(12, Math.max(0.3, cam.zoom * Math.exp(-event.deltaY * 0.0016)));
+      const applied = next / cam.zoom;
+      cam.panX -= x * (applied - 1);
+      cam.panY -= y * (applied - 1);
+      cam.zoom = next;
+      schedule();
+    },
+    { passive: false }
+  );
   canvas.style.cursor = 'grab';
   canvas.style.touchAction = 'none';
 
@@ -257,14 +300,33 @@ export function createViewer(canvas, options = {}) {
 
   return {
     show(next) {
+      const fresh = !model || String(model.size_mm) !== String(next && next.size_mm);
       model = next;
       pieces = next && next.faces ? collect(next, true) : [];
       coarse = next && next.faces ? collect(next, false) : [];
+
+      // רדיוס הכדור החוסם, פעם אחת לכל מודל: זה מה שמייצב את הגודל.
+      radius = 1;
+      if (next && next.size_mm) {
+        const c = next.size_mm.map((s) => s / 2);
+        for (const piece of pieces) {
+          for (const loop of piece.loops) {
+            for (const q of loop) {
+              const d = Math.hypot(q[0] - c[0], q[1] - c[1], q[2] - c[2]);
+              if (d > radius) radius = d;
+            }
+          }
+        }
+      }
+
+      // **הזווית נשמרת בין עדכונים.** מי שסובב כדי לבדוק פינה ואז
+      // הזיז מחוון לא רוצה שהתצוגה תקפוץ להתחלה בכל שינוי; רק חלק
+      // במידות אחרות מאפס.
+      if (fresh) Object.assign(cam, HOME);
       schedule();
     },
     reset() {
-      yaw = -0.62;
-      pitch = 1.02;
+      Object.assign(cam, HOME);
       schedule();
     },
     redraw: schedule,
