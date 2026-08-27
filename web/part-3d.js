@@ -104,12 +104,25 @@ function collect(model, wallsOnHoles) {
         p[2] + face.normal[2] * t,
       ])
     );
-    // פָּן עליון ותחתון — החורים הם לולאות נוספות באותו מצולע,
-    // וה-canvas חותך אותם עם evenodd בלי שנצטרך לשלש משולשים.
-    pieces.push({ loops: [prism.top, ...liftedHoles], normal: face.normal });
+    /* פָּן עליון ותחתון — החורים הם לולאות נוספות באותו מצולע,
+       וה-canvas חותך אותם עם evenodd בלי שנצטרך לשלש משולשים.
+
+       **`cull` הוא מה שמבדיל בין קופסה לבין ערימת מצולעים.** שני
+       הפָּנים האלה גב אל גב, ובכל רגע נתון בדיוק אחד מהם פונה
+       למצלמה. בלי לסמן אותם, זה שפונה **הצידה** נצבע לפי העומק
+       הממוצע שלו — ובזווית נמוכה הפאה הפנימית של הדופן הקרובה
+       יוצאת הכי קרובה, נצבעת אחרונה, **ומכסה את רצפת המארז**.
+       נמדד 27.8.2026: המארז נראה כאילו אין לו תחתית, ושלושת חורי
+       האטם נעלמו איתה.
+
+       דפנות ההיקף וקשתות הכיפוף אינן מסומנות: הנורמל שלהן נגזר
+       ממכפלה וקטורית שסימנה תלוי בכיוון שבו הבנאי כתב את המתאר,
+       וסילוק לפיו היה קורע חורים בגוף במקום לנקות אותו. */
+    pieces.push({ loops: [prism.top, ...liftedHoles], normal: face.normal, cull: true });
     pieces.push({
       loops: [prism.bottom, ...face.holes],
       normal: [-face.normal[0], -face.normal[1], -face.normal[2]],
+      cull: true,
     });
     pieces.push(...quads(prism.bottom, prism.top, face.normal));
     if (wallsOnHoles) {
@@ -162,13 +175,31 @@ export function createViewer(canvas, options = {}) {
     const centre = model.size_mm.map((s) => s / 2);
     const shift = (p) => [p[0] - centre[0], p[1] - centre[1], p[2] - centre[2]];
 
-    const flat = active.map((piece) => {
+    const flat = [];
+    for (const piece of active) {
+      const normal = camera(piece.normal);
+      // חצי הכדור האחורי: פאה שהנורמל שלה מצביע הלאה מהמצלמה מוסתרת
+      // בהכרח על ידי הגוף עצמו, וציורה יכול רק לקלקל את הסדר.
+      if (piece.cull && normal[1] > 0) continue;
       const loops = piece.loops.map((loop) => loop.map((p) => camera(shift(p))));
-      let depth = 0;
-      let count = 0;
-      for (const loop of loops) for (const q of loop) { depth += q[1]; count++; }
-      return { loops, depth: depth / count, normal: camera(piece.normal) };
-    });
+      /* **המיון לפי הנקודה הקרובה ביותר של הפאה, ולא לפי הממוצע
+         ולא לפי הרחוקה.** שלושתם נוסו, ורק זה עובד — וזה נמדד:
+
+         - **ממוצע** נכשל כי לרצפה ולדופן הרחוקה מרכזים שונים אבל
+           הן נחתכות; המארז יצא בלי תחתית.
+         - **הנקודה הרחוקה** נכשלת ב**תיקו**: הקצה הרחוק של הרצפה
+           והבסיס של הדופן הרחוקה יושבים באותה נקודה בדיוק, ומיון
+           על ערך זהה מכריע באקראי.
+         - **הנקודה הקרובה** מבדילה ביניהן תמיד: הדופן הרחוקה
+           מתרוממת, ולכן הנקודה הקרובה שלה עדיין רחוקה מהקצה הקרוב
+           של הרצפה. היא נצבעת ראשונה, והרצפה עליה.
+
+         והכלל נשאר נכון גם לדופן הקרובה: היא הקרובה מכולן, נצבעת
+         אחרונה, ומסתירה את שפת הרצפה — בדיוק כמו במציאות. */
+      let near = Infinity;
+      for (const loop of loops) for (const q of loop) if (q[1] < near) near = q[1];
+      flat.push({ loops, depth: near, normal });
+    }
 
     /* **קנה המידה נגזר מרדיוס הגוף ולא מתיבת ההיטל.**
 
