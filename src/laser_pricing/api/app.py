@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 
 from ..cad.base import CadReadError
 from ..cad.dxf_reader import read_dxf
+from ..domain.folding import FlatPanel, bounds as solid_bounds, fold as fold_panels
 from ..domain.geometry import Contour, PartGeometry, circle, rectangle
 from ..domain.part import Part, PartSource
 from ..nesting.plate import check_manufacturability
@@ -37,7 +38,7 @@ from ..nesting.splitting import plan_split
 from ..pricing.engine import PricingError, price_order
 from ..pricing.tariff import InvalidTariffError, MissingTariffError
 from . import catalog as catalog_mod
-from . import identity, usage
+from . import history, identity, usage
 from .serialize import (
     geometry_to_json,
     public_quote_to_json,
@@ -74,6 +75,7 @@ REQUIRED_ENV: dict[str, str] = {
     "EDITOR_PASSWORD": "בלעדיו הקישור של אבא לטופס המחירים אינו עובד",
     "SIGNUP_MODE": "בלעדיו ההרשמה הציבורית פתוחה כברירת מחדל שקטה, ולא כהחלטה",
     "SERVICE_TOKEN": "בלעדיו כל קריאה מימיש חוזרת 401",
+    "QUOTES_DB": "בלעדיו היסטוריית ההצעות של כל המשתמשים נכתבת לעץ ה-git",
 }
 """משתני הסביבה שפריסה אמיתית **חייבת** להגדיר, והסיבה לכל אחד.
 
@@ -182,7 +184,7 @@ def _is_font_path(path: str) -> bool:
     return path.startswith("/fonts/") and path.endswith(".woff2")
 
 
-OPEN_ASSETS = ("/brand.css", "/part-draw.js")
+OPEN_ASSETS = ("/brand.css", "/part-draw.js", "/part-3d.js")
 """נכסים שכל מסך ציבורי צריך, ולכן אינם יכולים לשבת מאחורי השער.
 
 `brand.css` הוא מערכת העיצוב. `part-draw.js` הוא הקוד שהופך מתאר
@@ -265,7 +267,7 @@ INTERNAL_PATHS = ("/api/dashboard", "/dashboard")
 """
 
 
-ANY_USER_PATHS = ("/api/me", "/api/logout")
+ANY_USER_PATHS = ("/api/me", "/api/logout", "/api/account", "/api/history")
 """מה שכל מי שנכנס רשאי, ויהיו יכולותיו אשר יהיו.
 
 "מי אני" ו"צא" אינם יכולת. אבא, שיש לו `prices:edit` בלבד, קיבל על
@@ -282,7 +284,14 @@ def _required_capabilities(path: str) -> frozenset[str] | None:
     אינו בשאלה *אם* מותר לתמחר אלא *מה חוזר* — וזה נקבע בשכבת
     התשובה, לא בשער.
     """
-    if path in ANY_USER_PATHS or path.startswith("/static/"):
+    if path.startswith("/static/"):
+        return None
+    if any(path == p or path.startswith(p + "/") for p in ANY_USER_PATHS):
+        # **חשבון והיסטוריה אינם יכולת.** משתמש ציבורי שיש לו רק
+        # `quote:total` חייב להגיע למסך החשבון שלו ולהצעות שלו, בדיוק
+        # כמו שאבא — שיש לו רק `prices:edit` — חייב להגיע ל"מי אני".
+        # הבדיקה היא על תחילית ולא על שוויון, כי `/api/history/12`
+        # הוא אותו אזור בדיוק.
         return None
     if any(path == p or path.startswith(p + "/") for p in PRICE_TABLE_PATHS):
         return frozenset({identity.CAP_PRICES_EDIT})
@@ -1026,8 +1035,12 @@ def _table_coverage() -> dict:
 def dashboard() -> dict:
     """המסך התפעולי: מה מלא, מה בריא, ומתי גובה לאחרונה.
 
-    **לא מסך מכירות.** היסטוריית ההצעות יושבת ב-CRM לפי קו הגבול
-    שסוכם, והמנוע אינו שומר הצעות כלל.
+    **ועדיין לא מסך מכירות.** מ-27.8.2026 המנוע כן שומר היסטוריה —
+    אבל היא **של כל משתמש מול עצמו**, והדשבורד רואה ממנה מספרים
+    מצטברים בלבד: כמה הצעות, לכמה משתמשים, ובכמה כסף. **אף הצעה של
+    אף משתמש אינה מוצגת כאן**, ואין בה ממילא שם לקוח או שם קובץ.
+    הגבול מול ה-CRM שנקבע ב-19.8 עומד: מסמך הצעה עם שם לקוח נכתב
+    שם, לא כאן.
     """
     disk_present, disk_matches = STATE.disk_state()
     coverage = _table_coverage()
@@ -1091,6 +1104,29 @@ def dashboard() -> dict:
         # קובץ הוא שם לקוח בתחפושת. הגבול מול ה-CRM נשמר.
         # **אפס שורות מדווח כ"לא נאסף" ולא כאפס**, כי אפס נקרא כמדידה.
         "quotes": usage.summary(),
+        # מצטבר בלבד — ראה את ה-docstring של הפונקציה.
+        "history": history.stats(),
+        "catalog": {
+            "version": CATALOG.version,
+            "products": len(CATALOG.products),
+            "categories": len(CATALOG.categories),
+            "builders": len(catalog_mod.BUILDERS),
+            # אילו מוצרים אינם ניתנים לתמחור **עכשיו**, ולמה. זו
+            # רשימת עבודה, בדיוק כמו החומרים שאין להם מחיר.
+            "unavailable": [
+                {
+                    "id": product.id,
+                    "name": product.name,
+                    "reason": (
+                        "אין חומר עם מחיר כיפוף"
+                        if product.bends
+                        else "אין חומר עם מחיר פלטה וחיתוך"
+                    ),
+                }
+                for product in CATALOG.products
+                if not _catalog_materials(product)
+            ],
+        },
     }
 
 
@@ -1363,6 +1399,20 @@ def quote(body: QuoteRequest, request: Request) -> dict:
     # הרישום קורה אחרי שהתמחור הצליח ולפני ההחזרה, ובאותו מקום לשתי
     # צורות התשובה — כדי שלא ייווצר מסלול שמתמחר ואינו נרשם.
     usage.record_quote(result, _current(request))
+    user = _current(request)
+    first = body.parts[0]
+    history.record(
+        username=user.username if user is not None and user.source in ("session", "basic") else "",
+        # **`source` ולא שם הקובץ.** מאיפה הגיעה הגיאומטריה זה מידע על
+        # המנוע; איך נקרא הקובץ זה מידע על הלקוח של הלקוח.
+        source="file",
+        quote=result,
+        material_key=first.material_key,
+        thickness_mm=first.thickness_mm,
+        quantity=sum(p.quantity for p in body.parts),
+        dimensions={"חלקים": len(body.parts)},
+        bend_count=sum(p.bend_count for p in body.parts),
+    )
     return quote_to_json(result) if _sees_breakdown(request) else public_quote_to_json(result)
 
 
@@ -1392,6 +1442,21 @@ class CatalogQuoteRequest(BaseModel):
 
 class CatalogPreviewRequest(BaseModel):
     values: dict[str, float | int | str | None] = Field(default_factory=dict)
+    view: Literal["flat", "solid"] = "flat"
+    """איזו תצוגה מבקשים — ולמה זו בקשה ולא שדה בתשובה.
+
+    שתי התצוגות נושאות את אותם חורים: הפריסה כמתארים דו-ממדיים,
+    והגוף כמצולעים תלת-ממדיים. משרבייה עם 70 פתחים שולחת אותם
+    **פעמיים** אם התשובה מכילה את שתיהן, וזה כפול מהמשקל בכל תזוזת
+    מחוון — בשביל תצוגה שהמשתמש לא מסתכל עליה כרגע.
+    """
+    thickness_mm: float = Field(default=2.0, gt=0, le=50)
+    """עובי החומר — משנה את **המראה** ולא את המחיר.
+
+    המחיר מגיע מ-`/api/catalog/<id>/quote` ומהטבלה. כאן העובי משמש
+    רק כדי לתת ללוחות נפח: פח 1 מ"מ ופח 10 מ"מ נראים אחרת לגמרי,
+    ולוח בעובי אפס נראה כמו נייר.
+    """
 
 
 def _catalog_materials(product: catalog_mod.Product) -> list[dict]:
@@ -1541,6 +1606,66 @@ def _blank(product: catalog_mod.Product, values: dict) -> catalog_mod.Blank:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+def _model3d(blank: catalog_mod.Blank, data: dict, thickness: float) -> dict:
+    """הפריסה, מקופלת. **מאותם מתארים שתומחרו, ולא ממודל שני.**
+
+    החורים נלקחים מהתשובה הדו-ממדית **אחרי הדילול**, ולא מהגיאומטריה
+    המלאה. זו החלטה ולא קיצור דרך: אם הגוף היה נבנה מנתונים אחרים
+    מאלה שהפריסה מציירת, שתי התצוגות של אותו חלק היו יכולות להיפרד
+    בשקט — ואז לקוח שמסובב את המוצר רואה משהו שלא היה על השרטוט.
+
+    מוצר שטוח אינו מקרה מיוחד: הוא לוח אחד בעובי החומר, ולכן הוא
+    מקבל בדיוק את אותו טיפול. `panels` ריק פירושו "לוח אחד".
+    """
+    holes = [[(x, y) for x, y in c["points"]] for c in data["contours"] if c["hole"]]
+    panels = blank.panels
+    if not panels:
+        outer = next((c for c in data["contours"] if not c["hole"]), None)
+        if outer is None:
+            return {}
+        panels = [FlatPanel(outline=[(x, y) for x, y in outer["points"]])]
+
+    faces = fold_panels(panels, holes)
+    # **התיבה החוסמת נמדדת על החומר ולא על המישור.** לוח הוא מישור
+    # בעל עובי אפס עד שמושכים אותו בכיוון הנורמל, ובלי זה פלטה
+    # שטוחה דיווחה על עצמה כ"0 מ"מ גובה" — מספר שנראה כמו באג ואינו,
+    # ועדיין שגוי בתור מידה של מוצר.
+    thick_faces = list(faces) + [
+        type(face)(
+            outline=[
+                (
+                    v[0] + face.normal[0] * thickness,
+                    v[1] + face.normal[1] * thickness,
+                    v[2] + face.normal[2] * thickness,
+                )
+                for v in face.outline
+            ]
+        )
+        for face in faces
+    ]
+    low, high = solid_bounds(thick_faces)
+
+    def p3(point) -> list[float]:
+        return [round(point[0] - low[0], 2), round(point[1] - low[1], 2), round(point[2] - low[2], 2)]
+
+    return {
+        "thickness_mm": thickness,
+        # **המידות של הגוף, לא של הפריסה.** מגש 300×200 עם דופן 50
+        # נחתך מפריסה של 400×300, ושתי השורות נכונות — אבל זו
+        # שהלקוח מודד בה את הארון היא הזאת.
+        "size_mm": [round(high[i] - low[i], 1) for i in range(3)],
+        "faces": [
+            {
+                "outline": [p3(v) for v in face.outline],
+                "holes": [[p3(v) for v in hole] for hole in face.holes],
+                "normal": [round(n, 4) for n in face.normal],
+                "label": face.label,
+            }
+            for face in faces
+        ],
+    }
+
+
 @app.post("/api/catalog/{product_id}/preview")
 def catalog_preview(product_id: str, body: CatalogPreviewRequest, request: Request) -> dict:
     """הצורה, בלי מחיר. **פתוח לכולם, ובכוונה.**
@@ -1566,7 +1691,10 @@ def catalog_preview(product_id: str, body: CatalogPreviewRequest, request: Reque
     blank = _blank(product, body.values)
     geometry = _build_manual_geometry(ManualPartSpec(name=product.name, **blank.spec))
     plan = plan_split(geometry.bbox, _plate())
-    return {
+    # **הדילול הוא של התצוגה בלבד.** השטח, אורך החיתוך ומספר
+    # הניקובים שבתשובה חושבו על המתאר המלא לפני השורה הזאת.
+    data = thin_for_preview(geometry_to_json(geometry))
+    answer = {
         "product_id": product.id,
         "name": product.name,
         "values": catalog_mod.resolve(product, body.values),
@@ -1574,10 +1702,14 @@ def catalog_preview(product_id: str, body: CatalogPreviewRequest, request: Reque
         "bend_length_mm": round(blank.bend_length_mm, 2),
         "fold_lines": blank.fold_lines,
         "fits_single_plate": plan.piece_count == 1,
-        # **הדילול הוא של התצוגה בלבד.** השטח, אורך החיתוך ומספר
-        # הניקובים שבתשובה חושבו על המתאר המלא לפני השורה הזאת.
-        **thin_for_preview(geometry_to_json(geometry)),
+        **data,
     }
+    if body.view == "solid":
+        # החורים כבר נשלחים פעם אחת בתוך המודל; שליחתם שוב כמתארים
+        # דו-ממדיים מכפילה את התשובה בשביל תצוגה שאיש לא רואה כרגע.
+        answer["model"] = _model3d(blank, data, body.thickness_mm)
+        answer.pop("contours", None)
+    return answer
 
 
 @app.post("/api/catalog/{product_id}/quote")
@@ -1620,13 +1752,162 @@ def catalog_quote(product_id: str, body: CatalogQuoteRequest, request: Request) 
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     usage.record_quote(result, _current(request))
+    values = catalog_mod.resolve(product, body.values)
+    user = _current(request)
+    history.record(
+        username=user.username if user is not None and user.source != "service" else "",
+        source="catalog",
+        quote=result,
+        material_key=body.material_key,
+        thickness_mm=body.thickness_mm,
+        quantity=body.quantity,
+        product_id=product.id,
+        product_name=product.name,
+        # **התוויות בעברית ולא מפתחות הפרמטרים.** ההיסטוריה היא מסך
+        # של לקוח, ו-`hole_inset_mm` שם הוא שם פנימי שדלף. וגם:
+        # התווית נשמרת **עם** ההצעה, ולכן היא נשארת קריאה גם אחרי
+        # שהמוצר ישתנה בקטלוג או ייצא ממנו.
+        dimensions={
+            f"{param.name} ({param.unit})" if param.unit else param.name: values[param.key]
+            for param in product.params
+            if param.key in values
+        },
+        bend_count=blank.bend_count,
+    )
     quote_json = quote_to_json(result) if _sees_breakdown(request) else public_quote_to_json(result)
     return {
         "product_id": product.id,
-        "values": catalog_mod.resolve(product, body.values),
+        "values": values,
         "bend_count": blank.bend_count,
         "quote": quote_json,
     }
+
+
+# ---- החשבון של המשתמש, וההיסטוריה שלו ----
+
+
+class DisplayNameRequest(BaseModel):
+    display_name: str
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+def _require_account(request: Request) -> identity.User:
+    """המשתמש שמאחורי הבקשה, ורק אם הוא **אדם עם חשבון**.
+
+    קישור העריכה של אבא וטוקן השירות של ימיש הם זהויות אמיתיות
+    שעוברות את השער — ואין להן חשבון, סיסמה או היסטוריה. בלי
+    הבדיקה הזאת `/api/account` היה מנסה לשנות סיסמה למשתמש שאינו
+    קיים במסד ומחזיר "אין משתמש בשם editor-link", כלומר הודעה
+    שנשמעת כמו תקלה ואינה.
+    """
+    user = _current(request)
+    if user is None or user.source not in ("session", "basic"):
+        raise HTTPException(
+            status_code=403,
+            detail="הפעולה הזאת דורשת חשבון אישי. קישור עריכה וטוקן שירות אינם חשבון.",
+        )
+    return user
+
+
+@app.get("/api/account")
+def account(request: Request) -> dict:
+    """מי אני, מה מותר לי, וכמה הצעות הוצאתי."""
+    user = _require_account(request)
+    record = next((u for u in identity.list_users() if u["username"] == user.username), None)
+    summary = history.for_user(user.username, limit=1)
+    return {
+        "username": user.username,
+        "display_name": user.display_name,
+        "capabilities": sorted(user.capabilities),
+        # **תרגום היכולת למשפט, ולא רק המחרוזת הטכנית.** משתמש שקורא
+        # "quote:total" לא יודע אם זה הרבה או מעט.
+        "capability_labels": [CAPABILITY_LABELS.get(c, c) for c in sorted(user.capabilities)],
+        "sees_breakdown": user.sees_cost_breakdown,
+        "created_at": record["created_at"] if record else "",
+        "quote_count": summary["count"],
+        "quote_total": summary["total_amount"],
+        "history_keeps": history.KEEP_PER_USER,
+        # **אין שחזור סיסמה, וזה נאמר במסך ולא רק בהרשמה.** לא ביקשנו
+        # אימייל ולא טלפון, ולכן אין לאן לשלוח קישור איפוס.
+        "password_recovery": False,
+    }
+
+
+CAPABILITY_LABELS = {
+    identity.CAP_QUOTE_TOTAL: "תמחור — מחיר סופי אחד",
+    identity.CAP_QUOTE_USE: "תמחור — כולל פירוק עלויות",
+    identity.CAP_PRICES_EDIT: "עריכת טבלת המחירים",
+}
+
+
+@app.put("/api/account/name")
+def account_name(body: DisplayNameRequest, request: Request) -> dict:
+    user = _require_account(request)
+    try:
+        saved = identity.set_display_name(user.username, body.display_name)
+    except identity.UserError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"display_name": saved}
+
+
+@app.put("/api/account/password")
+def account_password(body: PasswordChangeRequest, request: Request) -> JSONResponse:
+    """החלפת סיסמה. **הסיסמה הנוכחית נדרשת, ונבדקת.**
+
+    בלעדיה, מי שהשיג עוגייה — מחשב פתוח במשרד, סשן שנשאר על טלפון —
+    משנה את הסיסמה ונועל את הבעלים מחוץ לחשבון שלו. הבדיקה כאן היא
+    `authenticate` ולא השוואת מחרוזות, כדי שהיא תעבור באותו קוד
+    שמשמש את הכניסה.
+    """
+    user = _require_account(request)
+    if not _rate_ok(_LOGIN_FAILURES, f"pw:{user.username}", 10, 3600):
+        raise HTTPException(status_code=429, detail="יותר מדי ניסיונות. נסה שוב בעוד שעה.")
+    if identity.authenticate(user.username, body.current_password) is None:
+        raise HTTPException(status_code=403, detail="הסיסמה הנוכחית שגויה.")
+    try:
+        identity.set_password(user.username, body.new_password)
+    except identity.UserError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # הסשן הישן נשאר בתוקף בכוונה: הוא של אותו אדם שהרגע הוכיח את
+    # הסיסמה. ניתוק היה מוציא אותו מהמסך שבו הוא עומד, בלי סיבה.
+    return JSONResponse({"ok": True, "message": "הסיסמה הוחלפה."})
+
+
+@app.get("/api/history")
+def history_list(request: Request, limit: int = 30, before: int | None = None) -> dict:
+    """ההצעות של מי ששאל. **של אף אחד אחר.**"""
+    user = _require_account(request)
+    return history.for_user(user.username, limit=limit, before=before)
+
+
+@app.get("/api/history/{quote_id}")
+def history_one(quote_id: int, request: Request) -> dict:
+    user = _require_account(request)
+    found = history.one(user.username, quote_id)
+    if found is None:
+        # 404 ולא 403 גם כשההצעה קיימת ושייכת לאחר: ההבדל בין השניים
+        # מגלה לזר שהמזהה תפוס, וזו כל מה שדרוש כדי לספור לקוחות.
+        raise HTTPException(status_code=404, detail="ההצעה לא נמצאה.")
+    return found
+
+
+@app.delete("/api/history/{quote_id}")
+def history_delete(quote_id: int, request: Request) -> dict:
+    user = _require_account(request)
+    if not history.delete(user.username, quote_id):
+        raise HTTPException(status_code=404, detail="ההצעה לא נמצאה.")
+    return {"deleted": quote_id}
+
+
+@app.delete("/api/history")
+def history_clear(request: Request) -> dict:
+    user = _require_account(request)
+    return {"deleted": history.clear(user.username)}
 
 
 # ---- טבלת התמחור ----
@@ -1849,6 +2130,13 @@ if WEB_DIR.exists():
         דף שנטען לפני שיש זהות לא יכול להסתמך על /static שמאחורי השער."""
         return FileResponse(WEB_DIR / "login.html")
 
+    def _open_script(name: str) -> FileResponse:
+        return FileResponse(
+            WEB_DIR / name,
+            media_type="application/javascript; charset=utf-8",
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+
     @app.get("/brand.css")
     def brand_css() -> FileResponse:
         """מערכת העיצוב. פתוחה, כי המסכים הציבוריים נטענים בלי זהות."""
@@ -1863,11 +2151,12 @@ if WEB_DIR.exists():
     @app.get("/part-draw.js")
     def part_draw_js() -> FileResponse:
         """ציור המתאר. פתוח, כי הקטלוג נגלל בלי חשבון."""
-        return FileResponse(
-            WEB_DIR / "part-draw.js",
-            media_type="application/javascript; charset=utf-8",
-            headers={"Cache-Control": "public, max-age=3600"},
-        )
+        return _open_script("part-draw.js")
+
+    @app.get("/part-3d.js")
+    def part_3d_js() -> FileResponse:
+        """הצגת הגוף. פתוח מאותה סיבה, ומאותה תיקייה."""
+        return _open_script("part-3d.js")
 
     @app.get("/fonts/{name}")
     def font(name: str) -> FileResponse:
@@ -1900,6 +2189,16 @@ if WEB_DIR.exists():
         if CATALOG.get(product_id) is None:
             raise HTTPException(status_code=404, detail=f'אין מוצר בשם "{product_id}".')
         return FileResponse(WEB_DIR / "product.html")
+
+    @app.get("/account")
+    def account_page() -> FileResponse:
+        """מסך החשבון. עצמאי, כמו כל השאר."""
+        return FileResponse(WEB_DIR / "account.html")
+
+    @app.get("/history")
+    def history_page() -> FileResponse:
+        """היסטוריית ההצעות של המשתמש."""
+        return FileResponse(WEB_DIR / "history.html")
 
     @app.get("/dashboard")
     def dashboard_page() -> FileResponse:

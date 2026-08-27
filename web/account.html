@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>החשבון שלי — ימיש כדורי</title>
+<link rel="preload" as="font" type="font/woff2" href="/fonts/assistant-hebrew.woff2" crossorigin>
+<link rel="stylesheet" href="/brand.css">
+<style>
+/* חשבון — טור אחד צר. כל השאר מ-/brand.css. */
+main{max-width:660px}
+.card+.card{margin-top:var(--s5)}
+.card>h2{font-size:var(--fs-h3); margin-bottom:var(--s1)}
+.card>p.lead{font-size:var(--fs-sm); color:var(--ink-500); margin:0 0 var(--s5); line-height:1.6}
+.pair{display:flex; gap:var(--s4); align-items:flex-end; flex-wrap:wrap}
+.pair .field{flex:1; min-width:200px}
+.rows{display:grid; gap:0}
+.rows>div{display:flex; gap:var(--s4); padding:var(--s3) 0; border-top:1px solid var(--ink-150); font-size:var(--fs-sm)}
+.rows>div:first-child{border-top:0}
+.rows dt{color:var(--ink-500); min-width:120px; margin:0}
+.rows dd{margin:0; font-weight:600; color:var(--ink-900)}
+.rows dd.num{font-variant-numeric:tabular-nums; direction:ltr; text-align:right}
+.caps{display:flex; flex-wrap:wrap; gap:6px}
+.danger{border-color:var(--bad-200)}
+.danger h2{color:var(--bad-700)}
+.ok-flash{margin-top:var(--s4)}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap-wide">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M5 8.5A3.5 3.5 0 0 1 8.5 5h9.9L27 13.6v9.9A3.5 3.5 0 0 1 23.5 27h-15A3.5 3.5 0 0 1 5 23.5v-15Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M18.4 5v5.1a3.5 3.5 0 0 0 3.5 3.5H27" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><circle cx="12.4" cy="19.6" r="3" fill="currentColor"/></svg>
+      <span class="name"><b>ימיש כדורי</b><span>החשבון שלי</span></span>
+    </a>
+    <span class="spacer"></span>
+    <nav class="row">
+      <a class="navlink" href="/catalog">קטלוג</a>
+      <a class="navlink" href="/history">ההצעות שלי</a>
+      <a class="navlink" href="/">תמחור</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap" style="padding-block:var(--s6) var(--s10)">
+  <h1 style="font-size:var(--fs-h2); letter-spacing:-.02em; margin-bottom:var(--s5)">החשבון שלי</h1>
+
+  <div class="note note-bad hidden" id="fatal"></div>
+
+  <div id="body" class="hidden">
+
+    <section class="card">
+      <h2>פרטים</h2>
+      <p class="lead">מה שהמערכת יודעת עליך. זה הכול.</p>
+      <dl class="rows" id="facts"></dl>
+    </section>
+
+    <section class="card">
+      <h2>שם לתצוגה</h2>
+      <p class="lead">מופיע בכותרת המסך. אינו שם המשתמש ואינו משמש לכניסה.</p>
+      <form class="pair" id="name-form">
+        <div class="field">
+          <label class="lbl" for="display">שם לתצוגה</label>
+          <input id="display" maxlength="60" autocomplete="name" required>
+        </div>
+        <button class="btn btn-secondary" type="submit">שמור</button>
+      </form>
+      <div class="note note-ok hidden ok-flash" id="name-ok"></div>
+      <div class="note note-bad hidden ok-flash" id="name-bad"></div>
+    </section>
+
+    <section class="card">
+      <h2>סיסמה</h2>
+      <p class="lead" id="recovery"></p>
+      <form id="pw-form">
+        <div class="field" style="margin-bottom:var(--s4)">
+          <label class="lbl" for="pw-old">הסיסמה הנוכחית</label>
+          <input id="pw-old" type="password" autocomplete="current-password" required>
+        </div>
+        <div class="field" style="margin-bottom:var(--s4)">
+          <label class="lbl" for="pw-new">סיסמה חדשה</label>
+          <input id="pw-new" type="password" autocomplete="new-password" required>
+          <p class="hint">לפחות 8 תווים.</p>
+        </div>
+        <div class="field" style="margin-bottom:var(--s5)">
+          <label class="lbl" for="pw-again">שוב, כדי לוודא</label>
+          <input id="pw-again" type="password" autocomplete="new-password" required>
+        </div>
+        <button class="btn btn-secondary" type="submit">החלף סיסמה</button>
+      </form>
+      <div class="note note-ok hidden ok-flash" id="pw-ok"></div>
+      <div class="note note-bad hidden ok-flash" id="pw-bad"></div>
+    </section>
+
+    <section class="card danger">
+      <h2>מחיקת ההצעות שלי</h2>
+      <p class="lead">
+        מוחק את כל ההצעות שהוצאת. <b>אינו מוחק את החשבון</b> ואינו
+        משפיע על טבלת המחירים. אין דרך לבטל.
+      </p>
+      <button class="btn btn-secondary" id="wipe">מחק את כל ההצעות שלי</button>
+      <div class="note note-ok hidden ok-flash" id="wipe-ok"></div>
+    </section>
+
+    <section class="card">
+      <h2>יציאה</h2>
+      <p class="lead">מנתק את הדפדפן הזה. החשבון והצעות המחיר נשארים.</p>
+      <button class="btn btn-quiet" id="out">יציאה מהחשבון</button>
+    </section>
+
+  </div>
+</main>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const NUM = new Intl.NumberFormat('he-IL');
+const money = (n) =>
+  '₪' + Number(n).toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function flash(id, message, hideId) {
+  const box = $(id);
+  box.textContent = message;
+  box.classList.remove('hidden');
+  if (hideId) $(hideId).classList.add('hidden');
+}
+
+function paint(me) {
+  $('body').classList.remove('hidden');
+  $('display').value = me.display_name;
+
+  const rows = [
+    ['שם משתמש', me.username, true],
+    ['נפתח בתאריך', (me.created_at || '—').slice(0, 10), true],
+    ['הצעות שהוצאת', NUM.format(me.quote_count), true],
+    ['סכום מצטבר', money(me.quote_total), true],
+  ];
+  $('facts').innerHTML =
+    rows
+      .map(([k, v]) => `<div><dt>${k}</dt><dd class="num">${v}</dd></div>`)
+      .join('') +
+    `<div><dt>הרשאות</dt><dd><span class="caps">${me.capability_labels
+      .map((c) => `<span class="tag">${c}</span>`)
+      .join('')}</span></dd></div>` +
+    `<div><dt>שמירת היסטוריה</dt><dd>${NUM.format(me.history_keeps)} ההצעות האחרונות</dd></div>`;
+
+  /* **נאמר כאן ולא רק במסך ההרשמה.** מי שנרשם לפני חודש לא זוכר,
+     והמקום שבו הוא מחפש את זה הוא בדיוק המסך הזה. */
+  $('recovery').textContent = me.password_recovery
+    ? 'אפשר לשחזר סיסמה.'
+    : 'לא ביקשנו אימייל ולא טלפון, ולכן אין שחזור סיסמה אוטומטי. אם תאבד אותה — פנה לינון.';
+}
+
+$('name-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const response = await fetch('/api/account/name', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ display_name: $('display').value }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) return flash('name-bad', data.detail || 'לא הצלחנו לשמור.', 'name-ok');
+  $('display').value = data.display_name;
+  flash('name-ok', 'השם נשמר.', 'name-bad');
+});
+
+$('pw-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const next = $('pw-new').value;
+  /* הבדיקה כאן היא נימוס: השרת דוחה בכל מקרה. אבל "הסיסמאות אינן
+     תואמות" היא שגיאה שהמשתמש יכול לתקן בלי לשלוח כלום. */
+  if (next !== $('pw-again').value) {
+    return flash('pw-bad', 'שתי הסיסמאות החדשות אינן זהות.', 'pw-ok');
+  }
+  const response = await fetch('/api/account/password', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password: $('pw-old').value, new_password: next }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) return flash('pw-bad', data.detail || 'לא הצלחנו להחליף.', 'pw-ok');
+  $('pw-form').reset();
+  flash('pw-ok', data.message || 'הסיסמה הוחלפה.', 'pw-bad');
+});
+
+$('wipe').addEventListener('click', async () => {
+  if (!confirm('למחוק את כל ההצעות שלך? אי אפשר לבטל.')) return;
+  const response = await fetch('/api/history', { method: 'DELETE' });
+  const data = await response.json().catch(() => ({}));
+  if (response.ok) {
+    flash('wipe-ok', `${NUM.format(data.deleted || 0)} הצעות נמחקו.`);
+    load();
+  }
+});
+
+$('out').addEventListener('click', async () => {
+  await fetch('/api/logout', { method: 'POST' });
+  location.href = '/';
+});
+
+async function load() {
+  try {
+    const response = await fetch('/api/account');
+    if (response.status === 401) return void (location.href = '/login?next=/account');
+    if (!response.ok) throw new Error((await response.json()).detail || 'שגיאה');
+    paint(await response.json());
+  } catch (err) {
+    const box = $('fatal');
+    box.textContent = err.message;
+    box.classList.remove('hidden');
+  }
+}
+
+load();
+</script>
+
+</body>
+</html>

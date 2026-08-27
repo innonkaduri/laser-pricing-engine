@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from laser_pricing.api import identity, tariff_store, usage
+from laser_pricing.api import history, identity, tariff_store, usage
 # היבוא הפרטי מכוון: מונה הניסיונות הכושלים הוא מצב של התהליך, ובדיקה
 # חייבת לאפס אותו כדי לא לחסום את הבדיקה הבאה.
 from laser_pricing.api.store import STORE
@@ -97,6 +97,11 @@ def isolated_users(tmp_path, monkeypatch):
     # רישום השימוש נכתב לדיסק, ובלי הבידוד הזה בדיקה הייתה יוצרת
     # config/usage.jsonl אמיתי בריפו — בדיוק מה שקרה פעם עם הטבלה.
     monkeypatch.setattr(usage, "LOG_PATH", tmp_path / "usage.jsonl")
+    # היסטוריית ההצעות היא מסד שלישי שנכתב בזמן ריצה, ובלי הבידוד
+    # הזה הבדיקות היו יוצרות `config/quotes.db` אמיתי בריפו — אותה
+    # תאונה בדיוק כמו עם הטבלה ועם רישום השימוש.
+    monkeypatch.setattr(history, "DB_PATH", tmp_path / "quotes.db")
+    history.WRITE_FAILURES.clear()
     usage.WRITE_FAILURES.clear()
     _LOGIN_FAILURES.clear()
     _SIGNUPS.clear()
@@ -2542,3 +2547,154 @@ class TestTheConfiguratorStaysLightEnoughToDrag:
         }
         thin = thin_for_preview(data, budget=100)
         assert all(len(c["points"]) >= 8 for c in thin["contours"])
+
+
+class TestTheAccountBelongsToItsOwner:
+    """היסטוריה וחשבון הם אזור אישי. הבדיקות כאן הן על הגבול."""
+
+    @pytest.fixture
+    def two_users(self, client, monkeypatch):
+        # **הטבלה נזרעת לפני שהשער נדלק.** ההיפך נכשל ב-401 על
+        # `/api/tariff`, וזה נכון — אבל זה בדיוק סדר הפעולות שהופך
+        # פיקסצ'ר לבדיקה של עצמו.
+        assert client.put("/api/tariff", json=TEST_TARIFF).status_code == 200
+        monkeypatch.setenv("APP_PASSWORD", "sod")
+        monkeypatch.setenv("APP_USER", "ynon")
+        for name in ("dana", "yossi"):
+            assert (
+                client.post("/api/signup", json={"username": name, "password": "sisma-arukka-1"}).status_code
+                == 201
+            )
+        return client
+
+    def _login(self, client, name):
+        assert client.post("/api/login", json={"username": name, "password": "sisma-arukka-1"}).status_code == 200
+
+    def _quote(self, client, product="base-plate"):
+        response = client.post(
+            f"/api/catalog/{product}/quote",
+            json={"values": {}, "material_key": "st37", "thickness_mm": 3},
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    def test_a_quote_is_saved_to_the_history_of_whoever_asked(self, two_users):
+        self._login(two_users, "dana")
+        self._quote(two_users)
+        data = two_users.get("/api/history").json()
+        assert data["count"] == 1
+        assert data["items"][0]["product_id"] == "base-plate"
+        assert data["items"][0]["total"] > 0
+
+    def test_one_user_never_sees_another_users_quotes(self, two_users):
+        self._login(two_users, "dana")
+        self._quote(two_users)
+        mine = two_users.get("/api/history").json()["items"][0]["id"]
+
+        self._login(two_users, "yossi")
+        assert two_users.get("/api/history").json()["count"] == 0
+        # 404 ולא 403: ההבדל ביניהם מגלה לזר שהמזהה תפוס, וזה כל מה
+        # שדרוש כדי לספור כמה הצעות יצאו מהמערכת.
+        assert two_users.get(f"/api/history/{mine}").status_code == 404
+        assert two_users.delete(f"/api/history/{mine}").status_code == 404
+
+        self._login(two_users, "dana")
+        assert two_users.get(f"/api/history/{mine}").status_code == 200
+
+    def test_the_history_carries_no_field_derived_from_a_customer(self, two_users):
+        """אותו כלל של רישום השימוש, על המסד השני.
+
+        השאלה אינה "איזה שדה נושא מידע אישי" אלא **"איזה שדה מחושב
+        משדה כזה"** — והשדה הזה הוא שם הקובץ.
+        """
+        self._login(two_users, "dana")
+        self._quote(two_users)
+        raw = two_users.get("/api/history").text
+        for forbidden in ("part_name", "file_name", "filename", "customer", "note"):
+            assert forbidden not in raw
+
+    def test_the_history_labels_dimensions_in_hebrew_and_not_in_parameter_keys(self, two_users):
+        """`hole_inset_mm` במסך של לקוח הוא שם פנימי שדלף."""
+        self._login(two_users, "dana")
+        self._quote(two_users)
+        dimensions = two_users.get("/api/history").json()["items"][0]["dimensions"]
+        assert dimensions
+        assert not any(key.endswith("_mm") for key in dimensions)
+        assert any("רוחב" in key for key in dimensions)
+
+    def test_changing_a_password_needs_the_current_one(self, two_users):
+        """עוגייה שנשארה על מחשב במשרד אינה רשות לנעול את הבעלים בחוץ."""
+        self._login(two_users, "dana")
+        wrong = two_users.put(
+            "/api/account/password",
+            json={"current_password": "not-the-password", "new_password": "sisma-hadasha-9"},
+        )
+        assert wrong.status_code == 403
+        assert two_users.put(
+            "/api/account/password",
+            json={"current_password": "sisma-arukka-1", "new_password": "sisma-hadasha-9"},
+        ).status_code == 200
+        assert two_users.post("/api/logout").status_code == 200
+        assert (
+            two_users.post("/api/login", json={"username": "dana", "password": "sisma-hadasha-9"}).status_code
+            == 200
+        )
+
+    def test_a_short_new_password_is_refused(self, two_users):
+        self._login(two_users, "dana")
+        response = two_users.put(
+            "/api/account/password",
+            json={"current_password": "sisma-arukka-1", "new_password": "קצר"},
+        )
+        assert response.status_code == 400
+
+    def test_the_display_name_is_cleaned_the_same_way_as_at_signup(self, two_users):
+        """כלל שנאכף בהרשמה ולא בעריכה הוא כלל שעוקפים בשתי לחיצות."""
+        self._login(two_users, "dana")
+        saved = two_users.put(
+            "/api/account/name", json={"display_name": "  דנה   כהן\nשורה שנייה  "}
+        ).json()["display_name"]
+        assert saved == "דנה כהן שורה שנייה"
+        assert two_users.put("/api/account/name", json={"display_name": "   "}).status_code == 400
+
+    def test_a_public_user_reaches_the_account_area_without_any_capability(self, two_users):
+        """`quote:total` בלבד — ועדיין זה החשבון שלו."""
+        self._login(two_users, "dana")
+        me = two_users.get("/api/account").json()
+        assert me["capabilities"] == ["quote:total"]
+        assert me["sees_breakdown"] is False
+        assert me["password_recovery"] is False
+        assert two_users.get("/api/history").status_code == 200
+
+    def test_the_editor_link_has_no_account(self, priced_client, monkeypatch):
+        """קישור העריכה של אבא הוא מפתח, לא אדם — ואין לו סיסמה להחליף."""
+        monkeypatch.setenv("APP_PASSWORD", "sod")
+        monkeypatch.setenv("EDITOR_PASSWORD", "kod-arok-1234")
+        response = priced_client.get("/api/account", headers={"x-editor-key": "kod-arok-1234"})
+        assert response.status_code in (401, 403)
+
+    def test_clearing_the_history_leaves_the_account_alone(self, two_users):
+        self._login(two_users, "dana")
+        self._quote(two_users)
+        self._quote(two_users, "name-plate")
+        assert two_users.delete("/api/history").json()["deleted"] == 2
+        assert two_users.get("/api/history").json()["count"] == 0
+        assert two_users.get("/api/account").status_code == 200
+
+    def test_the_dashboard_shows_totals_and_never_a_single_quote(self, two_users):
+        """מספרים מצטברים כן. ההצעה של דנה — לא, גם לא לאבא."""
+        self._login(two_users, "dana")
+        self._quote(two_users)
+        two_users.post("/api/logout")
+        # `APP_USER`/`APP_PASSWORD` הם זהות סביבה ונכנסים ב-Basic,
+        # לא דרך `/api/login` שקורא ממסד המשתמשים.
+        body = two_users.get("/api/dashboard", auth=("ynon", "sod"))
+        assert body.status_code == 200, body.text
+        data = body.json()
+        assert data["history"]["count"] == 1
+        assert data["history"]["users_with_quotes"] == 1
+        # **מספרים מצטברים כן; ההצעה עצמה לא.** לא המוצר, לא המידות,
+        # ולא למי היא שייכת.
+        raw = body.text
+        assert "base-plate" not in raw
+        assert "dimensions" not in raw

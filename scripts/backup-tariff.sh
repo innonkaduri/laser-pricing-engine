@@ -115,6 +115,24 @@ backup_tariff || STATUS=1
 # בלעדיו אף אחד לא נכנס למערכת, והוא אינו ניתן לשחזור מהקוד — בדיוק
 # כמו הטבלה. `.backup` של sqlite ולא `cp`: העתקה של קובץ שנכתב באותו
 # רגע נותנת מסד פגום שנראה תקין עד הפעם הראשונה שקוראים ממנו.
+QUOTES_DB="${QUOTES_DB:-/var/lib/laser/quotes.db}"
+
+backup_quotes() {
+  # `.backup` של sqlite ולא `cp`: העתקת מסד שנכתב באותו רגע נותנת
+  # קובץ שנראה תקין עד הקריאה הראשונה ממנו.
+  python3 - "$1" "$2" <<'QUOTESPY'
+import sqlite3, sys
+
+src, dest = sys.argv[1], sys.argv[2]
+with sqlite3.connect(f"file:{src}?mode=ro", uri=True) as conn:
+    if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+        sys.exit("מסד ההצעות פגום — לא מגבים אותו.")
+    with sqlite3.connect(dest) as out:
+        conn.backup(out)
+    print(conn.execute("SELECT COUNT(*) FROM quotes").fetchone()[0])
+QUOTESPY
+}
+
 USERS_DB="${USERS_DB:-/var/lib/laser/users.db}"
 if [[ ! -f "$USERS_DB" ]]; then
   echo "אין עדיין מסד משתמשים ב-$USERS_DB."
@@ -218,10 +236,20 @@ offbox_copy() {
     cp -p "$rolled" "$staging/laser-backup/$(basename "$rolled")"
     usage_lines=$(( usage_lines + $(wc -l < "$rolled" | tr -d ' ') ))
   done
-  printf 'laser-pricing\nמקור: %s\nנוצר: %s\ntariff: %s\nusers: %s\nusage: %s שורות\n' \
+  # **היסטוריית ההצעות (27.8.2026).** אותו שיקול בדיוק כמו רישום
+  # השימוש: היא היסטוריה, אין לה גיבוי מקומי, ואובדן הקופסה הוא
+  # אובדן שלה. **אם היא לא כאן, היא לא מגיעה למק.**
+  quotes_rows=0
+  if [[ -f "$QUOTES_DB" ]]; then
+    if ! quotes_rows="$(backup_quotes "$QUOTES_DB" "$staging/laser-backup/quotes.db")"; then
+      echo "אזהרה: גיבוי היסטוריית ההצעות נכשל — החבילה יוצאת בלעדיה." >&2
+      quotes_rows=0
+    fi
+  fi
+  printf 'laser-pricing\nמקור: %s\nנוצר: %s\ntariff: %s\nusers: %s\nusage: %s שורות\nquotes: %s הצעות\n' \
     "$(hostname)" "$(date +%Y-%m-%dT%H:%M:%S)" \
     "$(basename "${newest_tariff:-אין}")" "$(basename "${newest_users:-אין}")" \
-    "$usage_lines" \
+    "$usage_lines" "$quotes_rows" \
     > "$staging/laser-backup/MANIFEST.txt"
 
   # כתיבה לקובץ זמני והחלפה אטומית: המושך רץ ב-09:00 ואין שום סיבה

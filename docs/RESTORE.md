@@ -52,6 +52,7 @@ SIGNUP_MODE=open
 TARIFF_PATH=/var/lib/laser/tariff.json
 USERS_DB=/var/lib/laser/users.db
 BACKUP_STATUS_FILE=/var/lib/laser/backup-status.json
+QUOTES_DB=/var/lib/laser/quotes.db
 USAGE_LOG=/var/lib/laser/usage.jsonl
 ENV
 chmod 600 /etc/laser-pricing.env

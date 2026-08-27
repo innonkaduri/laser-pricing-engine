@@ -62,6 +62,9 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'
 const num = (n) => Number(n).toLocaleString('he-IL');
 
 /* עברית תקינה על כל מספר. "יש 1 הצעות" הוא בדיוק מה שלא ייכתב כאן. */
+const money = (n) => '₪' + Number(n).toLocaleString('he-IL',
+  {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
 function count(n, one, many) {
   if (n === 0) return `אין ${many}`;
   if (n === 1) return `${one} אחת`;
@@ -135,6 +138,7 @@ async function load() {
 
 function render(d) {
   const t = d.tariff, e = d.engine, b = d.backup, u = d.users, up = d.uploads;
+  const cat = d.catalog || {}, hist = d.history || {};
   const parts = [];
 
   /* ---- 1. מצב הטבלה — ראשון, כי זה מה שדורש פעולה ---- */
@@ -287,6 +291,53 @@ function render(d) {
           <td class="num">${esc(ago(r.minutes_ago))}</td><td>${esc(r.reason)}</td>
         </tr>`).join('')}</tbody></table></div>` : ''}
     </div>`);
+
+  /* ---- הקטלוג ---- */
+  const gone = cat.unavailable || [];
+  parts.push(`
+    <div class="card ${gone.length ? 'act' : 'good'}">
+      <h2>הקטלוג</h2>
+      <p class="headline">${num(cat.products || 0)} מוצרים ב-${num(cat.categories || 0)} קטגוריות</p>
+      <p class="sub">${num(cat.builders || 0)} בנאים · גרסת קטלוג ${num(cat.version || 0)}</p>
+      ${gone.length ? `
+        <p class="quiet">
+          <b>${count(gone.length, 'מוצר אינו', 'מוצרים אינם')} ניתן לתמחור עכשיו</b> ואינו מוצג ללקוח.
+          זו רשימת עבודה על הטבלה, לא תקלה בקטלוג.
+        </p>
+        <div class="scroll"><table>
+          <thead><tr><th>מוצר</th><th>מה חסר</th></tr></thead>
+          <tbody>${gone.map((x) => `<tr>
+            <td>${esc(x.name)}</td>
+            <td style="font-size:13px; color:var(--ink-500)">${esc(x.reason)}</td>
+          </tr>`).join('')}</tbody>
+        </table></div>`
+        : '<p class="quiet">כל המוצרים ניתנים לתמחור מהטבלה הנוכחית.</p>'}
+    </div>`);
+
+  /* ---- היסטוריית ההצעות. מצטבר בלבד — ראה הערה למטה. ---- */
+  if (hist.available === false) {
+    parts.push(`
+      <div class="card act">
+        <h2>היסטוריית ההצעות</h2>
+        <p class="headline">אינה נגישה</p>
+        <p class="sub">${esc(hist.reason || '')}</p>
+      </div>`);
+  } else if (hist.available) {
+    parts.push(`
+      <div class="card ${hist.write_failures ? 'act' : ''}">
+        <h2>היסטוריית ההצעות</h2>
+        <p class="headline">${hist.count ? `${num(hist.count)} הצעות שמורות` : 'עוד לא נשמרה אף הצעה'}</p>
+        <p class="sub">${num(hist.users_with_quotes || 0)} משתמשים · ${num(hist.today || 0)} היום ·
+          ${money(hist.total_amount || 0)} מצטבר</p>
+        ${hist.write_failures ? `<p class="quiet"><b>${num(hist.write_failures)} כתיבות נכשלו</b>
+          משתמש שהצעתו לא נשמרה יחפש אותה מחר ולא ימצא.</p>` : ''}
+        <p class="quiet">
+          נשמרות ${num(hist.keep_per_user || 0)} ההצעות האחרונות לכל משתמש.
+          <b>ההצעות עצמן אינן מוצגות כאן ואינן נגישות לאיש מלבד מי שהוציא אותן</b>,
+          ואין בהן שם לקוח ולא שם קובץ — הגבול מול ה-CRM נשמר.
+        </p>
+      </div>`);
+  }
 
   /* ---- מה חסר בטבלה, לפי חומר ---- */
   const labels = Object.fromEntries((t.field_labels || []).map((f) => [f.field, f.label]));

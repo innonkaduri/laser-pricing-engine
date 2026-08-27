@@ -30,6 +30,13 @@ config/users.db-wal
 # קבצים לא-מנוטרים שאינם כאן.
 config/usage.jsonl
 
+# היסטוריית ההצעות של המשתמשים — מסד sqlite שנכתב בזמן ריצה. מחוץ
+# למעקב מאותן שתי סיבות כמו users.db: הריפו ציבורי, ו-`git clean -fd`
+# מוחק קבצים לא-מנוטרים שאינם כאן.
+config/quotes.db
+config/quotes.db-journal
+config/quotes.db-wal
+
 # דיווח הגיבוי לדשבורד — נכתב על השרת בכל ריצה של הטיימר.
 # בלי השורה הזאת הוא קובץ לא-מנוטר בעץ, והוא יעצור את ה-`git pull` הבא
 # בדיוק כמו ש-scripts/backup-tariff.sh עצר את הקודם.

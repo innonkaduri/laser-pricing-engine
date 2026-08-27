@@ -27,6 +27,8 @@ import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..domain.folding import FlatPanel
+
 CATALOG_PATH = Path(__file__).resolve().parents[3] / "config" / "catalog.json"
 """הקטלוג יושב **בעץ ה-git ולא ב-`/var/lib/laser`**, בכוונה.
 
@@ -88,6 +90,18 @@ class Blank:
     bend_count: int = 0
     bend_length_mm: float = 0.0
     fold_lines: list[list[float]] = field(default_factory=list)
+    panels: list[FlatPanel] = field(default_factory=list)
+    """פירוק הפריסה ללוחות, בשביל ההצגה התלת-ממדית.
+
+    **ריק פירושו "לוח אחד שטוח"** ולא "אין מודל": פלטה, מסגרת
+    ומשרבייה הן גוף תלת-ממדי לכל דבר — לוח אחד בעובי החומר. רק חלק
+    מכופף צריך לומר איזה לוח מתקפל סביב איזה ציר, ולכן רק הוא ממלא
+    את השדה.
+
+    השדה חי לצד `fold_lines` ואינו מחליף אותו: הקווים המקווקווים
+    בתצוגה הדו-ממדית הם עדיין הדבר הנכון להראות על **פריסה**, וזו
+    התצוגה שבית המלאכה חותך לפיה.
+    """
 
 
 @dataclass(frozen=True)
@@ -308,11 +322,19 @@ def _angle_bracket(v: dict[str, float]) -> Blank:
             offset = leg * (index + 1) / (per_leg + 1)
             holes.append(_hole(dia, start + offset, width / 2))
 
+    axis = (leg_a, 0.0, leg_a, width)
     return Blank(
         spec={"shape": "rect", "width_mm": leg_a + leg_b, "height_mm": width, "holes": holes},
         bend_count=1,
         bend_length_mm=width,
-        fold_lines=[[leg_a, 0.0, leg_a, width]],
+        fold_lines=[list(axis)],
+        panels=[
+            FlatPanel([(0.0, 0.0), (leg_a, 0.0), (leg_a, width), (0.0, width)], label="שוק א׳"),
+            FlatPanel(
+                [(leg_a, 0.0), (leg_a + leg_b, 0.0), (leg_a + leg_b, width), (leg_a, width)],
+                0, axis, 90, "שוק ב׳",
+            ),
+        ],
     )
 
 
@@ -341,12 +363,22 @@ def _u_channel(v: dict[str, float]) -> Blank:
             offset = length * (index + 1) / (per_side + 1)
             holes.append(_hole(dia, center, offset))
 
+    fold_a = (leg, 0.0, leg, length)
+    fold_b = (flat - leg, 0.0, flat - leg, length)
     return Blank(
         # הפריסה רחבה כאורך התעלה וגבוהה כסכום המקטעים.
         spec={"shape": "rect", "width_mm": flat, "height_mm": length, "holes": holes},
         bend_count=2,
         bend_length_mm=2 * length,
-        fold_lines=[[leg, 0.0, leg, length], [flat - leg, 0.0, flat - leg, length]],
+        fold_lines=[list(fold_a), list(fold_b)],
+        panels=[
+            FlatPanel([(leg, 0.0), (flat - leg, 0.0), (flat - leg, length), (leg, length)], label="בסיס"),
+            FlatPanel([(0.0, 0.0), (leg, 0.0), (leg, length), (0.0, length)], 0, fold_a, 90, "דופן"),
+            FlatPanel(
+                [(flat - leg, 0.0), (flat, 0.0), (flat, length), (flat - leg, length)],
+                0, fold_b, 90, "דופן",
+            ),
+        ],
     )
 
 
@@ -393,11 +425,26 @@ def _tray(v: dict[str, float], four_sides: bool) -> Blank:
     if four_sides:
         folds.append([wall, wall + depth, wall + width, wall + depth])
         bends, bend_length = 4, 2 * width + 2 * depth
+
+    t, w, d = wall, width, depth
+    base = [(t, t), (t + w, t), (t + w, t + d), (t, t + d)]
+    panels = [FlatPanel(outline=base, label="בסיס")]
+    # דופן תחתונה, ימנית, שמאלית — ובארבע דפנות גם העליונה.
+    panels.append(FlatPanel([(t, 0.0), (t + w, 0.0), (t + w, t), (t, t)], 0, tuple(folds[0]), 90, "דופן"))
+    panels.append(FlatPanel([(0.0, t), (t, t), (t, t + d), (0.0, t + d)], 0, tuple(folds[1]), 90, "דופן"))
+    panels.append(
+        FlatPanel([(t + w, t), (w + 2 * t, t), (w + 2 * t, t + d), (t + w, t + d)], 0, tuple(folds[2]), 90, "דופן")
+    )
+    if four_sides:
+        panels.append(
+            FlatPanel([(t, t + d), (t + w, t + d), (t + w, d + 2 * t), (t, d + 2 * t)], 0, tuple(folds[3]), 90, "דופן")
+        )
     return Blank(
         spec={"shape": "polygon", "points": outline},
         bend_count=bends,
         bend_length_mm=bend_length,
         fold_lines=folds,
+        panels=panels,
     )
 
 
@@ -436,6 +483,7 @@ def _enclosure(v: dict[str, float]) -> Blank:
         bend_count=blank.bend_count,
         bend_length_mm=blank.bend_length_mm,
         fold_lines=blank.fold_lines,
+        panels=blank.panels,
     )
 
 
@@ -458,11 +506,25 @@ def _floating_shelf(v: dict[str, float]) -> Blank:
     holes = [
         _hole(dia, width * (i + 1) / (count + 1), back / 2) for i in range(count)
     ]
+    fold_a = (0.0, back, width, back)
+    fold_b = (0.0, back + depth, width, back + depth)
     return Blank(
         spec={"shape": "rect", "width_mm": width, "height_mm": flat, "holes": holes},
         bend_count=2,
         bend_length_mm=2 * width,
-        fold_lines=[[0.0, back, width, back], [0.0, back + depth, width, back + depth]],
+        fold_lines=[list(fold_a), list(fold_b)],
+        # הגב הוא השורש: הוא נצמד לקיר, וממנו יוצא המשטח ואז השפה.
+        panels=[
+            FlatPanel([(0.0, 0.0), (width, 0.0), (width, back), (0.0, back)], label="גב"),
+            FlatPanel(
+                [(0.0, back), (width, back), (width, back + depth), (0.0, back + depth)],
+                0, fold_a, 90, "משטח",
+            ),
+            FlatPanel(
+                [(0.0, back + depth), (width, back + depth), (width, flat), (0.0, flat)],
+                1, fold_b, 90, "שפה",
+            ),
+        ],
     )
 
 

@@ -17,7 +17,23 @@
   padding:var(--s6); --part-fill:#ccd6e0; --part-hole:#fbfcfd;
   --part-line:#2b3648; --part-fold:#d84315; --part-dim:#7a8899;
 }
-.stage svg.part{width:100%; aspect-ratio:4/3; display:block}
+.stage .part{width:100%; aspect-ratio:4/3; display:block}
+.stage canvas.part{touch-action:none}
+.views{display:flex; gap:4px; margin-bottom:var(--s4); align-items:center}
+/* **`.stage` בסלקטור אינו קישוט.** ב-brand.css יושבת שורת גשר
+   מהאוצר הישן — `button:not(.btn):not(.ghost)` — שהופכת **כל** כפתור
+   חשוף לכפתור ראשי כתום. הסגוליות שלה (0,2,1) גוברת על `.views
+   button` (0,1,1), והשוניות יצאו שני כפתורים כתומים ענקיים. אל
+   תפשט את הסלקטור הזה בלי למחוק קודם את שורת הגשר. */
+.stage .views button{
+  border:1px solid transparent; background:transparent; color:var(--ink-500);
+  font:inherit; font-size:var(--fs-xs); font-weight:650; padding:6px var(--s4);
+  border-radius:var(--r-full); cursor:pointer; transition:all var(--dur);
+}
+.stage .views button:hover{color:var(--ink-900); background:var(--ink-100)}
+.stage .views button.on{background:var(--paper); color:var(--ink-900); border-color:var(--ink-200); box-shadow:var(--shadow-1)}
+.stage .views .spin{margin-inline-start:auto; font-size:15px; line-height:1; padding:6px 10px}
+.hint-3d{font-size:11.5px; color:var(--ink-400); margin:var(--s3) 0 0; text-align:center}
 /* צירוף מידות שאי אפשר לייצר משאיר את הציור האחרון התקין על המסך —
    מסך שמתרוקן באמצע גרירה גרוע יותר. אבל ציור שאינו מתאים למחוונים
    חייב **להיראות** לא מתאים, אחרת המספרים שמתחתיו נקראים כמדידה
@@ -31,7 +47,7 @@
 @media (max-width:900px){
   .stage{order:-1; position:sticky; top:0; z-index:5; padding:var(--s4);
          border-radius:0 0 var(--r-lg) var(--r-lg); border-block-start:0}
-  .stage svg.part{aspect-ratio:auto; height:19vh}
+  .stage .part{aspect-ratio:auto; height:19vh}
   /* חמישה תאים בשורה אחת. שתי שורות העלו את הפאנל ל-384 פיקסלים
      מתוך 844 — כמעט חצי מסך למשהו שאמור להשאיר מקום למחוונים. */
   .stage .readout{margin-top:var(--s3); padding-top:var(--s3);
@@ -105,7 +121,7 @@
       <span class="name"><b>ימיש כדורי</b><span>חיתוך לייזר</span></span>
     </a>
     <span class="spacer"></span>
-    <nav class="row"><a class="navlink" href="/catalog">כל הקטלוג</a><a class="navlink" href="/">תמחור מקובץ</a></nav>
+    <nav class="row"><a class="navlink" href="/catalog">כל הקטלוג</a><a class="navlink" href="/history">ההצעות שלי</a><a class="navlink" href="/">תמחור מקובץ</a></nav>
   </div>
 </header>
 
@@ -152,11 +168,18 @@
     </section>
 
     <section class="stage">
-      <svg class="part" role="img" aria-label="תצוגת החלק"></svg>
+      <div class="views" role="tablist" aria-label="תצוגה">
+        <button role="tab" id="tab-solid" aria-selected="true" class="on">גוף</button>
+        <button role="tab" id="tab-flat" aria-selected="false">פריסה לחיתוך</button>
+        <button class="spin" id="reset-view" title="החזר את הזווית">↺</button>
+      </div>
+      <canvas class="part solid" id="solid" aria-label="תצוגת הגוף — גרור לסיבוב"></canvas>
+      <svg class="part flat hidden" role="img" aria-label="פריסת החלק"></svg>
       <div class="readout" id="readout"></div>
       <p class="tiny" id="foldnote" style="margin-top:var(--s4); display:none">
-        הקו הכתום המקווקו הוא קו הכיפוף. התצוגה היא הפריסה השטוחה — מה שנחתך לפני הכיפוף.
+        הקו הכתום המקווקו הוא קו הכיפוף. זו הפריסה שנחתכת — לפני הכיפוף.
       </p>
+      <p class="hint-3d" id="hint3d">גרור כדי לסובב</p>
     </section>
 
   </div>
@@ -164,15 +187,21 @@
 
 <script type="module">
 import { drawPart } from '/part-draw.js';
+import { createViewer } from '/part-3d.js';
 
 const id = decodeURIComponent(location.pathname.replace(/^\/product\//, ''));
 const svg = document.querySelector('svg.part');
+const viewer = createViewer(document.getElementById('solid'));
+let view = 'solid';
 const errorBox = document.getElementById('error');
 const priceBox = document.getElementById('pricebox');
 const goButton = document.getElementById('go');
 
 let product = null;
 const values = {};
+
+const escapeHtml = (text) =>
+  String(text).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 let buildable = true;
 
@@ -227,7 +256,13 @@ async function preview() {
     const response = await fetch(`/api/catalog/${encodeURIComponent(id)}/preview`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ values }),
+      body: JSON.stringify({
+        values,
+        view,
+        // העובי משנה את המראה בלבד; המחיר מגיע מהטבלה. מבקש את זה
+        // שנבחר כדי שפח 1 מ"מ ופח 10 מ"מ ייראו כמו מה שהם.
+        thickness_mm: Number(document.getElementById('thickness').value) || 2,
+      }),
     });
     const data = await response.json().catch(() => ({}));
     if (inFlight !== mine) return; // תשובה של גרירה קודמת — התעלם
@@ -238,7 +273,8 @@ async function preview() {
     }
     clearError();
     setBuildable(true);
-    drawPart(svg, data, { dims: true });
+    if (view === 'solid' && data.model) viewer.show(data.model);
+    else drawPart(svg, data, { dims: true });
     paintReadout(data);
   } catch (err) {
     fail('אין קשר לשרת. נסה שוב.');
@@ -249,9 +285,12 @@ function paintReadout(data) {
   /* **"מידות חוץ" משקר על חלק מכופף.** מגש עם בסיס 300×200 ודופן 50
      מוצג כ-400×300, כי זו הפריסה השטוחה — וזה גם מה שנחתך ומה
      שמתומחר. לקוח שקרא "מידות חוץ" חשב שהזמין מגש אחר. */
+  const body = view === 'solid' && data.model
+    ? ['מידות המוצר', data.model.size_mm.map((n) => NUM.format(n)).join(' × ')]
+    : [data.bend_count ? 'מידות הפריסה' : 'מידות חוץ',
+       `${NUM.format(data.bbox.width_mm)} × ${NUM.format(data.bbox.height_mm)}`];
   const cells = [
-    [data.bend_count ? 'מידות הפריסה' : 'מידות חוץ',
-     `${NUM.format(data.bbox.width_mm)} × ${NUM.format(data.bbox.height_mm)}`],
+    body,
     ['אורך חיתוך', `${NUM.format(data.cut_length_mm / 1000)} מ׳`],
     ['חורים', String(data.holes)],
     ['ניקובים', String(data.pierces)],
@@ -260,7 +299,9 @@ function paintReadout(data) {
   document.getElementById('readout').innerHTML = cells
     .map(([k, v]) => `<div><div class="k">${k}</div><div class="v">${v}</div></div>`)
     .join('');
-  document.getElementById('foldnote').style.display = data.bend_count ? '' : 'none';
+  document.getElementById('foldnote').style.display =
+    view === 'flat' && data.bend_count ? '' : 'none';
+  document.getElementById('hint3d').style.display = view === 'solid' ? '' : 'none';
 }
 
 /* ---- מחוונים ---- */
@@ -321,12 +362,38 @@ function paintMaterials() {
   paintThicknesses();
 }
 
+function pickView(next) {
+  view = next;
+  const solid = next === 'solid';
+  document.getElementById('solid').classList.toggle('hidden', !solid);
+  svg.classList.toggle('hidden', solid);
+  for (const [id, on] of [['tab-solid', solid], ['tab-flat', !solid]]) {
+    const tab = document.getElementById(id);
+    tab.classList.toggle('on', on);
+    tab.setAttribute('aria-selected', String(on));
+  }
+  document.getElementById('reset-view').style.visibility = solid ? '' : 'hidden';
+  /* התצוגות אינן נושאות את אותם נתונים — הגוף מקבל מצולעים
+     תלת-ממדיים והפריסה מתארים דו-ממדיים — ולכן מעבר לשונית הוא
+     בקשה חדשה ולא הצגה של מה שכבר יש. */
+  preview();
+}
+
+document.getElementById('tab-solid').addEventListener('click', () => pickView('solid'));
+document.getElementById('tab-flat').addEventListener('click', () => pickView('flat'));
+document.getElementById('reset-view').addEventListener('click', () => viewer.reset());
+
 function paintThicknesses() {
   const key = document.getElementById('material').value;
   const material = product.materials.find((m) => m.key === key);
-  document.getElementById('thickness').innerHTML = material.thicknesses
+  const select = document.getElementById('thickness');
+  select.innerHTML = material.thicknesses
     .map((t) => `<option value="${t}">${t} מ״מ</option>`)
     .join('');
+  select.onchange = () => {
+    priceBox.classList.add('hidden');  // מחיר שייך לעובי שממנו חושב
+    if (view === 'solid') schedule();
+  };
 }
 
 /* ---- מחיר ---- */
@@ -374,11 +441,14 @@ goButton.addEventListener('click', async () => {
 });
 
 function paintPrice(quote, quantity) {
+  /* ההצעה נשמרה בשרת ברגע שהתקבלה. אומרים את זה כאן ולא במסך אחר:
+     מי שלא יודע שהיא נשמרה יצלם את המסך. */
   priceBox.classList.remove('hidden');
   document.getElementById('amount').textContent = money(quote.total);
   const each = quantity > 1 ? ` · ${money(quote.total / quantity)} ליחידה` : '';
-  document.getElementById('pricesub').textContent =
-    `כולל מע״מ${each}. ${quote.price_origin || ''}`;
+  document.getElementById('pricesub').innerHTML =
+    `כולל מע״מ${each}. ${escapeHtml(quote.price_origin || '')}` +
+    ' <a href="/history" style="color:#fff; text-decoration:underline">נשמר בהצעות שלי</a>';
 }
 
 /* ---- טעינה ---- */

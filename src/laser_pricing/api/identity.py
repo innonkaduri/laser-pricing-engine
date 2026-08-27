@@ -259,6 +259,26 @@ def set_password(username: str, password: str) -> None:
         raise UserError(f"אין משתמש בשם {username}.")
 
 
+def set_display_name(username: str, display_name: str) -> str:
+    """מחליף את שם התצוגה ומחזיר את מה שנשמר בפועל.
+
+    אותו ניקוי בדיוק כמו ב-`create_user` — שורה אחת, עד 60 תווים —
+    ובאותה פונקציה לא היה נכון: כלל שנאכף בהרשמה ולא בעריכה הוא כלל
+    שכל משתמש יכול לעקוף בשתי לחיצות.
+    """
+    cleaned = " ".join((display_name or "").split())[:60]
+    if not cleaned:
+        raise UserError("שם לתצוגה אינו יכול להיות ריק.")
+    with _connect() as conn:
+        changed = conn.execute(
+            "UPDATE users SET display_name = ? WHERE username = ?",
+            (cleaned, username.strip().lower()),
+        ).rowcount
+    if not changed:
+        raise UserError(f"אין משתמש בשם {username}.")
+    return cleaned
+
+
 def set_disabled(username: str, disabled: bool) -> None:
     with _connect() as conn:
         changed = conn.execute(
