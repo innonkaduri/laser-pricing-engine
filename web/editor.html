@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>עורך החלק — ימיש כדורי</title>
+<link rel="preload" as="font" type="font/woff2" href="/fonts/assistant-hebrew.woff2" crossorigin>
+<link rel="stylesheet" href="/brand.css">
+<style>
+/* העורך — שתי עמודות: בד ציור ולוח בקרה. כל השאר מ-/brand.css. */
+.wrap-ed{ max-width:1400px; margin-inline:auto; padding:var(--s6) var(--s5) var(--s12) }
+.head{ display:flex; align-items:baseline; gap:var(--s4); flex-wrap:wrap; margin-bottom:var(--s5) }
+.head h1{ font-size:var(--fs-h2); letter-spacing:-.02em; margin:0 }
+.head p{ margin:0; color:var(--ink-500); font-size:var(--fs-sm) }
+
+.split{ display:grid; grid-template-columns:minmax(0,1fr) 336px; gap:var(--s5); align-items:start }
+@media (max-width:1000px){ .split{ grid-template-columns:minmax(0,1fr) } }
+
+.stage{ background:var(--paper); border:1px solid var(--ink-150); border-radius:var(--r-lg); overflow:hidden }
+.bar{
+  display:flex; gap:var(--s2); align-items:center; flex-wrap:wrap;
+  padding:var(--s3); border-bottom:1px solid var(--ink-150); background:var(--ink-50);
+}
+/* **שלושה חלקים בסלקטור, ואיפוס מלא.** שורת הגשר ב-brand.css
+   הופכת כל <button> חשוף לכפתור ראשי כתום, וסגוליותה (0,2,1)
+   גוברת על `.bar button`. איפוס של רקע וגבול בלבד משאיר צורה
+   מרחפת — צריך גם ריפוד, גובה, רדיוס וצל. */
+.stage .bar button{
+  background:var(--paper); border:1px solid var(--ink-200); color:var(--ink-700);
+  border-radius:var(--r-sm); box-shadow:none; min-height:34px; padding:0 var(--s3);
+  font-size:var(--fs-sm); font-weight:600; cursor:pointer;
+}
+.stage .bar button:hover{ border-color:var(--ink-400) }
+.stage .bar button.on{
+  background:var(--flame-600); border-color:var(--flame-600); color:#fff;
+}
+.bar .gap{ flex:1 }
+.bar .sep{ width:1px; align-self:stretch; background:var(--ink-200); margin:2px var(--s1) }
+
+canvas.paper{ display:block; width:100%; height:min(62vh,560px); touch-action:none; background:var(--paper) }
+.facts{
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(96px,1fr)); gap:var(--s3);
+  padding:var(--s4); border-top:1px solid var(--ink-150); text-align:center;
+}
+.facts div span{ display:block; font-size:var(--fs-xs); color:var(--ink-500) }
+.facts div b{ font-size:var(--fs-sm); font-variant-numeric:tabular-nums; direction:ltr; display:block }
+
+.panel{ display:flex; flex-direction:column; gap:var(--s4) }
+.card h2{ font-size:var(--fs-h3); margin:0 0 var(--s1) }
+.card p.lead{ font-size:var(--fs-sm); color:var(--ink-500); margin:0 0 var(--s4); line-height:1.55 }
+.grid2{ display:grid; grid-template-columns:1fr 1fr; gap:var(--s3) }
+.field label{ display:block; font-size:var(--fs-xs); color:var(--ink-500); margin-bottom:4px }
+.field input,.field select{ width:100%; font-variant-numeric:tabular-nums }
+.rowbtns{ display:flex; gap:var(--s2); margin-top:var(--s4) }
+.rowbtns .btn{ flex:1 }
+.pricebox{ text-align:center; padding:var(--s5) var(--s4) }
+.pricebox .big{ font-size:30px; font-weight:800; letter-spacing:-.02em; direction:ltr; font-variant-numeric:tabular-nums }
+.pricebox .sub{ font-size:var(--fs-xs); color:var(--ink-500); margin-top:2px }
+.brk{ margin-top:var(--s4); border-top:1px solid var(--ink-150) }
+.brk div{ display:flex; justify-content:space-between; padding:6px 0; font-size:var(--fs-sm) }
+.brk div span{ color:var(--ink-500) }
+.brk div b{ direction:ltr; font-variant-numeric:tabular-nums }
+.hintline{ font-size:var(--fs-xs); color:var(--ink-500); line-height:1.55; margin-top:var(--s3) }
+.sel-empty{ font-size:var(--fs-sm); color:var(--ink-400) }
+</style>
+</head>
+<body>
+
+<main class="wrap-ed">
+  <div class="head">
+    <h1>עורך החלק</h1>
+    <p id="origin">מלבן ריק — גרור, הוסף חורים, מתח קווי כיפוף.</p>
+  </div>
+
+  <div class="note note-bad hidden" id="fatal"></div>
+
+  <div class="split">
+    <section class="stage">
+      <div class="bar">
+        <button id="t-select" class="on" data-tool="select">בחירה</button>
+        <button id="t-hole" data-tool="hole">חור</button>
+        <button id="t-bend" data-tool="bend">כיפוף</button>
+        <span class="sep"></span>
+        <button id="v-flat" class="on">פריסה</button>
+        <button id="v-solid">גוף</button>
+        <span class="gap"></span>
+        <button id="undo" title="בטל">בטל</button>
+        <button id="del" title="מחק את הנבחר">מחק</button>
+      </div>
+      <canvas class="paper" id="c"></canvas>
+      <div class="facts" id="facts"></div>
+    </section>
+
+    <aside class="panel">
+      <section class="card">
+        <h2>הנבחר</h2>
+        <div id="sel"><p class="sel-empty">לא נבחר דבר. לחץ על חור או על קו כיפוף.</p></div>
+      </section>
+
+      <section class="card">
+        <h2>חומר ומחיר</h2>
+        <p class="lead">המחיר מגיע מטבלת המחירים, בדיוק כמו בכל מסלול אחר.</p>
+        <div class="grid2">
+          <div class="field"><label for="mat">חומר</label><select id="mat"></select></div>
+          <div class="field"><label for="thk">עובי</label><select id="thk"></select></div>
+        </div>
+        <div class="grid2" style="margin-top:var(--s3)">
+          <div class="field"><label for="qty">כמות</label><input id="qty" type="number" min="1" step="1" value="1"></div>
+        </div>
+        <div class="note note-bad hidden" id="err" style="margin-top:var(--s4)"></div>
+        <button class="btn btn-primary btn-block" id="go" style="margin-top:var(--s4)">חשב מחיר</button>
+        <div class="pricebox hidden" id="price"></div>
+      </section>
+
+      <section class="card" id="files-card">
+        <h2>קבצים למכונה</h2>
+        <p class="lead">
+          <b>שני קבצים, כי אלה שתי מכונות.</b> קובץ החיתוך אינו מכיל
+          קווי כיפוף — קו כיפוף שנשלח ללייזר נחתך.
+        </p>
+        <div class="rowbtns">
+          <button class="btn btn-secondary" id="dl-cut">DXF לחיתוך</button>
+          <button class="btn btn-secondary" id="dl-bend">דף כיפוף</button>
+        </div>
+        <p class="hintline">
+          הפריסה בקובץ מנוכה לפי העובי שנבחר. אותו חלק בשני עוביים הוא
+          שני קבצים שונים, והעובי נמצא בשם הקובץ.
+        </p>
+      </section>
+    </aside>
+  </div>
+</main>
+
+<script type="module">
+import { mountSidebar } from '/shell.js';
+import { createViewer } from '/part-3d.js';
+
+const $ = (id) => document.getElementById(id);
+const money = (n) => '₪' + Number(n).toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const NUM = (n, d = 1) => Number(n).toLocaleString('he-IL', { maximumFractionDigits: d });
+
+/* ---- המסמך. **מקור אמת אחד בדפדפן, ומקור אחד בשרת.**
+   כל שינוי כאן מוליד קריאה אחת ל-`/api/part/preview`, והמסך מצייר
+   את מה שהשרת החזיר — לא את מה שהוא חושב שיצא. אחרת יש שתי
+   גיאומטריות לאותו חלק, וזה בדיוק הפער שניכוי הכיפוף נועד לסגור. */
+let doc = {
+  name: 'חלק',
+  outline: [[0, 0], [300, 0], [300, 200], [0, 200]],
+  holes: [],
+  cutouts: [],
+  bends: [],
+};
+let history = [];
+let tool = 'select';
+let view = 'flat';
+let selection = null;   // {kind:'hole'|'bend', index}
+let server = null;      // התשובה האחרונה מהשרת
+let viewer = null;
+let materials = [];
+
+function snapshot() {
+  history.push(JSON.stringify(doc));
+  if (history.length > 40) history.shift();
+}
+
+/* ---- מיפוי מ"מ ↔ פיקסל ---- */
+let view2d = { scale: 1, ox: 0, oy: 0 };
+function fit(canvas) {
+  const pts = doc.outline;
+  const minX = Math.min(...pts.map((p) => p[0]));
+  const maxX = Math.max(...pts.map((p) => p[0]));
+  const minY = Math.min(...pts.map((p) => p[1]));
+  const maxY = Math.max(...pts.map((p) => p[1]));
+  const pad = 46;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  const scale = Math.min((w - pad * 2) / (maxX - minX || 1), (h - pad * 2) / (maxY - minY || 1));
+  view2d = {
+    scale,
+    ox: (w - (maxX - minX) * scale) / 2 - minX * scale,
+    // y מתהפך: במ"מ הוא עולה, על הבד הוא יורד.
+    oy: (h + (maxY - minY) * scale) / 2 + minY * scale,
+  };
+}
+const toPx = (p) => [view2d.ox + p[0] * view2d.scale, view2d.oy - p[1] * view2d.scale];
+const toMm = (x, y) => [(x - view2d.ox) / view2d.scale, (view2d.oy - y) / view2d.scale];
+
+/* ---- ציור ---- */
+function draw() {
+  const canvas = $('c');
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (canvas.width !== Math.round(w * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  fit(canvas);
+
+  const css = getComputedStyle(document.documentElement);
+  const ink = css.getPropertyValue('--ink-800').trim() || '#141a22';
+  const flame = css.getPropertyValue('--flame-600').trim() || '#c2410c';
+  const line = css.getPropertyValue('--ink-200').trim() || '#cfd8e1';
+
+  // המתאר: מהשרת אם הגיע (הוא כבר מנוכה), אחרת מהמסמך.
+  const contours = server && server.contours ? server.contours : null;
+  ctx.lineJoin = 'round';
+  if (contours) {
+    for (const c of contours) {
+      ctx.beginPath();
+      c.points.forEach((p, i) => { const q = toPx(p); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
+      ctx.closePath();
+      ctx.fillStyle = c.hole ? '#fff' : 'rgba(194,65,12,.05)';
+      ctx.fill();
+      ctx.strokeStyle = ink; ctx.lineWidth = c.hole ? 1.2 : 1.8; ctx.stroke();
+    }
+  } else {
+    ctx.beginPath();
+    doc.outline.forEach((p, i) => { const q = toPx(p); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(194,65,12,.05)'; ctx.fill();
+    ctx.strokeStyle = ink; ctx.lineWidth = 1.8; ctx.stroke();
+  }
+
+  // חורים — מצוירים מהמסמך גם כשיש מתארים, כדי שהבחירה תסומן.
+  doc.holes.forEach((hole, index) => {
+    const q = toPx([hole.x_mm, hole.y_mm]);
+    const r = (hole.diameter_mm / 2) * view2d.scale;
+    ctx.beginPath(); ctx.arc(q[0], q[1], Math.max(r, 2), 0, Math.PI * 2);
+    const on = selection && selection.kind === 'hole' && selection.index === index;
+    ctx.fillStyle = '#fff'; ctx.fill();
+    ctx.strokeStyle = on ? flame : ink; ctx.lineWidth = on ? 2.4 : 1.2; ctx.stroke();
+  });
+
+  /* קווי הכיפוף מצוירים מ**התשובה של השרת** כשהיא קיימת: שם הם
+     כבר במרכז אזור הכיפוף ולא בקודקוד החד, וזה הקו שהמכבש מיישר
+     אליו. הקווים שבמסמך הם מה שהמשתמש מתח, וזה לא אותו דבר. */
+  const drawn = server && server.fold_lines && server.fold_lines.length
+    ? server.fold_lines
+    : doc.bends.map((b) => [b.x1, b.y1, b.x2, b.y2]);
+  ctx.setLineDash([7, 5]);
+  drawn.forEach((seg, index) => {
+    const a = toPx([seg[0], seg[1]]), b = toPx([seg[2], seg[3]]);
+    const on = selection && selection.kind === 'bend' && selection.index === index;
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]);
+    ctx.strokeStyle = on ? flame : '#2563eb'; ctx.lineWidth = on ? 3 : 1.8; ctx.stroke();
+  });
+  ctx.setLineDash([]);
+
+  // מידות המעטפת — הן מה שמזמינים לפיו.
+  if (server && server.bbox) {
+    ctx.fillStyle = css.getPropertyValue('--ink-500').trim() || '#566373';
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${NUM(server.bbox.width_mm)} × ${NUM(server.bbox.height_mm)} מ"מ`, w / 2, h - 12);
+  }
+  ctx.strokeStyle = line;
+}
+
+/* ---- פגיעה ---- */
+function hit(x, y) {
+  for (let i = doc.holes.length - 1; i >= 0; i--) {
+    const q = toPx([doc.holes[i].x_mm, doc.holes[i].y_mm]);
+    const r = Math.max((doc.holes[i].diameter_mm / 2) * view2d.scale, 7);
+    if (Math.hypot(q[0] - x, q[1] - y) <= r + 4) return { kind: 'hole', index: i };
+  }
+  for (let i = doc.bends.length - 1; i >= 0; i--) {
+    const b = doc.bends[i];
+    const a = toPx([b.x1, b.y1]), c = toPx([b.x2, b.y2]);
+    const vx = c[0] - a[0], vy = c[1] - a[1];
+    const len2 = vx * vx + vy * vy || 1;
+    const t = Math.max(0, Math.min(1, ((x - a[0]) * vx + (y - a[1]) * vy) / len2));
+    if (Math.hypot(a[0] + vx * t - x, a[1] + vy * t - y) <= 8) return { kind: 'bend', index: i };
+  }
+  return null;
+}
+
+/* ---- לוח הנבחר ---- */
+function paintSelection() {
+  const box = $('sel');
+  if (!selection) {
+    box.innerHTML = '<p class="sel-empty">לא נבחר דבר. לחץ על חור או על קו כיפוף.</p>';
+    return;
+  }
+  if (selection.kind === 'hole') {
+    const hole = doc.holes[selection.index];
+    box.innerHTML = `
+      <div class="grid2">
+        <div class="field"><label for="h-d">קוטר (מ"מ)</label><input id="h-d" type="number" step="0.5" min="1" value="${hole.diameter_mm}"></div>
+        <div class="field"><label for="h-x">מרכז X</label><input id="h-x" type="number" step="1" value="${hole.x_mm}"></div>
+        <div class="field"><label for="h-y">מרכז Y</label><input id="h-y" type="number" step="1" value="${hole.y_mm}"></div>
+      </div>`;
+    const push = () => {
+      snapshot();
+      hole.diameter_mm = Number($('h-d').value) || hole.diameter_mm;
+      hole.x_mm = Number($('h-x').value);
+      hole.y_mm = Number($('h-y').value);
+      refresh();
+    };
+    ['h-d', 'h-x', 'h-y'].forEach((id) => $(id).addEventListener('change', push));
+  } else {
+    const bend = doc.bends[selection.index];
+    box.innerHTML = `
+      <div class="grid2">
+        <div class="field"><label for="b-a">זווית (°)</label><input id="b-a" type="number" step="5" min="1" max="170" value="${bend.angle_deg}"></div>
+      </div>
+      <div class="rowbtns"><button class="btn btn-secondary" id="b-flip">הפוך כיוון</button></div>
+      <p class="hintline">
+        קו כיפוף מוארך תמיד לרוחב מלא — מכבש מכופף לאורך סכין ישרה.
+        הקטע שמצויר הוא המקום שבו הכיפוף באמת מתבצע.
+      </p>`;
+    $('b-a').addEventListener('change', () => { snapshot(); bend.angle_deg = Number($('b-a').value) || 90; refresh(); });
+    $('b-flip').addEventListener('click', () => { snapshot(); bend.flip = !bend.flip; refresh(); });
+  }
+}
+
+/* ---- שיחה עם השרת ---- */
+let pending = 0;
+async function refresh() {
+  draw();
+  paintSelection();
+  const ticket = ++pending;
+  try {
+    const response = await fetch('/api/part/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ doc, view, thickness_mm: Number($('thk').value) || 2 }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (ticket !== pending) return;          // תשובה שהגיעה אחרי שינוי חדש
+    if (!response.ok) { fatal(data.detail || 'לא הצלחנו לצייר את החלק.'); return; }
+    fatal('');
+    server = data;
+    paintFacts(data);
+    paintMaterials(data.materials || []);
+    if (view === 'solid' && data.model) { $('c').style.display = 'none'; solid().show(data.model); }
+    else { $('c').style.display = 'block'; if (viewer) viewer.canvas.style.display = 'none'; draw(); }
+  } catch (err) {
+    if (ticket === pending) fatal(err.message);
+  }
+}
+
+function fatal(message) {
+  const box = $('fatal');
+  box.textContent = message;
+  box.classList.toggle('hidden', !message);
+}
+
+function solid() {
+  if (!viewer) {
+    const canvas = document.createElement('canvas');
+    canvas.className = 'paper';
+    $('c').after(canvas);
+    viewer = createViewer(canvas);
+    viewer.canvas = canvas;
+  }
+  viewer.canvas.style.display = 'block';
+  viewer.redraw();
+  return viewer;
+}
+
+function paintFacts(data) {
+  const rows = [
+    ['מידות הפריסה', `${NUM(data.bbox.width_mm)} × ${NUM(data.bbox.height_mm)}`],
+    ['אורך חיתוך', `${NUM(data.cut_length_mm / 1000, 2)} מ׳`],
+    ['חורים', data.holes],
+    ['כיפופים', data.bend_count],
+  ];
+  if (data.bend_count) rows.push(['אורך כיפוף', `${NUM(data.bend_length_mm / 1000, 2)} מ׳`]);
+  $('facts').innerHTML = rows.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
+}
+
+/* ---- אינטראקציה על הבד ---- */
+const canvas = $('c');
+let drag = null;
+canvas.addEventListener('pointerdown', (event) => {
+  const rect = canvas.getBoundingClientRect();
+  const x = event.clientX - rect.left, y = event.clientY - rect.top;
+  const mm = toMm(x, y);
+
+  if (tool === 'hole') {
+    snapshot();
+    doc.holes.push({ diameter_mm: 9, x_mm: Math.round(mm[0]), y_mm: Math.round(mm[1]) });
+    selection = { kind: 'hole', index: doc.holes.length - 1 };
+    setTool('select'); refresh(); return;
+  }
+  if (tool === 'bend') {
+    drag = { kind: 'newbend', from: mm };
+    canvas.setPointerCapture(event.pointerId);
+    return;
+  }
+  selection = hit(x, y);
+  if (selection) {
+    drag = { kind: selection.kind, index: selection.index, at: mm };
+    canvas.setPointerCapture(event.pointerId);
+    snapshot();
+  }
+  draw(); paintSelection();
+});
+
+canvas.addEventListener('pointermove', (event) => {
+  if (!drag) return;
+  const rect = canvas.getBoundingClientRect();
+  const mm = toMm(event.clientX - rect.left, event.clientY - rect.top);
+  if (drag.kind === 'hole') {
+    const hole = doc.holes[drag.index];
+    hole.x_mm = Math.round(mm[0]); hole.y_mm = Math.round(mm[1]);
+    draw();
+  } else if (drag.kind === 'bend') {
+    const bend = doc.bends[drag.index];
+    const dx = mm[0] - drag.at[0], dy = mm[1] - drag.at[1];
+    bend.x1 += dx; bend.y1 += dy; bend.x2 += dx; bend.y2 += dy;
+    drag.at = mm;
+    draw();
+  } else if (drag.kind === 'newbend') {
+    drag.to = mm; draw();
+    const a = toPx(drag.from), b = toPx(mm);
+    const ctx = canvas.getContext('2d');
+    ctx.setLineDash([7, 5]); ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); ctx.setLineDash([]);
+  }
+});
+
+canvas.addEventListener('pointerup', () => {
+  if (drag && drag.kind === 'newbend' && drag.to) {
+    const [x1, y1] = drag.from, [x2, y2] = drag.to;
+    if (Math.hypot(x2 - x1, y2 - y1) > 4) {
+      snapshot();
+      doc.bends.push({ x1, y1, x2, y2, angle_deg: 90, flip: false });
+      selection = { kind: 'bend', index: doc.bends.length - 1 };
+      setTool('select');
+    }
+  }
+  if (drag) refresh();
+  drag = null;
+});
+
+/* ---- כלים ---- */
+function setTool(next) {
+  tool = next;
+  for (const button of document.querySelectorAll('.bar button[data-tool]')) {
+    button.classList.toggle('on', button.dataset.tool === next);
+  }
+  canvas.style.cursor = next === 'select' ? 'default' : 'crosshair';
+}
+for (const button of document.querySelectorAll('.bar button[data-tool]')) {
+  button.addEventListener('click', () => setTool(button.dataset.tool));
+}
+$('v-flat').addEventListener('click', () => { view = 'flat'; $('v-flat').classList.add('on'); $('v-solid').classList.remove('on'); refresh(); });
+$('v-solid').addEventListener('click', () => { view = 'solid'; $('v-solid').classList.add('on'); $('v-flat').classList.remove('on'); refresh(); });
+$('del').addEventListener('click', () => {
+  if (!selection) return;
+  snapshot();
+  if (selection.kind === 'hole') doc.holes.splice(selection.index, 1);
+  else doc.bends.splice(selection.index, 1);
+  selection = null; refresh();
+});
+$('undo').addEventListener('click', () => {
+  const previous = history.pop();
+  if (!previous) return;
+  doc = JSON.parse(previous); selection = null; refresh();
+});
+document.addEventListener('keydown', (event) => {
+  if (event.target.tagName === 'INPUT' || event.target.tagName === 'SELECT') return;
+  if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); $('del').click(); }
+  if ((event.metaKey || event.ctrlKey) && event.key === 'z') { event.preventDefault(); $('undo').click(); }
+});
+
+/* ---- חומר, עובי, מחיר ----
+   **הרשימה מגיעה מההדמיה ולא מ-`/api/config`.** היא מסוננת למה
+   שהטבלה באמת יודעת לתמחר *עבור החלק הזה*: ברגע שמוסיפים כיפוף,
+   חומר בלי תעריף כיפוף יורד מהרשימה. מסך שממשיך להציע אותו מציע
+   בחירה שנועדה להיכשל. */
+function paintMaterials(list) {
+  const same =
+    list.length === materials.length && list.every((m, i) => m.key === materials[i].key);
+  const keepMat = $('mat').value;
+  const keepThk = $('thk').value;
+  materials = list;
+  if (!list.length) {
+    $('mat').innerHTML = '<option>אין חומר מתומחר</option>';
+    $('thk').innerHTML = '';
+    return;
+  }
+  if (!same) {
+    $('mat').innerHTML = list.map((m) => `<option value="${m.key}">${m.name}</option>`).join('');
+    $('mat').value = list.some((m) => m.key === keepMat) ? keepMat : list[0].key;
+  }
+  const chosen = list.find((m) => m.key === $('mat').value) || list[0];
+  const thicknesses = chosen.thicknesses || [];
+  const current = [...$('thk').options].map((o) => o.value).join(',');
+  if (current !== thicknesses.join(',')) {
+    $('thk').innerHTML = thicknesses.map((t) => `<option value="${t}">${t} מ״מ</option>`).join('');
+    $('thk').value = thicknesses.includes(Number(keepThk)) ? keepThk : thicknesses[0];
+  }
+}
+
+$('go').addEventListener('click', async () => {
+  $('err').classList.add('hidden');
+  const response = await fetch('/api/part/quote', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      doc,
+      material_key: $('mat').value,
+      thickness_mm: Number($('thk').value),
+      quantity: Number($('qty').value) || 1,
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    $('err').textContent = data.detail || 'לא הצלחנו לתמחר.';
+    $('err').classList.remove('hidden');
+    $('price').classList.add('hidden');
+    return;
+  }
+  const quote = data.quote;
+  const line = quote.lines && quote.lines[0];
+  let html = `<div class="big">${money(quote.total)}</div><div class="sub">כולל מע"מ · ${$('qty').value} יח׳</div>`;
+  if (line) {
+    html += `<div class="brk">
+      <div><span>חומר</span><b>${money(line.material_cost)}</b></div>
+      <div><span>חיתוך</span><b>${money(line.cutting_cost)}</b></div>
+      ${line.bending_cost ? `<div><span>כיפוף</span><b>${money(line.bending_cost)}</b></div>` : ''}
+      <div><span>לפני מע"מ</span><b>${money(quote.total_before_vat)}</b></div>
+    </div>`;
+  }
+  $('price').innerHTML = html;
+  $('price').classList.remove('hidden');
+});
+
+/* ---- הורדת קבצים ---- */
+async function download(target) {
+  const response = await fetch('/api/part/dxf', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ doc, thickness_mm: Number($('thk').value) || 2, target }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    $('err').textContent = data.detail || 'הקובץ לא נוצר.';
+    $('err').classList.remove('hidden');
+    return;
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `part-t${$('thk').value}-${target}.dxf`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+$('dl-cut').addEventListener('click', () => download('cut'));
+$('dl-bend').addEventListener('click', () => download('bend'));
+
+/* ---- טעינה ---- */
+async function boot() {
+  const me = await mountSidebar('/editor');
+  const caps = new Set((me && me.capabilities) || []);
+  // מסך לא מציע בחירה שנועדה להיכשל: קובץ ייצור דורש quote:use.
+  if (!caps.has('quote:use')) $('files-card').classList.add('hidden');
+
+  const params = new URLSearchParams(location.search);
+  const from = params.get('from');
+  if (from) {
+    const query = new URLSearchParams(params);
+    query.delete('from');
+    const response = await fetch(`/api/catalog/${encodeURIComponent(from)}/doc?${query}`);
+    if (response.ok) {
+      const seed = await response.json();
+      doc = { name: seed.name, outline: seed.outline, holes: seed.holes, cutouts: seed.cutouts, bends: seed.bends };
+      $('origin').textContent = `נפתח מ"${seed.name}" — מכאן הכול פתוח לעריכה.`;
+    } else {
+      const data = await response.json().catch(() => ({}));
+      fatal(data.detail || 'לא הצלחנו לפתוח את המוצר בעורך.');
+    }
+  }
+  window.addEventListener('resize', () => { draw(); if (viewer) viewer.redraw(); });
+  refresh();
+}
+boot();
+</script>
+
+</body>
+</html>

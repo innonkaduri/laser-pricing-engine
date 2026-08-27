@@ -2898,3 +2898,177 @@ class TestTheProductionFile:
         response = client.get("/api/catalog/tray-4-sides/dxf?thickness_mm=1")
         assert response.status_code == 403
         assert "פנימי" in response.json()["detail"]
+
+
+class TestTheEditorIsNotASecondEngine:
+    """עריכה חופשית — ו**אותו מחיר בדיוק** כמו מהקטלוג.
+
+    זו הבדיקה שמחזיקה את כל המסך: אם מוצר שנפתח בעורך מתומחר אחרת
+    מאותו מוצר בקטלוג, אז נולד מסלול תמחור שני — וזה בדיוק מה
+    שהקטלוג נבנה כדי למנוע.
+    """
+
+    TRAY = {"width_mm": 300, "depth_mm": 200, "wall_mm": 50}
+
+    def _doc(self, client, product="tray-4-sides", **values):
+        query = "&".join(f"{k}={v}" for k, v in values.items())
+        response = client.get(f"/api/catalog/{product}/doc?{query}")
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    def test_a_product_opened_in_the_editor_costs_exactly_the_same(self, priced_client):
+        body = {"values": self.TRAY, "material_key": "st37", "thickness_mm": 3.0, "quantity": 4}
+        from_catalog = priced_client.post("/api/catalog/tray-4-sides/quote", json=body).json()
+
+        seed = self._doc(priced_client, **self.TRAY)
+        from_editor = priced_client.post(
+            "/api/part/quote",
+            json={
+                "doc": {k: seed[k] for k in ("name", "outline", "holes", "cutouts", "bends")},
+                "material_key": "st37",
+                "thickness_mm": 3.0,
+                "quantity": 4,
+            },
+        ).json()
+
+        assert from_editor["bend_count"] == from_catalog["bend_count"] == 4
+        assert from_editor["quote"]["total"] == from_catalog["quote"]["total"]
+        assert (
+            from_editor["quote"]["lines"][0]["cut_length_mm"]
+            == from_catalog["quote"]["lines"][0]["cut_length_mm"]
+        )
+
+    def test_the_seed_is_the_apex_blank_so_it_does_not_shrink_twice(self, priced_client):
+        """מסמך שנולד מנוכה היה מתכווץ שוב בכל תצוגה."""
+        seed = self._doc(priced_client, **self.TRAY)
+        xs = [point[0] for point in seed["outline"]]
+        assert max(xs) - min(xs) == pytest.approx(400.0), "הזרע חייב להיות פריסת אפקס"
+
+        preview = priced_client.post(
+            "/api/part/preview",
+            json={"doc": {k: seed[k] for k in ("outline", "holes", "cutouts", "bends")},
+                  "thickness_mm": 1.0},
+        ).json()
+        assert preview["bbox"]["width_mm"] == pytest.approx(396.0, abs=1e-3)
+
+    def test_a_hole_added_in_the_editor_reaches_the_price(self, priced_client):
+        base = {"outline": [[0, 0], [300, 0], [300, 200], [0, 200]]}
+        before = priced_client.post(
+            "/api/part/preview", json={"doc": base, "thickness_mm": 2.0}
+        ).json()
+        after = priced_client.post(
+            "/api/part/preview",
+            json={"doc": {**base, "holes": [{"diameter_mm": 20, "x_mm": 150, "y_mm": 100}]},
+                  "thickness_mm": 2.0},
+        ).json()
+        assert after["holes"] == before["holes"] + 1
+        assert after["cut_length_mm"] > before["cut_length_mm"]
+        assert after["net_area_mm2"] < before["net_area_mm2"], "חור מקטין שטח נטו"
+
+    def test_a_bend_line_makes_a_body_and_a_deduction(self, priced_client):
+        doc = {
+            "outline": [[0, 0], [140, 0], [140, 50], [0, 50]],
+            "bends": [{"x1": 80, "y1": 0, "x2": 80, "y2": 50}],
+        }
+        flat = priced_client.post(
+            "/api/part/preview", json={"doc": doc, "view": "solid", "thickness_mm": 2.0}
+        ).json()
+        assert flat["bend_count"] == 1
+        assert sorted(flat["model"]["size_mm"]) == [50.0, 60.0, 80.0]
+        # הפריסה התכווצה בניכוי אחד; הגוף לא זז.
+        assert flat["bbox"]["width_mm"] < 140.0
+
+    def test_flipping_a_bend_changes_the_body_and_not_the_blank(self, priced_client):
+        """אותו קו בדיוק הוא מגש או גג. הפריסה זהה, הגוף לא."""
+        doc = {
+            "outline": [[0, 0], [140, 0], [140, 50], [0, 50]],
+            "bends": [{"x1": 80, "y1": 0, "x2": 80, "y2": 50, "flip": False}],
+        }
+        up = priced_client.post(
+            "/api/part/preview", json={"doc": doc, "view": "solid", "thickness_mm": 2.0}
+        ).json()
+        doc["bends"][0]["flip"] = True
+        down = priced_client.post(
+            "/api/part/preview", json={"doc": doc, "view": "solid", "thickness_mm": 2.0}
+        ).json()
+
+        assert up["cut_length_mm"] == down["cut_length_mm"], "הפריסה אינה תלויה בכיוון"
+        assert up["bbox"] == down["bbox"]
+
+        # הקואורדינטות מנורמלות לאפס, ולכן "מתחת לאפס" אינו מבחין.
+        # מה שכן מבחין: איפה יושב הבסיס. מגש — הבסיס בתחתית; גג —
+        # הבסיס למעלה, והדופן יורדת ממנו.
+        def base_height(model):
+            base = model["faces"][0]["outline"]
+            top = max(v[2] for face in model["faces"] for v in face["outline"])
+            return sum(v[2] for v in base) / len(base) / (top or 1)
+
+        assert base_height(up["model"]) < 0.5 < base_height(down["model"]), (
+            "היפוך שאינו משנה כלום אינו היפוך"
+        )
+
+        # **מגבלה ידועה של ההצגה, לא של הפריסה.** הנפח מוצג ע"י
+        # משיכת כל לוח לכיוון הנורמל שלו, ולכן חלק שמתקפל *למטה*
+        # מוצג עבה בעובי אחד יותר מזה שמתקפל למעלה. הפריסה, אורך
+        # החיתוך והמחיר זהים — רק המידה המוצגת חורגת, ובדיוק בעובי.
+        thickness = 2.0
+        for a, b in zip(up["model"]["size_mm"], down["model"]["size_mm"]):
+            assert abs(a - b) <= thickness + 1e-6, (a, b)
+
+    def test_the_editor_only_offers_materials_that_can_price_the_bend(self, priced_client):
+        """מסך לא מציע בחירה שנועדה להיכשל."""
+        flat = priced_client.post(
+            "/api/part/preview",
+            json={"doc": {"outline": [[0, 0], [300, 0], [300, 200], [0, 200]]}, "thickness_mm": 2.0},
+        ).json()
+        bent = priced_client.post(
+            "/api/part/preview",
+            json={
+                "doc": {
+                    "outline": [[0, 0], [300, 0], [300, 200], [0, 200]],
+                    "bends": [{"x1": 60, "y1": 0, "x2": 60, "y2": 200}],
+                },
+                "thickness_mm": 2.0,
+            },
+        ).json()
+        assert flat["materials"], "אין חומר לבחור בכלל"
+        for material in bent["materials"]:
+            assert material["key"] in {m["key"] for m in flat["materials"]}
+            assert material["thicknesses"]
+
+    def test_the_editor_file_is_the_same_file_as_the_catalog_file(self, priced_client):
+        seed = self._doc(priced_client, **self.TRAY)
+        doc = {k: seed[k] for k in ("name", "outline", "holes", "cutouts", "bends")}
+        editor = priced_client.post(
+            "/api/part/dxf", json={"doc": doc, "thickness_mm": 1.0, "target": "cut"}
+        )
+        catalog = priced_client.get(
+            "/api/catalog/tray-4-sides/dxf?thickness_mm=1&width_mm=300&depth_mm=200&wall_mm=50"
+        )
+        assert editor.status_code == catalog.status_code == 200
+        from laser_pricing.cad.dxf_reader import read_dxf
+        import tempfile, pathlib
+
+        def measure(payload: bytes) -> float:
+            with tempfile.NamedTemporaryFile(suffix=".dxf", delete=False) as handle:
+                handle.write(payload)
+            try:
+                return read_dxf(handle.name).geometry.cut_length
+            finally:
+                pathlib.Path(handle.name).unlink()
+
+        assert measure(editor.content) == pytest.approx(measure(catalog.content), rel=1e-6)
+
+    def test_a_bend_line_off_the_part_fails_out_loud(self, priced_client):
+        response = priced_client.post(
+            "/api/part/preview",
+            json={
+                "doc": {
+                    "outline": [[0, 0], [100, 0], [100, 100], [0, 100]],
+                    "bends": [{"x1": 500, "y1": 0, "x2": 500, "y2": 100}],
+                },
+                "thickness_mm": 2.0,
+            },
+        )
+        assert response.status_code == 400
+        assert "חוצה" in response.json()["detail"]

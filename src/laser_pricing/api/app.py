@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 from ..cad.base import CadReadError
 from ..cad.dxf_reader import read_dxf
 from ..cad.dxf_writer import DxfError, bend_dxf, cut_dxf
+from ..domain.panels import BendLine, PanelError, panels_from_bends
 from ..domain.folding import FlatPanel, bounds as solid_bounds, fold as fold_panels
 from ..domain.geometry import Contour, PartGeometry, circle, rectangle
 from ..domain.part import Part, PartSource
@@ -185,7 +186,7 @@ def _is_font_path(path: str) -> bool:
     return path.startswith("/fonts/") and path.endswith(".woff2")
 
 
-OPEN_ASSETS = ("/brand.css", "/part-draw.js", "/part-3d.js")
+OPEN_ASSETS = ("/brand.css", "/part-draw.js", "/part-3d.js", "/shell.js")
 """נכסים שכל מסך ציבורי צריך, ולכן אינם יכולים לשבת מאחורי השער.
 
 `brand.css` הוא מערכת העיצוב. `part-draw.js` הוא הקוד שהופך מתאר
@@ -1469,6 +1470,16 @@ def _catalog_materials(product: catalog_mod.Product) -> list[dict]:
     שבור לגמרי. מוצר מכופף שאין לו חומר שיודע לתמחר כיפוף פשוט לא
     יופיע בקטלוג, מאותה סיבה שאלומיניום לא מופיע בדף הנחיתה.
     """
+    return _materials_for(product.bends)
+
+
+def _materials_for(needs_bending: bool) -> list[dict]:
+    """חומרים שאפשר באמת לתמחר בהם — ולכן גם היחידים שמוצגים.
+
+    **חלק מכופף מסנן חזק יותר.** שורה שיודעת לתמחר פלטה וחיתוך אבל
+    לא כיפוף תיתן מחיר שחסר בו הרכיב הגדול ביותר; בעורך זה בולט
+    במיוחד, כי שם המשתמש מוסיף כיפוף אחרי שכבר בחר חומר.
+    """
     tariff = STATE.tariff
     if tariff is None:
         return []
@@ -1477,7 +1488,7 @@ def _catalog_materials(product: catalog_mod.Product) -> list[dict]:
     for rate in tariff.rates.values():
         if rate.plate_price <= 0 or rate.cut_rate_per_m <= 0:
             continue
-        if product.bends and rate.bend_price <= 0 and rate.bend_rate_per_m <= 0:
+        if needs_bending and rate.bend_price <= 0 and rate.bend_rate_per_m <= 0:
             continue
         entry = usable.setdefault(
             rate.material_key,
@@ -1748,7 +1759,250 @@ def catalog_preview(product_id: str, body: CatalogPreviewRequest, request: Reque
     return answer
 
 
+class BendInput(BaseModel):
+    """קו כיפוף שמישהו מתח על המסך."""
+
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+    angle_deg: float = Field(default=90.0, gt=0, le=170)
+    flip: bool = False
+
+
+class PartDoc(BaseModel):
+    """חלק שנערך ביד — מתאר, חורים, חיתוכים וכיפופים.
+
+    **זה אותו טיפוס קלט שהקטלוג מייצר, בתוספת כיפופים.** מוצר
+    מהקטלוג נפתח בעורך כמסמך כזה, ומאותו רגע אין הבדל בין השניים:
+    אותו מנוע, אותה טבלה, אותו מחיר. הקטלוג הוא נקודת פתיחה, לא
+    מסלול נפרד — וזה מה שמונע מ"עריכה" להפוך למחשבון שני.
+    """
+
+    name: str = "חלק"
+    outline: list[tuple[float, float]] = Field(min_length=3)
+    holes: list[HoleSpec] = Field(default_factory=list)
+    cutouts: list[list[tuple[float, float]]] = Field(default_factory=list)
+    bends: list[BendInput] = Field(default_factory=list)
+
+
+class PartPreviewRequest(BaseModel):
+    doc: PartDoc
+    view: Literal["flat", "solid"] = "flat"
+    thickness_mm: float = Field(default=2.0, gt=0, le=50)
+
+
+class PartQuoteRequest(BaseModel):
+    doc: PartDoc
+    material_key: str
+    thickness_mm: float = Field(gt=0)
+    quantity: int = Field(default=1, ge=1)
+
+
+class PartFileRequest(BaseModel):
+    doc: PartDoc
+    thickness_mm: float = Field(default=2.0, gt=0, le=50)
+    target: Literal["cut", "bend"] = "cut"
+
+
+def _doc_blank(doc: PartDoc, thickness: float | None) -> catalog_mod.Blank:
+    """מסמך עריכה → פריסה, דרך אותו `Blank` שהבנאים מחזירים.
+
+    **הניכוי חל כאן בדיוק כמו בקטלוג.** אילו העורך היה מדלג עליו,
+    היו במערכת שתי פריסות לאותו חלק — אחת שמתומחרת ואחת שנחתכת —
+    וזה בדיוק הפער שהניכוי נוסף כדי לסגור.
+    """
+    spec: dict = {
+        "shape": "polygon",
+        "points": [list(point) for point in doc.outline],
+        "holes": [hole.model_dump() for hole in doc.holes],
+        "cutouts": [[list(point) for point in cut] for cut in doc.cutouts],
+    }
+    if not doc.bends:
+        return catalog_mod.Blank(spec=spec)
+
+    try:
+        panels = panels_from_bends(
+            [tuple(point) for point in doc.outline],
+            [
+                BendLine(b.x1, b.y1, b.x2, b.y2, angle_deg=b.angle_deg, flip=b.flip)
+                for b in doc.bends
+            ],
+        )
+    except PanelError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    lines = [list(panel.fold_axis) for panel in panels if panel.fold_axis is not None]
+    blank = catalog_mod.Blank(
+        spec=spec,
+        bend_count=len(lines),
+        bend_length_mm=sum(math.dist(line[:2], line[2:]) for line in lines),
+        fold_lines=lines,
+        panels=panels,
+    )
+    if thickness is None:
+        return blank
+    try:
+        return catalog_mod.deduct(blank, thickness, catalog_mod.BendSpec())
+    except catalog_mod.CatalogError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/part/preview")
+def part_preview(body: PartPreviewRequest, request: Request) -> dict:
+    """מסמך → צורה. **בלי מחיר, בדיוק כמו הדמיית הקטלוג.**
+
+    אין כאן `_require_account`, ובכוונה: התשובה היא גיאומטריה ותו
+    לא, והשער כבר חוסם את המסך עצמו. דרישת חשבון *נוספת* כאן הייתה
+    מחזירה 403 גם לקישור העריכה של אבא — שאין לו חשבון — על מסך
+    שהוא ממילא אינו רואה.
+    """
+    blank = _doc_blank(body.doc, body.thickness_mm)
+    geometry = _build_manual_geometry(ManualPartSpec(name=body.doc.name, **blank.spec))
+    plan = plan_split(geometry.bbox, _plate())
+    data = thin_for_preview(geometry_to_json(geometry))
+    answer = {
+        "name": body.doc.name,
+        "bend_count": blank.bend_count,
+        "bend_length_mm": round(blank.bend_length_mm, 2),
+        "fold_lines": blank.fold_lines,
+        "fits_single_plate": plan.piece_count == 1,
+        **data,
+    }
+    # **הרשימה נוסעת עם ההדמיה ולא בקריאה נפרדת.** ברגע שנוסף
+    # כיפוף, חומר שאין לו תעריף כיפוף מפסיק להיות בחירה חוקית —
+    # ומסך שממשיך להציע אותו מוביל ישר ל-422.
+    answer["materials"] = _materials_for(bool(blank.fold_lines))
+    if body.view == "solid":
+        answer["model"] = _model3d(blank, data, body.thickness_mm, _doc_blank(body.doc, None))
+        answer.pop("contours", None)
+    return answer
+
+
+@app.post("/api/part/quote")
+def part_quote(body: PartQuoteRequest, request: Request) -> dict:
+    """מסמך → מחיר. **אותו `price_order` ואותה טבלה כמו כל השאר.**"""
+    _guard_public_engine(request)
+    tariff = _require_tariff()
+    blank = _doc_blank(body.doc, body.thickness_mm)
+    geometry = _build_manual_geometry(ManualPartSpec(name=body.doc.name, **blank.spec))
+    try:
+        part = Part(
+            name=body.doc.name,
+            geometry=geometry,
+            material_key=body.material_key,
+            thickness_mm=body.thickness_mm,
+            quantity=body.quantity,
+            source=PartSource.MANUAL,
+            bend_count=blank.bend_count,
+            bend_length_mm=blank.bend_length_mm,
+        )
+        result = price_order([part], tariff)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (MissingTariffError, PricingError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    usage.record_quote(result, _current(request))
+    user = _current(request)
+    history.record(
+        username=user.username if user is not None and user.source != "service" else "",
+        source="editor",
+        quote=result,
+        material_key=body.material_key,
+        thickness_mm=body.thickness_mm,
+        quantity=body.quantity,
+        product_id="editor",
+        product_name=body.doc.name,
+        # **מידות בלבד, ולא המצולע.** מתאר שנשמר הוא השרטוט של
+        # הלקוח, וההיסטוריה כאן אינה ארכיון קבצים.
+        dimensions={
+            'רוחב (מ"מ)': round(geometry.bbox.max_x - geometry.bbox.min_x, 1),
+            'גובה (מ"מ)': round(geometry.bbox.max_y - geometry.bbox.min_y, 1),
+        },
+        bend_count=blank.bend_count,
+    )
+    return {
+        "bend_count": blank.bend_count,
+        "quote": quote_to_json(result) if _sees_breakdown(request) else public_quote_to_json(result),
+    }
+
+
+@app.post("/api/part/dxf")
+def part_dxf(body: PartFileRequest, request: Request) -> Response:
+    """מסמך → קובץ למכונה. אותם שני קבצים ואותו כלל: חיתוך בלי כיפוף."""
+    if not _sees_breakdown(request):
+        raise HTTPException(
+            status_code=403,
+            detail="קובץ הייצור נועד לשימוש פנימי. פנה אלינו כדי לקבל את החלק.",
+        )
+    blank = _doc_blank(body.doc, body.thickness_mm)
+    if body.target == "bend" and not blank.fold_lines:
+        raise HTTPException(status_code=422, detail="לחלק הזה אין כיפופים — הורד את קובץ החיתוך.")
+    try:
+        payload = (
+            cut_dxf(blank.spec)
+            if body.target == "cut"
+            else bend_dxf(
+                blank.spec,
+                blank.fold_lines,
+                title="editor",
+                thickness_mm=body.thickness_mm,
+            )
+        )
+    except DxfError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return Response(
+        content=payload,
+        media_type="application/dxf",
+        headers={
+            "Content-Disposition": f'attachment; filename="part-t{body.thickness_mm:g}-{body.target}.dxf"',
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
 PRODUCTION_TARGETS = ("cut", "bend")
+
+
+@app.get("/api/catalog/{product_id}/doc")
+def catalog_doc(product_id: str, request: Request) -> dict:
+    """מוצר מהקטלוג → מסמך שאפשר לערוך. **זה הגשר בין השניים.**
+
+    הפריסה שמוחזרת כאן היא **פריסת האפקס**, לפי המידות החיצוניות
+    שהלקוח הזין — ולא המנוכה. הניכוי תלוי בעובי, והעובי הוא בחירה
+    שממשיכה להשתנות בתוך העורך; מסמך שנולד מנוכה היה מנוכה שוב בכל
+    תצוגה, והחלק היה מתכווץ בכל לחיצה.
+    """
+    product = _require_product(product_id)
+    values = {
+        param.key: request.query_params[param.key]
+        for param in product.params
+        if param.key in request.query_params
+    }
+    blank = _blank(product, values)
+    spec = blank.spec
+    if spec.get("shape") == "rect":
+        w, h = spec["width_mm"], spec["height_mm"]
+        points = [[0.0, 0.0], [w, 0.0], [w, h], [0.0, h]]
+    elif spec.get("shape") == "polygon":
+        points = [list(point) for point in spec["points"]]
+    else:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{product.name} עגול, ואין עדיין עריכה חופשית של מתאר עגול.",
+        )
+    return {
+        "name": product.name,
+        "product_id": product.id,
+        "outline": points,
+        "holes": spec.get("holes", []),
+        "cutouts": [[list(pt) for pt in cut] for cut in spec.get("cutouts", [])],
+        "bends": [
+            {"x1": line[0], "y1": line[1], "x2": line[2], "y2": line[3], "angle_deg": 90.0, "flip": False}
+            for line in blank.fold_lines
+        ],
+    }
 
 
 @app.get("/api/catalog/{product_id}/dxf")
@@ -2269,6 +2523,12 @@ if WEB_DIR.exists():
         """ציור המתאר. פתוח, כי הקטלוג נגלל בלי חשבון."""
         return _open_script("part-draw.js")
 
+    @app.get("/shell.js")
+    def shell_script() -> FileResponse:
+        """סרגל הצד. פתוח כמו שאר הנכסים — הוא שואל את `/api/me`,
+        ומי שאינו מחובר מקבל שם 401 ומקבל סרגל בלי הפריטים המוגבלים."""
+        return _open_script("shell.js")
+
     @app.get("/part-3d.js")
     def part_3d_js() -> FileResponse:
         """הצגת הגוף. פתוח מאותה סיבה, ומאותה תיקייה."""
@@ -2293,6 +2553,11 @@ if WEB_DIR.exists():
     def catalog_page() -> FileResponse:
         """הקטלוג. פתוח, כמו דף הנחיתה ומאותה סיבה."""
         return FileResponse(WEB_DIR / "catalog.html")
+
+    @app.get("/editor")
+    def editor_page() -> FileResponse:
+        """העורך. **מסך אחד, ולא מסלול שני** — ראה `PartDoc`."""
+        return FileResponse(WEB_DIR / "editor.html")
 
     @app.get("/product/{product_id}")
     def product_page(product_id: str) -> FileResponse:

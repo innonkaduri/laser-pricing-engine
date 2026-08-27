@@ -49,6 +49,13 @@ class FlatPanel:
     fold_axis: tuple[float, float, float, float] | None = None
     angle_deg: float = 0.0
     label: str = ""
+    flip: bool = False
+    """להפוך את כיוון הקיפול שהמדידה בחרה.
+
+    `fold` בוחרת סימן שמרים את הלוח ביחס לנורמל של האב, וזו ברירת
+    מחדל נכונה לקטלוג: מגש מתקפל למעלה. **בעורך זו לא ברירת מחדל
+    אלא הכרעה** — אותו קו בדיוק הוא מגש או גג, ואלה שני מוצרים.
+    """
     bend_gap: float = 0.0
     """רוחב אזור הכיפוף בפריסה — קצבת הכיפוף.
 
@@ -212,8 +219,11 @@ def fold(panels: list[FlatPanel], holes: list[list[Point2]]) -> list[SolidFace]:
         moved = (after[0] - before[0], after[1] - before[1], after[2] - before[2])
         sign = 1.0
         if _dot(moved, parent_normal) < 0:
-            candidate = parent @ _fold_matrix(panel.fold_axis, -panel.angle_deg)
             sign = -1.0
+        if panel.flip:
+            sign = -sign
+        if sign < 0:
+            candidate = parent @ _fold_matrix(panel.fold_axis, -panel.angle_deg)
         transforms.append(candidate)
         signs.append(sign)
 

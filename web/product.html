@@ -154,6 +154,10 @@
 
         <div class="note note-bad hidden" id="error" style="margin-bottom:var(--s4)"></div>
         <button class="btn btn-primary btn-block" id="go">חשב מחיר</button>
+        <!-- **הגשר לעורך.** הקטלוג הוא נקודת פתיחה ולא מסלול שני:
+             מכאן והלאה זה אותו מסמך, אותו מנוע ואותה טבלה. -->
+        <a class="btn btn-secondary btn-block" id="to-editor" href="/editor"
+           style="margin-top:var(--s3)">פתח בעורך — חורים וכיפופים חופשיים</a>
 
         <div class="pricebox hidden" id="pricebox">
           <div class="amount" id="amount">—</div>
@@ -199,6 +203,16 @@ const goButton = document.getElementById('go');
 
 let product = null;
 const values = {};
+
+/* הקישור לעורך נושא את המידות הנוכחיות. בלעדיהן העורך היה נפתח על
+   ברירות המחדל של המוצר, והלקוח היה מגלה את זה רק אחרי שגרר. */
+function syncEditorLink() {
+  const link = document.getElementById('to-editor');
+  if (!link) return;
+  const query = new URLSearchParams({ from: id });
+  for (const [key, value] of Object.entries(values)) query.set(key, value);
+  link.href = '/editor?' + query;
+}
 
 const escapeHtml = (text) =>
   String(text).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -344,6 +358,7 @@ function control(param) {
        לחלק אחר, ומספר ישן שנשאר על המסך ליד מחוונים חדשים הוא
        בדיוק סוג הטעות ששולחים ללקוח. */
     priceBox.classList.add('hidden');
+    syncEditorLink();
     schedule();
   };
   range.addEventListener('input', () => set(range.value, number));
@@ -488,5 +503,8 @@ fetch('/api/catalog')
   });
 </script>
 
+<!-- סרגל הצד. **מוזרק מקובץ אחד** ולא מועתק לכל מסך: ניווט
+     שמועתק מתפצל, ואז "איפה ההיסטוריה" תלוי באיזה מסך אתה עומד. -->
+<script type="module">import { mountSidebar } from '/shell.js'; mountSidebar();</script>
 </body>
 </html>

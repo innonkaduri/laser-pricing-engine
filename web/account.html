@@ -216,5 +216,8 @@ async function load() {
 load();
 </script>
 
+<!-- סרגל הצד. **מוזרק מקובץ אחד** ולא מועתק לכל מסך: ניווט
+     שמועתק מתפצל, ואז "איפה ההיסטוריה" תלוי באיזה מסך אתה עומד. -->
+<script type="module">import { mountSidebar } from '/shell.js'; mountSidebar();</script>
 </body>
 </html>

@@ -342,3 +342,74 @@ button:disabled{opacity:.45; cursor:not-allowed}
 }
 .pill.ok{background:var(--ok-50); color:var(--ok-700); border-color:var(--ok-200)}
 .pill.warn{background:var(--warn-50); color:var(--warn-700); border-color:var(--warn-200)}
+
+/* ---- סרגל צד ----
+   מוזרק על ידי `shell.js`. הרוחב חי כמשתנה כדי שהתוכן יזוז איתו
+   ולא ירדוף אחריו: `body` מקבל ריפוד התחלה בדיוק בגודלו. */
+:root{ --sb-w:238px }
+
+.sidebar{
+  position:fixed; inset-block:0; inset-inline-start:0; width:var(--sb-w); z-index:40;
+  background:var(--paper); border-inline-end:1px solid var(--ink-150);
+  display:flex; flex-direction:column; gap:var(--s2); padding:var(--s4) var(--s3);
+}
+body:has(.sidebar){ padding-inline-start:var(--sb-w) }
+/* מסך שכבר נושא topbar לא צריך גם אותו וגם סרגל — הסרגל מנצח. */
+body:has(.sidebar) .topbar{ display:none }
+
+.sb-brand{
+  display:flex; align-items:center; gap:var(--s3); padding:var(--s2);
+  text-decoration:none; color:var(--ink-900); margin-bottom:var(--s3);
+}
+.sb-brand svg{ width:30px; height:30px; color:var(--flame-600); flex:none }
+.sb-brand b{ display:block; font-size:var(--fs-sm); letter-spacing:-.01em }
+.sb-brand small{ display:block; font-size:var(--fs-xs); color:var(--ink-500) }
+
+.sb-links{ display:flex; flex-direction:column; gap:2px }
+.sb-link{
+  display:flex; align-items:center; gap:var(--s3);
+  padding:9px var(--s3); border-radius:var(--r-md);
+  color:var(--ink-600); text-decoration:none; font-size:var(--fs-sm); font-weight:500;
+  transition:background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.sb-link svg{ width:19px; height:19px; flex:none; color:var(--ink-400) }
+.sb-link:hover{ background:var(--ink-50); color:var(--ink-900) }
+.sb-link.on{ background:var(--flame-50); color:var(--flame-700); font-weight:650 }
+.sb-link.on svg{ color:var(--flame-600) }
+.sb-link em{
+  margin-inline-start:auto; font-style:normal; font-size:11px; font-weight:700;
+  background:var(--flame-600); color:#fff; padding:1px 6px; border-radius:var(--r-full);
+}
+
+.sb-foot{ margin-top:auto; border-top:1px solid var(--ink-150); padding-top:var(--s3) }
+.sb-who{ padding:var(--s2) var(--s3); font-size:var(--fs-xs); line-height:1.5 }
+.sb-who b{ display:block; color:var(--ink-900); font-size:var(--fs-sm) }
+.sb-who span{ color:var(--ink-500) }
+
+/* **`button` בסלקטור, ו-`.ghost` על האלמנט — שניהם חובה.**
+   שורת הגשר `button:not(.btn):not(.ghost)` הופכת כל כפתור חשוף
+   לכפתור ראשי כתום, וסגוליותה (0,2,1) גוברת על `.sb-toggle` לבדו.
+   `.ghost` מוציא אותו מהגשר; `button.sb-toggle` (0,1,1) גובר על
+   `button.ghost` מפני שהוא מאוחר יותר בקובץ. */
+button.sb-toggle{
+  display:none; position:fixed; inset-block-start:10px; inset-inline-start:10px; z-index:50;
+  width:42px; height:42px; align-items:center; justify-content:center;
+  background:var(--paper); border:1px solid var(--ink-200); border-radius:var(--r-md);
+  box-shadow:var(--shadow-1); color:var(--ink-700); padding:0; min-height:0;
+}
+button.sb-toggle svg{ width:20px; height:20px }
+
+@media (max-width:900px){
+  /* **הסרגל נסגר, הקישורים לא נעלמים.** ניווט שנעלם בטלפון הוא
+     ניווט שאין — אותו לקח בדיוק כמו ה-topbar שהוגלל ולא הוסתר. */
+  body:has(.sidebar){ padding-inline-start:0; padding-block-start:56px }
+  button.sb-toggle{ display:flex }
+  .sidebar{
+    transform:translateX(100%); transition:transform var(--dur) var(--ease);
+    box-shadow:var(--shadow-3);
+  }
+  body.sb-open .sidebar{ transform:none }
+}
+@media (max-width:900px) and (prefers-reduced-motion:reduce){
+  .sidebar{ transition:none }
+}

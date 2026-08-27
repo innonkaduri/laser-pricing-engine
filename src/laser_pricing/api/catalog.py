@@ -846,6 +846,11 @@ def deduct(blank: Blank, thickness: float, bend: BendSpec | None = None) -> Blan
                 parent=panel.parent,
                 fold_axis=axis,
                 angle_deg=panel.angle_deg,
+                # **`flip` חייב לשרוד את הניכוי.** הוא נשמט כאן פעם
+                # אחת, והתוצאה הייתה שכיפוף שהמשתמש הפך בעורך חזר
+                # לכיוון המקורי אחרי שהניכוי בנה את הלוחות מחדש —
+                # מסך שמראה בדיוק את ההפך ממה שלחצו עליו.
+                flip=panel.flip,
                 label=panel.label,
                 bend_gap=gap,
             )
