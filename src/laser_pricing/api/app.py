@@ -36,6 +36,7 @@ from ..domain.panels import BendLine, PanelError, panels_from_bends
 from ..domain.folding import FlatPanel, bounds as solid_bounds, fold as fold_panels
 from ..domain.geometry import Contour, PartGeometry, circle, rectangle
 from ..domain.part import Part, PartSource
+from ..domain import text as text_mod
 from ..nesting.plate import check_manufacturability
 from ..nesting.splitting import plan_split
 from ..pricing.engine import PricingError, price_order
@@ -2001,6 +2002,56 @@ def part_dxf(body: PartFileRequest, request: Request) -> Response:
             "Cache-Control": "private, no-store",
         },
     )
+
+
+class TextOutlineRequest(BaseModel):
+    """שם → מתארי חיתוך. **הגיאומטריה נוצרת בשרת, לא בדפדפן.**
+
+    אילו הדפדפן היה מחשב את האותיות, היו שתי גרסאות לאותו שם: זו
+    שצוירה על המסך וזו שנחתכה — ומי שמזמין שלט משווה בדיוק ביניהן.
+    כאן חוזר מצולע אחד, והוא זה שמצויר, מתומחר ונשלח למכונה.
+    """
+
+    text: str = Field(min_length=1, max_length=text_mod.MAX_CHARS)
+    height_mm: float = Field(gt=0, le=text_mod.MAX_HEIGHT_MM)
+    font: str = text_mod.DEFAULT_FONT
+    tracking_mm: float = Field(default=0.0, ge=-50, le=200)
+    bridge_mm: float = Field(default=text_mod.BRIDGE_MM, gt=0, le=20)
+    hollow: bool = True
+
+
+@app.get("/api/text/fonts")
+def text_fonts() -> dict:
+    return {"fonts": text_mod.fonts(), "default": text_mod.DEFAULT_FONT}
+
+
+@app.post("/api/text/outline")
+def text_outline(body: TextOutlineRequest) -> dict:
+    """**אין כאן מחיר, ובכוונה.** זו גיאומטריה בלבד.
+
+    המתארים חוזרים לעורך, נכנסים ל-`cutouts` של המסמך, ומשם המחיר
+    מגיע מאותו `/api/part/quote` כמו כל חור וכל חיתוך. שם שנחתך
+    אינו מוצר מיוחד — הוא עוד מצולע בפח.
+    """
+    try:
+        result = text_mod.outline(
+            body.text,
+            body.height_mm,
+            font=body.font,
+            tracking_mm=body.tracking_mm,
+            bridge_mm=body.bridge_mm,
+            hollow=body.hollow,
+        )
+    except text_mod.TextError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "contours": [[list(p) for p in ring] for ring in result.contours],
+        "width_mm": result.width_mm,
+        "height_mm": result.height_mm,
+        "pierces": result.pierces,
+        "bridges": result.bridges,
+        "bridged_chars": result.bridged_chars,
+    }
 
 
 PRODUCTION_TARGETS = ("cut", "bend")

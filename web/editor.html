@@ -107,6 +107,7 @@ canvas.paper{ display:block; width:100%; height:min(64vh,600px); touch-action:no
         <button data-tool="hole" title="הוספת חור — H">חור</button>
         <button data-tool="cutout" title="חיתוך מלבני — C">חיתוך</button>
         <button data-tool="bend" title="קו כיפוף — B">כיפוף</button>
+        <button data-tool="text" title="שם חתוך — T">טקסט</button>
         <span class="sep"></span>
         <button id="v-flat" class="on">פריסה</button>
         <button id="v-solid">גוף</button>
@@ -201,7 +202,22 @@ let doc = {
   holes: [],
   cutouts: [],
   bends: [],
+  /* **טקסט נשמר כטקסט, ונשלח כמצולעים.**
+
+     אילו האותיות היו נדחפות ל-`cutouts` ברגע ההקלדה, לא הייתה
+     דרך לתקן שגיאת כתיב אחר כך — היו נשארים מאה מצולעים בלי
+     שם. כאן נשמרות ההגדרות, והמתארים שהשרת החזיר נוסעים איתן. */
+  texts: [],
 };
+
+/* המסמך שנשלח לשרת: אותיות הן מצולעים ככל מצולע אחר, ולכן הן
+   נכנסות ל-`cutouts` — **אותו מסלול תמחור, בלי ענף שני.** */
+function wire() {
+  const cutouts = doc.cutouts.concat(
+    doc.texts.flatMap((t) => (t.contours || []).map((ring) => ring.map(([x, y]) => [x + t.x, y + t.y])))
+  );
+  return { name: doc.name, outline: doc.outline, holes: doc.holes, cutouts, bends: doc.bends };
+}
 
 let past = [], future = [];
 let tool = 'select';
@@ -336,6 +352,14 @@ function draw() {
     ctx.strokeStyle = on ? COL.flame : COL.ink; ctx.lineWidth = on ? 2.4 : 1.2; ctx.stroke();
   }
 
+  for (const [index, item] of doc.texts.entries()) {
+    const on = isSelected('text', index);
+    ctx.beginPath();
+    for (const ring of item.contours || []) path(ctx, ring.map(([x, y]) => [x + item.x, y + item.y]));
+    ctx.fillStyle = '#fff'; ctx.fill('evenodd');
+    ctx.strokeStyle = on ? COL.flame : COL.ink; ctx.lineWidth = on ? 2.4 : 1.2; ctx.stroke();
+  }
+
   for (const [index, hole] of doc.holes.entries()) {
     const q = toPx([hole.x_mm, hole.y_mm]);
     ctx.beginPath(); ctx.arc(q[0], q[1], Math.max((hole.diameter_mm / 2) * cam.scale, 2), 0, Math.PI * 2);
@@ -414,6 +438,12 @@ function hit(x, y) {
     if (x >= Math.min(a[0], c[0]) && x <= Math.max(a[0], c[0]) && y >= Math.min(a[1], c[1]) && y <= Math.max(a[1], c[1]))
       return { kind: 'cutout', index: i };
   }
+  for (let i = doc.texts.length - 1; i >= 0; i--) {
+    const t = doc.texts[i];
+    const a = toPx([t.x, t.y]), c = toPx([t.x + (t.width_mm || 0), t.y + (t.height_out_mm || 0)]);
+    if (x >= Math.min(a[0], c[0]) && x <= Math.max(a[0], c[0]) && y >= Math.min(a[1], c[1]) && y <= Math.max(a[1], c[1]))
+      return { kind: 'text', index: i };
+  }
   for (let i = doc.bends.length - 1; i >= 0; i--) {
     const b = doc.bends[i];
     const a = toPx([b.x1, b.y1]), c = toPx([b.x2, b.y2]);
@@ -436,7 +466,7 @@ function paintSelection() {
     $('sel-title').textContent = selection.length ? `נבחרו ${selection.length}` : 'הנבחר';
     box.innerHTML = selection.length
       ? '<p class="sel-empty">בחירה מרובה — אפשר לגרור ולמחוק.</p>'
-      : '<p class="sel-empty">לחץ על חור, על חיתוך או על קו כיפוף.</p>';
+      : '<p class="sel-empty">לחץ על חור, על טקסט, על חיתוך או על קו כיפוף.</p>';
     return;
   }
   const { kind, index } = selection[0];
@@ -473,6 +503,36 @@ function paintSelection() {
       refresh();
     };
     ['c-w', 'c-h', 'c-x', 'c-y'].forEach((id) => $(id).addEventListener('change', push));
+  } else if (kind === 'text') {
+    const item = doc.texts[index];
+    $('sel-title').textContent = 'טקסט';
+    const options = fontList.map((f) =>
+      `<option value="${f}"${f === item.font ? ' selected' : ''}>${FONT_NAMES[f] || f}</option>`).join('');
+    box.innerHTML = `<div class="field"><label for="t-s">הכיתוב</label>
+      <input id="t-s" type="text" value="${item.text.replace(/"/g, '&quot;')}"></div>
+      <div class="field"><label for="t-f">גופן</label><select id="t-f">${options}</select></div>
+      <div class="grid3">${field('t-h', 'גובה אות', item.height_mm)}${field('t-k', 'ריווח', item.tracking_mm, 0.5)}${field('t-b', 'גשר', item.bridge_mm, 0.5)}</div>
+      <div class="grid2">${field('t-x', 'X', Math.round(item.x))}${field('t-y', 'Y', Math.round(item.y))}</div>
+      <div class="chips"><button id="t-hollow">${item.hollow ? 'אותיות חלולות' : 'צללית מלאה'}</button></div>
+      <p class="hintline">${item.bridges
+        ? `נוספו ${item.bridges} גשרים ב-${item.bridged_chars.join('־')} — בלעדיהם החלק
+           שבתוך האות נחתך מכל צדדיו ונופל מהשולחן בזמן החיתוך.`
+        : 'לאותיות האלה אין חלל סגור, ולכן אין צורך בגשרים.'}</p>`;
+    const push = async () => {
+      commit();
+      item.text = $('t-s').value || item.text;
+      item.font = $('t-f').value;
+      item.height_mm = Math.max(3, Number($('t-h').value) || item.height_mm);
+      item.tracking_mm = Number($('t-k').value) || 0;
+      item.bridge_mm = Math.max(0.1, Number($('t-b').value) || item.bridge_mm);
+      item.x = Number($('t-x').value); item.y = Number($('t-y').value);
+      await shapeText(item);
+      refresh();
+    };
+    ['t-s', 't-f', 't-h', 't-k', 't-b', 't-x', 't-y'].forEach((id) => $(id).addEventListener('change', push));
+    $('t-hollow').addEventListener('click', async () => {
+      commit(); item.hollow = !item.hollow; await shapeText(item); refresh();
+    });
   } else if (kind === 'bend') {
     const bend = doc.bends[index];
     $('sel-title').textContent = `כיפוף ${index + 1}`;
@@ -502,6 +562,46 @@ function paintSelection() {
   }
 }
 
+/* ================= טקסט =================
+
+   **המתארים מגיעים מהשרת ולא מהדפדפן.** לדפדפן יש את הגופן
+   ויכולת לצייר אותו, אבל ציור אינו חיתוך: הגופן מצייר אות בכמה
+   צורות חופפות, והמכונה צריכה את האיחוד שלהן. אילו כל צד היה
+   מחשב לבד, היו שתי גרסאות לאותו שם — זו שנראתה וזו שנחתכה. */
+let fontList = ['assistant', 'assistant-bold'];
+const FONT_NAMES = { assistant: 'אסיסטנט', 'assistant-bold': 'אסיסטנט מודגש' };
+
+async function shapeText(item) {
+  const response = await fetch('/api/text/outline', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      text: item.text, height_mm: item.height_mm, font: item.font,
+      tracking_mm: item.tracking_mm, bridge_mm: item.bridge_mm, hollow: item.hollow,
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) { flash(data.detail || 'לא הצלחנו לחתוך את הטקסט.'); return false; }
+  item.contours = data.contours;
+  item.width_mm = data.width_mm;
+  item.height_out_mm = data.height_mm;
+  item.bridges = data.bridges;
+  item.bridged_chars = data.bridged_chars;
+  return true;
+}
+
+async function addText(x, y) {
+  const item = {
+    text: 'ימיש', height_mm: 40, font: fontList[0],
+    tracking_mm: 0, bridge_mm: 1.5, hollow: true, x, y, contours: [],
+  };
+  commit();
+  if (!(await shapeText(item))) { undo(); return; }
+  doc.texts.push(item);
+  selection = [{ kind: 'text', index: doc.texts.length - 1 }];
+  setTool('select');
+  refresh();
+}
+
 function holeArray(seed) {
   const cols = Number(prompt('כמה חורים לרוחב?', '3'));
   if (!cols || cols < 1) return;
@@ -528,7 +628,7 @@ async function refresh() {
   try {
     const response = await fetch('/api/part/preview', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ doc, view: view3d ? 'solid' : 'flat', thickness_mm: thickness() }),
+      body: JSON.stringify({ doc: wire(), view: view3d ? 'solid' : 'flat', thickness_mm: thickness() }),
     });
     const data = await response.json().catch(() => ({}));
     if (mine !== ticket) return;
@@ -552,7 +652,7 @@ async function quote(record = false) {
   const response = await fetch('/api/part/quote', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      doc, material_key: $('mat').value, thickness_mm: thickness(),
+      doc: wire(), material_key: $('mat').value, thickness_mm: thickness(),
       quantity: Math.max(1, Number($('qty').value) || 1), record,
     }),
   });
@@ -668,6 +768,7 @@ canvas.addEventListener('pointerdown', (event) => {
     selection = [{ kind: 'hole', index: doc.holes.length - 1 }];
     setTool('select'); refresh(); return;
   }
+  if (tool === 'text') { addText(snapped(mm[0]), snapped(mm[1])); return; }
   if (tool === 'cutout' || tool === 'bend') { drag = { kind: 'new-' + tool, from: [snapped(mm[0]), snapped(mm[1])] }; return; }
 
   const found = hit(x, y);
@@ -679,7 +780,7 @@ canvas.addEventListener('pointerdown', (event) => {
       selection = [found];
     }
     commit();
-    drag = { kind: 'move', at: mm, origin: clone({ h: doc.holes, c: doc.cutouts, b: doc.bends, o: doc.outline }) };
+    drag = { kind: 'move', at: mm, origin: clone({ h: doc.holes, c: doc.cutouts, b: doc.bends, o: doc.outline, t: doc.texts }) };
   } else {
     selection = [];
     drag = { kind: 'pan', x, y };
@@ -717,6 +818,10 @@ function moveSelection(mm, state) {
   for (const s of selection) {
     if (s.kind === 'hole') { const h = doc.holes[s.index]; h.x_mm = state.origin.h[s.index].x_mm + dx; h.y_mm = state.origin.h[s.index].y_mm + dy; }
     else if (s.kind === 'cutout') doc.cutouts[s.index] = state.origin.c[s.index].map(([x, y]) => [x + dx, y + dy]);
+    else if (s.kind === 'text') {
+      const t = doc.texts[s.index], o = state.origin.t[s.index];
+      t.x = o.x + dx; t.y = o.y + dy;
+    }
     else if (s.kind === 'bend') {
       const b = doc.bends[s.index], o = state.origin.b[s.index];
       b.x1 = o.x1 + dx; b.y1 = o.y1 + dy; b.x2 = o.x2 + dx; b.y2 = o.y2 + dy;
@@ -795,11 +900,12 @@ $('redo').addEventListener('click', redo);
 $('del').addEventListener('click', () => {
   if (!selection.length) return;
   commit();
-  for (const kind of ['hole', 'cutout', 'bend', 'vertex']) {
+  for (const kind of ['hole', 'cutout', 'text', 'bend', 'vertex']) {
     const indexes = selection.filter((s) => s.kind === kind).map((s) => s.index).sort((a, b) => b - a);
     for (const index of indexes) {
       if (kind === 'hole') doc.holes.splice(index, 1);
       else if (kind === 'cutout') doc.cutouts.splice(index, 1);
+      else if (kind === 'text') doc.texts.splice(index, 1);
       else if (kind === 'bend') doc.bends.splice(index, 1);
       else if (doc.outline.length > 3) doc.outline.splice(index, 1);
     }
@@ -814,7 +920,7 @@ document.addEventListener('keydown', (event) => {
   const meta = event.metaKey || event.ctrlKey;
   if (meta && event.key.toLowerCase() === 'z') { event.preventDefault(); event.shiftKey ? redo() : undo(); return; }
   if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); $('del').click(); return; }
-  const keys = { v: 'select', a: 'vertex', h: 'hole', c: 'cutout', b: 'bend' };
+  const keys = { v: 'select', a: 'vertex', h: 'hole', c: 'cutout', b: 'bend', t: 'text' };
   if (keys[event.key.toLowerCase()]) { setTool(keys[event.key.toLowerCase()]); return; }
   if (event.key.toLowerCase() === 'f') { fitView(); return; }
   if (event.key.toLowerCase() === 'g') { $('grid').click(); return; }
@@ -824,7 +930,7 @@ document.addEventListener('keydown', (event) => {
     const dx = (event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0);
     const dy = (event.key === 'ArrowUp' ? step : event.key === 'ArrowDown' ? -step : 0);
     commit();
-    moveSelection([dx, dy], { at: [0, 0], origin: clone({ h: doc.holes, c: doc.cutouts, b: doc.bends, o: doc.outline }) });
+    moveSelection([dx, dy], { at: [0, 0], origin: clone({ h: doc.holes, c: doc.cutouts, b: doc.bends, o: doc.outline, t: doc.texts }) });
     refresh();
   }
 });
@@ -910,7 +1016,7 @@ $('save').addEventListener('click', () => quote(true));
 async function download(target) {
   const response = await fetch('/api/part/dxf', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ doc, thickness_mm: thickness(), target }),
+    body: JSON.stringify({ doc: wire(), thickness_mm: thickness(), target }),
   });
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
@@ -937,6 +1043,13 @@ async function boot() {
   // מסך לא מציע בחירה שנועדה להיכשל: קובץ ייצור דורש quote:use.
   if (!caps.has('quote:use')) $('files-card').classList.add('hidden');
 
+  /* **רשימת הגופנים מהשרת.** מסך שמציע גופן שאינו בטבלה מציע
+     בחירה שנועדה להיכשל, וזה בדיוק הכלל שכבר נכתב כאן פעם. */
+  try {
+    const response = await fetch('/api/text/fonts');
+    if (response.ok) { const data = await response.json(); if (data.fonts && data.fonts.length) fontList = data.fonts; }
+  } catch { /* נשארת רשימת ברירת המחדל */ }
+
   const params = new URLSearchParams(location.search);
   const from = params.get('from');
   if (from) {
@@ -944,7 +1057,7 @@ async function boot() {
     const response = await fetch(`/api/catalog/${encodeURIComponent(from)}/doc?${query}`);
     if (response.ok) {
       const seed = await response.json();
-      doc = { name: seed.name, outline: seed.outline, holes: seed.holes, cutouts: seed.cutouts, bends: seed.bends };
+      doc = { name: seed.name, outline: seed.outline, holes: seed.holes, cutouts: seed.cutouts, bends: seed.bends, texts: [] };
       $('name').value = seed.name;
       $('origin').textContent = `נפתח מ"${seed.name}"`;
     } else {

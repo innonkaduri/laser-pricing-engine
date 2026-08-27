@@ -17,6 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from laser_pricing.api import history, identity, tariff_store, usage
+from laser_pricing.domain import text as text_mod
 # היבוא הפרטי מכוון: מונה הניסיונות הכושלים הוא מצב של התהליך, ובדיקה
 # חייבת לאפס אותו כדי לא לחסום את הבדיקה הבאה.
 from laser_pricing.api.store import STORE
@@ -3198,3 +3199,138 @@ class TestRevalidationIsCheap:
         response = client.get("/part-3d.js", headers={"If-None-Match": '"not-the-current-one"'})
         assert response.status_code == 200
         assert response.content
+
+
+class TestASignIsGeometryNotLettering:
+    """שם שנחתך בפח. **המבחן אינו "נראה נכון" אלא "אפשר לחתוך".**
+
+    שלט שיוצא מהמכונה עם חור מרובע במקום ם הוא שלט פגום, והלקוח
+    מגלה את זה אחרי שהוא שילם. לכן הבדיקות כאן שואלות שאלות של
+    בית מלאכה: האם החתיכה שבאמצע האות מחוברת למשהו, והאם המסלול
+    שהמכונה תלך בו חותך את עצמו.
+    """
+
+    @staticmethod
+    def _self_intersects(ring):
+        n = len(ring)
+        for i in range(n):
+            a, b = ring[i], ring[(i + 1) % n]
+            for j in range(i + 2, n):
+                if (j + 1) % n == i:
+                    continue
+                if text_mod._segments_cross(a, b, ring[j], ring[(j + 1) % n]):
+                    return True
+        return False
+
+    def test_a_closed_letter_gets_a_bridge_and_an_open_one_does_not(self):
+        # ם סגורה: בלי גשר החתיכה שבאמצע נופלת. ב פתוחה: אין מה להחזיק.
+        assert text_mod.outline("ם", 40).bridges == 1
+        assert text_mod.outline("ב", 40).bridges == 0
+
+    def test_the_bridge_turns_two_pierces_into_one(self):
+        """**המחיר יורד מעצמו, ולא כי מישהו תיקן מספר ביד.**"""
+        hollow = text_mod.outline("ם", 40)
+        silhouette = text_mod.outline("ם", 40, hollow=False)
+        assert hollow.pierces == 1
+        assert silhouette.pierces == 1
+        assert silhouette.bridges == 0
+
+    def test_every_cut_path_is_a_simple_polygon(self):
+        """מסלול שחותך את עצמו הוא מסלול שהמכונה מפרשת אחרת מהמסך."""
+        for word in ("שלום", "סםOB", "ABC", "יוסי 2026", "ימיש כדורי"):
+            for ring in text_mod.outline(word, 40).contours:
+                assert not self._self_intersects(ring), word
+
+    def test_hebrew_reads_right_to_left_and_digits_do_not(self):
+        assert text_mod.visual_order("ימיש 2026") == "2026 שימי"
+        assert text_mod.visual_order("ABC") == "ABC"
+
+    def test_letter_height_does_not_change_with_descenders(self):
+        """"יוסי" ו"קפץ" באותה הגדרה — אותו גובה אות.
+
+        גובה נגזר מגובה הגוף של הגופן; אילו הוא נגזר מתיבת הטקסט
+        בפועל, אות עם זנב יורד הייתה מכווצת את כל השאר.
+        """
+        a = text_mod.outline("יוסי", 40)
+        b = text_mod.outline("קפץ", 40)
+        assert b.height_mm > a.height_mm  # ל-ץ יש זנב, וזה מה שמצופה
+        assert abs(text_mod.outline("י", 40).height_mm
+                   - text_mod.outline("י", 40).height_mm) < 1e-9
+
+    def test_scaling_is_linear(self):
+        small = text_mod.outline("שלום", 20)
+        large = text_mod.outline("שלום", 40)
+        assert abs(large.width_mm - small.width_mm * 2) < 0.5
+
+    def test_the_table_covers_the_whole_hebrew_alphabet(self):
+        """**גופן שיאבד אות ייפול כאן ולא אצל הלקוח.**"""
+        alphabet = "".join(chr(c) for c in range(0x5D0, 0x5EB))
+        for font in text_mod.fonts():
+            result = text_mod.outline(alphabet, 20, font=font)
+            assert result.contours
+
+    def test_a_character_the_font_lacks_fails_loudly(self):
+        with pytest.raises(text_mod.TextError, match="אינו מכיל"):
+            text_mod.outline("שלום ☺", 40)
+
+    def test_an_impossible_height_fails_loudly(self):
+        with pytest.raises(text_mod.TextError):
+            text_mod.outline("שלום", 0.5)
+
+
+class TestTextIsPricedLikeAnyOtherCut:
+    """**אין מסלול תמחור שני לשם.** הוא מצולע ככל מצולע."""
+
+    PLATE = [[0, 0], [260, 0], [260, 80], [0, 80]]
+
+    def _cuts(self, client, word="ימיש"):
+        response = client.post("/api/text/outline", json={"text": word, "height_mm": 40})
+        assert response.status_code == 200, response.text
+        data = response.json()
+        dx = (260 - data["width_mm"]) / 2
+        dy = (80 - data["height_mm"]) / 2
+        return [[[x + dx, y + dy] for x, y in ring] for ring in data["contours"]]
+
+    def test_the_endpoint_returns_geometry_and_never_a_price(self, client):
+        response = client.post("/api/text/outline", json={"text": "ימיש", "height_mm": 40})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["contours"] and body["width_mm"] > 0
+        assert not {"price", "total", "unit_price"} & set(body)
+
+    def test_a_name_makes_the_plate_cost_more_to_cut_and_weigh_less(self, priced_client):
+        blank = priced_client.post(
+            "/api/part/quote",
+            json={"doc": {"name": "לוחית", "outline": self.PLATE}, "material_key": "st37",
+                  "thickness_mm": 3.0, "quantity": 1},
+        ).json()["quote"]["lines"][0]
+        named = priced_client.post(
+            "/api/part/quote",
+            json={"doc": {"name": "לוחית", "outline": self.PLATE,
+                          "cutouts": self._cuts(priced_client)},
+                  "material_key": "st37", "thickness_mm": 3.0, "quantity": 1},
+        ).json()["quote"]["lines"][0]
+        assert named["cut_length_mm"] > blank["cut_length_mm"]
+        assert named["net_area_mm2"] < blank["net_area_mm2"]
+        assert named["pierces"] > blank["pierces"]
+
+    def test_the_name_reaches_the_production_file(self, priced_client):
+        response = priced_client.post(
+            "/api/part/dxf",
+            json={"doc": {"name": "לוחית", "outline": self.PLATE,
+                          "cutouts": self._cuts(priced_client)},
+                  "thickness_mm": 3.0, "target": "cut"},
+        )
+        assert response.status_code == 200
+        assert response.text.count("LWPOLYLINE") >= 5
+
+    def test_an_unknown_font_is_refused_with_the_list(self, client):
+        response = client.post(
+            "/api/text/outline", json={"text": "שלום", "height_mm": 40, "font": "comic"}
+        )
+        assert response.status_code == 422
+        assert "assistant" in response.json()["detail"]
+
+    def test_the_font_list_is_served(self, client):
+        body = client.get("/api/text/fonts").json()
+        assert body["default"] in body["fonts"]
