@@ -224,3 +224,86 @@ def bounds(faces: list[SolidFace]) -> tuple[Point3, Point3]:
 
 
 __all__ = ["FlatPanel", "SolidFace", "bounds", "contains", "fold"]
+
+
+# ---- ניכוי כיפוף ----
+#
+# **עד 27.8.2026 הפריסה כאן הייתה סכום המקטעים, בלי ניכוי.** זה נכון
+# לתמחור — הוא שוגה לכיוון של *יותר* חומר — ושגוי לחלוטין ברגע
+# שמייצאים קובץ לחיתוך: פח שנחתך לפי המידות החיצוניות ומכופף יוצא
+# גדול מדי בכל כיוון, כי החומר בקשת הכיפוף נמתח.
+#
+# הנוסחאות כאן הן התקן: קצבת כיפוף היא אורך הסיב הנייטרלי בקשת,
+# הנסיגה היא המרחק מנקודת ההשקה לקודקוד החד, והניכוי הוא ההפרש.
+
+
+DEFAULT_K_FACTOR = 0.2732
+"""מיקום הסיב הנייטרלי כשבר מהעובי. **נמדד, לא נבחר.**
+
+זאמיט נמדדו 27.8.2026 על אותו מגש בדיוק (300×200 דופן 50): פריסה
+**396×296** ב-1 מ"מ ו-**388×288** ב-3 מ"מ, מול פריסת אפקס 400×300.
+הצבת שתי המדידות בנוסחה עם `radius = thickness` נותנת **אותו** K
+בשני העוביים — 0.2732 — ושני עוביים בלתי תלויים שנופלים על קבוע
+אחד הם התאמה, לא צירוף מקרים.
+
+הוא גם מסתדר עם כלל האצבע של בתי מלאכה: ניכוי של פעמיים העובי
+לכיפוף 90° בפח דק. ‎4−(π/2)(1+0.2732) = 2.000 בדיוק.
+
+**אבל זה עדיין הרדיוס של הכלי של זאמיט ולא של המכבש של ימיש.**
+`bend_radius_mm` ו-`k_factor` ניתנים לדריסה לכל שורה בטבלה, וברגע
+שיימדד רדיוס הכלי האמיתי — הוא גובר.
+"""
+
+
+@dataclass(frozen=True)
+class BendSpec:
+    """הפרמטרים שהופכים קו כיפוף לגיאומטריה: רדיוס פנימי וגורם K.
+
+    `radius_mm=None` פירושו "רדיוס שווה לעובי" — ההנחה המקובלת
+    לכיפוף אוויר בפח דק, וזו שממנה נמדד `DEFAULT_K_FACTOR`.
+    """
+
+    radius_mm: float | None = None
+    k_factor: float = DEFAULT_K_FACTOR
+
+    def radius_for(self, thickness: float) -> float:
+        return thickness if self.radius_mm is None else self.radius_mm
+
+
+def bend_allowance(angle_deg: float, radius: float, thickness: float, k: float) -> float:
+    """אורך הסיב הנייטרלי בתוך הקשת. זה החומר ש**נשאר** בכיפוף."""
+    return math.radians(abs(angle_deg)) * (radius + k * thickness)
+
+
+def outside_setback(angle_deg: float, radius: float, thickness: float) -> float:
+    """מנקודת ההשקה עד הקודקוד החד — כלומר עד המידה החיצונית."""
+    return math.tan(math.radians(abs(angle_deg)) / 2.0) * (radius + thickness)
+
+
+def bend_deduction(angle_deg: float, radius: float, thickness: float, k: float) -> float:
+    """כמה לקצר את הפריסה לכל כיפוף.
+
+    שתי הנסיגות הן המרחק שהמידות החיצוניות "מבטיחות" ואינו קיים
+    בחומר; קצבת הכיפוף היא מה שכן קיים. ההפרש הוא מה שמורידים.
+    """
+    ba = bend_allowance(angle_deg, radius, thickness, k)
+    return 2.0 * outside_setback(angle_deg, radius, thickness) - ba
+
+
+def _axis_frame(axis: tuple[float, float, float, float]) -> tuple[Point2, Point2, float]:
+    """(נקודה על הציר, נורמל יחידה, אורך הציר)."""
+    x1, y1, x2, y2 = axis
+    dx, dy = x2 - x1, y2 - y1
+    length = math.hypot(dx, dy)
+    if length == 0:
+        raise ValueError("קו כיפוף באורך אפס.")
+    return (x1, y1), (dy / length, -dx / length), length
+
+
+def _side(point: Point2, origin: Point2, normal: Point2) -> float:
+    return (point[0] - origin[0]) * normal[0] + (point[1] - origin[1]) * normal[1]
+
+
+def _along(point: Point2, origin: Point2, normal: Point2) -> float:
+    """היטל על כיוון הציר עצמו — כדי לדעת אם הנקודה בתוך מוטת הכיפוף."""
+    return (point[0] - origin[0]) * (-normal[1]) + (point[1] - origin[1]) * normal[0]
