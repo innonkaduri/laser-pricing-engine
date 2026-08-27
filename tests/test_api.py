@@ -3153,3 +3153,48 @@ class TestCodeAssetsRevalidate:
         response = client.get("/fonts/assistant-hebrew.woff2")
         assert response.status_code == 200
         assert "immutable" in response.headers["cache-control"]
+
+
+class TestRevalidationIsCheap:
+    """`no-cache` בלי 304 אינו חיסכון אלא הורדה מלאה בכל טעינה.
+
+    **נמדד 27.8.2026:** `FileResponse` של Starlette מתעלם מ-
+    `If-None-Match` ומחזיר תמיד 200 עם הגוף. אחרי המעבר ל-`no-cache`
+    כל מסך הוריד מחדש את `brand.css` ואת כל ה-JS — הדפדפן שאל
+    "השתנה?" והשרת ענה "הנה הכול".
+    """
+
+    ASSETS = ("/brand.css", "/part-3d.js", "/part-draw.js", "/shell.js")
+
+    def test_an_unchanged_asset_answers_304_with_no_body(self, client):
+        for path in self.ASSETS:
+            first = client.get(path)
+            assert first.status_code == 200
+            etag = first.headers["etag"]
+
+            again = client.get(path, headers={"If-None-Match": etag})
+            assert again.status_code == 304, path
+            assert not again.content, f"{path}: 304 עם גוף אינו 304"
+            assert again.headers["etag"] == etag
+
+    def test_a_changed_file_gets_a_new_etag(self, tmp_path, monkeypatch, client):
+        """התג נגזר מהקובץ. פריסה שנוגעת בו חייבת לשבור אותו."""
+        # `from laser_pricing.api import app` מחזיר את אובייקט ה-FastAPI
+        # ולא את המודול — המלכודת שמתועדת בראש הקובץ הזה.
+        app_module = sys.modules["laser_pricing.api.app"]
+
+        before = client.get("/brand.css").headers["etag"]
+        source = (app_module.WEB_DIR / "brand.css").read_text(encoding="utf-8")
+        fake = tmp_path / "web"
+        fake.mkdir()
+        (fake / "brand.css").write_text(source + "\n/* nudge */\n", encoding="utf-8")
+        monkeypatch.setattr(app_module, "WEB_DIR", fake)
+
+        after = client.get("/brand.css")
+        assert after.status_code == 200
+        assert after.headers["etag"] != before
+
+    def test_a_stale_etag_still_gets_the_file(self, client):
+        response = client.get("/part-3d.js", headers={"If-None-Match": '"not-the-current-one"'})
+        assert response.status_code == 200
+        assert response.content

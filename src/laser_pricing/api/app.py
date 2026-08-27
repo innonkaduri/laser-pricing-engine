@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import hmac
 import json
 import math
@@ -2535,42 +2536,57 @@ if WEB_DIR.exists():
         )
 
     @app.get("/login")
-    def login_page() -> FileResponse:
+    def login_page(request: Request) -> Response:
         """מסך הכניסה. עצמאי לחלוטין, מאותה סיבה כמו טופס המחירים:
         דף שנטען לפני שיש זהות לא יכול להסתמך על /static שמאחורי השער."""
         return FileResponse(WEB_DIR / "login.html")
 
-    def _open_script(name: str) -> FileResponse:
-        return FileResponse(
-            WEB_DIR / name,
-            media_type="application/javascript; charset=utf-8",
-            headers={"Cache-Control": CODE_ASSET_CACHE},
-        )
+    def _revalidating(request: Request, name: str, media_type: str) -> Response:
+        """נכס קוד עם אימות זול. **`no-cache` בלי 304 הוא הורדה מלאה.**
+
+        `FileResponse` של Starlette אינו מטפל ב-`If-None-Match` בכלל —
+        הוא תמיד מחזיר 200 עם הגוף. נמדד 27.8.2026: אחרי המעבר
+        ל-`no-cache` כל טעינת מסך הורידה מחדש את `brand.css` ואת כל
+        קבצי ה-JS, כי הדפדפן שאל והשרת ענה "הנה הכול" במקום "לא
+        השתנה". על קופסה של שתי ליבות שמשרתת חמישה פרויקטים, זה
+        המחיר האמיתי של התיקון הקודם — ולכן ההשוואה כאן.
+
+        התג נגזר מזמן השינוי ומהגודל: הוא משתנה בכל פריסה שנוגעת
+        בקובץ, ואינו משתנה כשלא.
+        """
+        path = WEB_DIR / name
+        stat = path.stat()
+        etag = '"%s"' % hashlib.md5(
+            f"{stat.st_mtime_ns}-{stat.st_size}".encode()
+        ).hexdigest()
+        headers = {"Cache-Control": CODE_ASSET_CACHE, "ETag": etag}
+        if etag in (request.headers.get("if-none-match") or ""):
+            return Response(status_code=304, headers=headers)
+        return FileResponse(path, media_type=media_type, headers=headers)
+
+    def _open_script(request: Request, name: str) -> Response:
+        return _revalidating(request, name, "application/javascript; charset=utf-8")
 
     @app.get("/brand.css")
-    def brand_css() -> FileResponse:
+    def brand_css(request: Request) -> Response:
         """מערכת העיצוב. פתוחה, כי המסכים הציבוריים נטענים בלי זהות."""
-        return FileResponse(
-            WEB_DIR / "brand.css",
-            media_type="text/css; charset=utf-8",
-            headers={"Cache-Control": CODE_ASSET_CACHE},
-        )
+        return _revalidating(request, "brand.css", "text/css; charset=utf-8")
 
     @app.get("/part-draw.js")
-    def part_draw_js() -> FileResponse:
+    def part_draw_js(request: Request) -> Response:
         """ציור המתאר. פתוח, כי הקטלוג נגלל בלי חשבון."""
-        return _open_script("part-draw.js")
+        return _open_script(request, "part-draw.js")
 
     @app.get("/shell.js")
-    def shell_script() -> FileResponse:
+    def shell_script(request: Request) -> Response:
         """סרגל הצד. פתוח כמו שאר הנכסים — הוא שואל את `/api/me`,
         ומי שאינו מחובר מקבל שם 401 ומקבל סרגל בלי הפריטים המוגבלים."""
-        return _open_script("shell.js")
+        return _open_script(request, "shell.js")
 
     @app.get("/part-3d.js")
-    def part_3d_js() -> FileResponse:
+    def part_3d_js(request: Request) -> Response:
         """הצגת הגוף. פתוח מאותה סיבה, ומאותה תיקייה."""
-        return _open_script("part-3d.js")
+        return _open_script(request, "part-3d.js")
 
     @app.get("/fonts/{name}")
     def font(name: str) -> FileResponse:
