@@ -146,6 +146,9 @@ section.tint .step{background:var(--ink-50)}
 .closing .fineprint{color:var(--ink-400); font-size:var(--fs-sm); margin-top:var(--s5); max-width:52ch}
 footer{padding:var(--s8) 0 var(--s12); color:var(--ink-400); font-size:var(--fs-sm); background:var(--ink-900)}
 footer .wrap{display:flex; gap:var(--s4); flex-wrap:wrap; align-items:center}
+footer .legal{display:flex; gap:var(--s4); flex-wrap:wrap}
+footer .legal a{color:var(--ink-300); text-decoration:none; font-weight:600}
+footer .legal a:hover{color:var(--flame-500); text-decoration:underline}
 </style>
 </head>
 <body>
@@ -237,8 +240,9 @@ footer .wrap{display:flex; gap:var(--s4); flex-wrap:wrap; align-items:center}
       </div>
       <div class="step">
         <div class="n">3</div>
-        <h3>מקבלים מחיר</h3>
-        <p>סכום אחד כולל מע"מ. משנים חומר או כמות ורואים מיד איך המחיר זז.</p>
+        <h3>מזמינים</h3>
+        <p>המחיר על המסך, ומשם ישר לעגלה. כמה חלקים בהזמנה אחת
+        מסודרים יחד על אותה פלטה — ולכן עולים פחות מאשר בנפרד.</p>
       </div>
     </div>
   </div>
@@ -304,12 +308,35 @@ footer .wrap{display:flex; gap:var(--s4); flex-wrap:wrap; align-items:center}
   <div class="wrap">
     <span>ימיש כדורי · חיתוך לייזר</span>
     <span class="spacer"></span>
+    <!-- **תקנון ונגישות גם כאן.** זה הדף היחיד שמי שאינו לקוח
+         רואה, ולכן זה גם המקום שבו החובה הזאת באמת נבדקת. -->
+    <nav class="legal">
+      <a href="/terms">תקנון</a>
+      <a href="/accessibility">הצהרת נגישות</a>
+      <a href="/contact">צור קשר</a>
+    </nav>
+  </div>
+  <div class="wrap" style="padding-top:0">
+    <span id="biz"></span>
+    <span class="spacer"></span>
     <span>המחירים המוצגים הם הערכה ואינם מהווים הצעה מחייבת.</span>
   </div>
 </footer>
 
 <script>
 'use strict';
+
+/* פרטי העסק נטענים ולא נכתבים בקובץ — מסמך משפטי עם שם שהודפס
+   בקוד הופך לשקר ברגע שמשהו משתנה. */
+fetch('/api/business')
+  .then((r) => (r.ok ? r.json() : null))
+  .then((b) => {
+    if (!b || !b.legal_name) return;
+    document.getElementById('biz').textContent =
+      b.legal_name + (b.company_id ? ` · ח״פ ${b.company_id}` : '');
+  })
+  .catch(() => {});
+
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
 const nf = (n) => Number(n).toLocaleString('he-IL');
 

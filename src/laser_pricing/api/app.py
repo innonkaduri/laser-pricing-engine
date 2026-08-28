@@ -2512,6 +2512,17 @@ def shop_orders(request: Request, limit: int = 100) -> dict:
     return {"orders": orders.all_orders(limit)}
 
 
+@app.get("/api/shop/orders/new")
+def shop_new_count(request: Request) -> dict:
+    """כמה הזמנות חדשות. **רק מספר** — הסרגל מבקש את זה בכל מסך.
+
+    הזמנה שהתקבלה ואיש לא ראה היא עבודה שאובדת, וזה כבר קרה כאן
+    פעם: הפונקציות נכתבו ולא חוברו למסך. תג בסרגל הוא ההפרש בין
+    "יש מסך" לבין "מישהו יודע שיש שם משהו".
+    """
+    return {"count": sum(1 for o in orders.all_orders(500) if o["status"] == "new")}
+
+
 @app.put("/api/shop/orders/{ref}/status")
 def shop_order_status(ref: str, body: OrderStatusRequest, request: Request) -> dict:
     if not orders.set_status(ref, body.status):

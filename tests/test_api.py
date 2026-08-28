@@ -4006,3 +4006,35 @@ class TestTheServerImportsOnlyWhatProductionHas:
                         continue
                     offenders.setdefault(path.name, set()).add(name)
         assert not offenders, f"ייבוא שאינו מובטח בפרודקשן: {offenders}"
+
+
+class TestEveryScreenReachesTheTerms:
+    """**תקנון ונגישות בכל מסך, ולא בדף אחד.**
+
+    בישראל זו חובה, והדרך היחידה שהיא באמת מתקיימת היא שמישהו
+    בודק אותה. מסך חדש שנוסף בלי סרגל ובלי קישור ייפול כאן ולא
+    אצל עורך דין.
+    """
+
+    WEB = Path(__file__).resolve().parents[1] / "web"
+
+    def test_no_screen_is_a_dead_end(self):
+        offenders = []
+        for path in sorted(self.WEB.glob("*.html")):
+            text = path.read_text(encoding="utf-8")
+            # מסך מגיע לתקנון או ישירות, או דרך הסרגל המשותף.
+            if "/terms" in text or "shell.js" in text:
+                continue
+            offenders.append(path.name)
+        assert not offenders, f"מסכים בלי דרך לתקנון: {offenders}"
+
+    def test_the_shared_sidebar_carries_the_links(self):
+        shell = (self.WEB / "shell.js").read_text(encoding="utf-8")
+        for target in ("/terms", "/accessibility", "/contact"):
+            assert target in shell, target
+
+    def test_the_landing_page_says_you_can_order(self):
+        """דף נחיתה שלא מזמין הוא לקוח שנוחת והולך."""
+        landing = (self.WEB / "landing.html").read_text(encoding="utf-8")
+        assert "מזמינים" in landing
+        assert "/terms" in landing

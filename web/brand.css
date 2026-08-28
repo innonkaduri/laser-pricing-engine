@@ -382,6 +382,12 @@ body:has(.sidebar) .topbar{ display:none }
 }
 
 .sb-foot{ margin-top:auto; border-top:1px solid var(--ink-150); padding-top:var(--s3) }
+.sb-legal{
+  display:flex; flex-wrap:wrap; gap:2px 10px;
+  padding:var(--s2) var(--s3) 0; font-size:11px; line-height:1.9;
+}
+.sb-legal a{ color:var(--ink-400); text-decoration:none }
+.sb-legal a:hover{ color:var(--flame-600); text-decoration:underline }
 .sb-who{ padding:var(--s2) var(--s3); font-size:var(--fs-xs); line-height:1.5 }
 .sb-who b{ display:block; color:var(--ink-900); font-size:var(--fs-sm) }
 .sb-who span{ color:var(--ink-500) }
