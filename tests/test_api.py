@@ -3875,34 +3875,32 @@ class TestSigningInWithGoogle:
         assert response.status_code == 303
         assert "google_error" in response.headers["location"]
 
-    def test_an_unverified_google_email_is_not_an_identity(self):
+    def test_an_unverified_google_email_is_not_an_identity(self, monkeypatch):
         """חשבון גוגל יכול לטעון לכל כתובת. **האימות הוא מה שהופך
         אותה לשלו.**"""
-        import httpx
+        monkeypatch.setenv("GOOGLE_CLIENT_ID", "id")
+        monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "sod")
+        monkeypatch.setenv("PUBLIC_BASE_URL", "https://x.invalid")
+        monkeypatch.setattr(google_auth, "_post_form", lambda url, data: {"access_token": "t"})
+        monkeypatch.setattr(
+            google_auth, "_get_json",
+            lambda url, headers: {"sub": "1", "email": "a@b.com", "email_verified": False},
+        )
+        with pytest.raises(google_auth.GoogleError, match="אינה מאומתת"):
+            google_auth.exchange("code")
 
-        def handler(request: httpx.Request) -> httpx.Response:
-            if request.url.path.endswith("/token"):
-                return httpx.Response(200, json={"access_token": "t"})
-            return httpx.Response(200, json={"sub": "1", "email": "a@b.com",
-                                             "email_verified": False})
-
-        with pytest.MonkeyPatch.context() as m:
-            m.setenv("GOOGLE_CLIENT_ID", "id")
-            m.setenv("GOOGLE_CLIENT_SECRET", "sod")
-            m.setenv("PUBLIC_BASE_URL", "https://x.invalid")
-            # **המחלקה המקורית נשמרת לפני ההחלפה.** למדה שקוראת ל-
-            # `httpx.Client` אחרי שהיא עצמה הוחלפה קוראת לעצמה —
-            # וזו הייתה רקורסיה אינסופית, לא כשל בקוד הנבדק.
-            real_client = httpx.Client
-            m.setattr(
-                google_auth.httpx,
-                "Client",
-                lambda **kw: real_client(
-                    **{**kw, "transport": httpx.MockTransport(handler)}
-                ),
-            )
-            with pytest.raises(google_auth.GoogleError, match="אינה מאומתת"):
-                google_auth.exchange("code")
+    def test_a_reply_without_a_subject_is_never_an_identity(self, monkeypatch):
+        """גוגל שהחזירה 200 בלי `sub` אינה 'כנראה בסדר'."""
+        monkeypatch.setenv("GOOGLE_CLIENT_ID", "id")
+        monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "sod")
+        monkeypatch.setenv("PUBLIC_BASE_URL", "https://x.invalid")
+        monkeypatch.setattr(google_auth, "_post_form", lambda url, data: {"access_token": "t"})
+        monkeypatch.setattr(
+            google_auth, "_get_json",
+            lambda url, headers: {"email": "a@b.com", "email_verified": True},
+        )
+        with pytest.raises(google_auth.GoogleError, match="בלי מזהה חשבון"):
+            google_auth.exchange("code")
 
     def test_a_google_account_has_no_password_that_anyone_can_guess(self, client):
         user = identity.create_user(
@@ -3975,3 +3973,36 @@ class TestSigningInWithGoogle:
         # והיכולת היא בדיוק זו של הרשמה ציבורית — מחיר אחד, בלי פירוק.
         assert set(created.capabilities) == set(identity.PUBLIC_SIGNUP_CAPABILITIES)
         assert client.get("/api/me").json()["username"] == "dana"
+
+
+class TestTheServerImportsOnlyWhatProductionHas:
+    """**הפריסה נפלה על זה פעם אחת, ולא תיפול שוב בשקט.**
+
+    `deploy.sh` מושך קוד ומפעיל מחדש — הוא **אינו מתקין תלויות**.
+    לכן ייבוא של חבילה שקיימת מקומית ואינה על הקופסה הוא השבתה.
+    זה בדיוק מה שקרה עם `httpx`: הוא מגיע עם כלי הבדיקה של FastAPI
+    בסביבה המקומית, ובפרודקשן מותקן `fastapi` בלי התוספות.
+    """
+
+    ALLOWED = {"fastapi", "starlette", "pydantic", "ezdxf", "numpy", "fontTools"}
+    """מה שבאמת מותקן בפרודקשן. הוספה לרשימה הזאת היא **החלטה**:
+    היא מחייבת התקנה על הקופסה לפני הפריסה, ולא אחריה."""
+
+    def test_no_module_imports_a_package_production_lacks(self):
+        import ast
+
+        root = Path(__file__).resolve().parents[1] / "src" / "laser_pricing"
+        offenders: dict[str, set[str]] = {}
+        for path in root.rglob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                names = []
+                if isinstance(node, ast.Import):
+                    names = [alias.name.split(".")[0] for alias in node.names]
+                elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                    names = [node.module.split(".")[0]]
+                for name in names:
+                    if name in self.ALLOWED or name in sys.stdlib_module_names:
+                        continue
+                    offenders.setdefault(path.name, set()).add(name)
+        assert not offenders, f"ייבוא שאינו מובטח בפרודקשן: {offenders}"

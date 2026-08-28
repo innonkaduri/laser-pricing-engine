@@ -17,15 +17,25 @@
 
 **מה שנבדק כן:** ש-`email_verified` אמיתי. חשבון גוגל עם כתובת
 שלא אומתה יכול לטעון לכל כתובת שהיא, ולכן הוא אינו זהות.
+
+**ולמה `urllib` ולא `httpx`.** הגרסה הראשונה של הקובץ ייבאה
+`httpx`, והפריסה **נפלה**: `httpx` קיים בסביבה המקומית (הוא מגיע
+עם כלי הבדיקה של FastAPI) ואינו מותקן על הקופסה — ו-`deploy.sh`
+אינו מתקין תלויות כלל, הוא מושך קוד ומפעיל מחדש. כלומר **כל ייבוא
+חיצוני חדש הוא השבתה שמחכה לקרות**. שתי בקשות HTTPS פשוטות אינן
+שוות תלות, ובוודאי לא תלות שהסביבה המקומית מסתירה. הגלגול אחורה
+עבד, וזו הפעם היחידה שהוא נדרש.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import secrets
+import urllib.error
+import urllib.parse
+import urllib.request
 from urllib.parse import urlencode
-
-import httpx
 
 AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
@@ -89,6 +99,38 @@ def auth_url(state: str) -> str:
     return f"{AUTH_ENDPOINT}?{urlencode(params)}"
 
 
+def _read(request: urllib.request.Request, what: str) -> dict:
+    """קורא JSON, וכל כישלון הוא `GoogleError` עם סיבה בעברית."""
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+            body = response.read()
+    except urllib.error.HTTPError as exc:
+        raise GoogleError(f"גוגל דחתה את הבקשה ({what}, {exc.code}). נסה להיכנס שוב.") from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise GoogleError(f"לא הצלחנו להגיע לגוגל ({what}).") from exc
+    try:
+        parsed = json.loads(body)
+    except (ValueError, TypeError) as exc:
+        raise GoogleError(f"תשובה לא קריאה מגוגל ({what}).") from exc
+    if not isinstance(parsed, dict):
+        raise GoogleError(f"תשובה לא צפויה מגוגל ({what}).")
+    return parsed
+
+
+def _post_form(url: str, data: dict) -> dict:
+    request = urllib.request.Request(
+        url,
+        data=urlencode(data).encode("utf-8"),
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    return _read(request, "החלפת קוד")
+
+
+def _get_json(url: str, headers: dict) -> dict:
+    return _read(urllib.request.Request(url, headers=headers, method="GET"), "פרטי חשבון")
+
+
 def exchange(code: str) -> dict:
     """קוד → זהות. **שרת-לשרת בלבד.**
 
@@ -105,24 +147,11 @@ def exchange(code: str) -> dict:
         "redirect_uri": redirect_uri(),
         "grant_type": "authorization_code",
     }
-    try:
-        with httpx.Client(timeout=TIMEOUT_SECONDS) as client:
-            token_response = client.post(TOKEN_ENDPOINT, data=data)
-            if token_response.status_code != 200:
-                raise GoogleError(
-                    f"גוגל דחתה את הקוד ({token_response.status_code}). נסה להיכנס שוב."
-                )
-            access_token = token_response.json().get("access_token", "")
-            if not access_token:
-                raise GoogleError("גוגל לא החזירה אסימון גישה.")
-            info_response = client.get(
-                USERINFO_ENDPOINT, headers={"Authorization": f"Bearer {access_token}"}
-            )
-            if info_response.status_code != 200:
-                raise GoogleError("לא הצלחנו לקרוא את פרטי החשבון מגוגל.")
-            info = info_response.json()
-    except httpx.HTTPError as exc:
-        raise GoogleError(f"לא הצלחנו להגיע לגוגל: {exc}") from exc
+    token = _post_form(TOKEN_ENDPOINT, data)
+    access_token = str(token.get("access_token", "")).strip()
+    if not access_token:
+        raise GoogleError("גוגל לא החזירה אסימון גישה.")
+    info = _get_json(USERINFO_ENDPOINT, {"Authorization": f"Bearer {access_token}"})
 
     sub = str(info.get("sub", "")).strip()
     email = str(info.get("email", "")).strip().lower()
