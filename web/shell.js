@@ -62,10 +62,17 @@ export async function mountSidebar(active = location.pathname) {
     })
     .join('');
 
+  /* **מה שהמשתמש רשאי, במילים.** עד 28.8.2026 `/api/me` לא החזיר
+     `capability_labels` בכלל — השדה קיים ב-`/api/account` בלבד —
+     ולכן כאן הופיע תמיד "משתמש", גם לאבא וגם לבית המלאכה.
+     התוויות ארוכות, ולכן הן נחתכות לשתי שורות ונשארות במלואן
+     ב-`title`: תווית שנקטעת עדיפה על תווית שדוחפת את התקנון
+     מחוץ למסך. */
+  const labels = (me && me.capability_labels) || [];
   const who = me
-    ? `<div class="sb-who"><b>${me.display_name || me.username || ''}</b><span>${
-        (me.capability_labels || []).join(' · ') || 'משתמש'
-      }</span></div>`
+    ? `<div class="sb-who"><b>${me.display_name || me.username || ''}</b><span${
+        labels.length ? ` title="${labels.join(' · ')}"` : ''
+      }>${labels.join(' · ') || 'משתמש'}</span></div>`
     : '';
 
   const nav = document.createElement('nav');

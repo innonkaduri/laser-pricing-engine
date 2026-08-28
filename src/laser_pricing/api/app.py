@@ -216,7 +216,7 @@ def _is_font_path(path: str) -> bool:
     return path.startswith("/fonts/") and path.endswith(".woff2")
 
 
-OPEN_ASSETS = ("/brand.css", "/part-draw.js", "/part-3d.js", "/shell.js")
+OPEN_ASSETS = ("/brand.css", "/part-draw.js", "/part-3d.js", "/shell.js", "/favicon.svg", "/favicon.ico")
 """נכסים שכל מסך ציבורי צריך, ולכן אינם יכולים לשבת מאחורי השער.
 
 `brand.css` הוא מערכת העיצוב. `part-draw.js` הוא הקוד שהופך מתאר
@@ -967,6 +967,12 @@ def me(request: Request) -> dict:
         "username": user.username,
         "display_name": user.display_name,
         "capabilities": sorted(user.capabilities),
+        # **הסרגל שאל על התוויות וקיבל `undefined`.** `shell.js` קורא
+        # `capability_labels`, והשדה קיים ב-`/api/account` בלבד — ולכן
+        # תחת השם בסרגל הופיע תמיד "משתמש", גם לאבא וגם לבית המלאכה.
+        # נמדד 28.8.2026. אותו מילון בדיוק, כדי ששני המסכים לא יסבירו
+        # את אותה יכולת בשתי שפות.
+        "capability_labels": [CAPABILITY_LABELS.get(c, c) for c in sorted(user.capabilities)],
         "source": user.source,
     }
 
@@ -3118,6 +3124,21 @@ if WEB_DIR.exists():
     def brand_css(request: Request) -> Response:
         """מערכת העיצוב. פתוחה, כי המסכים הציבוריים נטענים בלי זהות."""
         return _revalidating(request, "brand.css", "text/css; charset=utf-8")
+
+    @app.get("/favicon.svg")
+    @app.get("/favicon.ico")
+    def favicon(request: Request) -> Response:
+        """הסמל בלשונית. **פתוח, ושתי הכתובות.**
+
+        הדפדפן מבקש `/favicon.ico` מעצמו גם כשאיש לא ביקש ממנו, וכל
+        טעינת מסך כאן החזירה 404 — נמדד 28.8.2026 בקונסולה. התוצאה
+        אינה רק רעש בלוג: הלשונית נשארה ריקה, ומערכת שאין לה סמל
+        נראית כמו טופס פנימי ולא כמו חנות.
+
+        אותו קובץ SVG משרת את שתי הכתובות. תמונה וקטורית אינה תלויה
+        ברזולוציה, ולכן אין כאן שלושה גדלים שצריך לתחזק.
+        """
+        return _revalidating(request, "favicon.svg", "image/svg+xml")
 
     @app.get("/part-draw.js")
     def part_draw_js(request: Request) -> Response:

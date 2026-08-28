@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>עורך החלק — ימיש כדורי</title>
 <link rel="preload" as="font" type="font/woff2" href="/fonts/assistant-hebrew.woff2" crossorigin>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/brand.css">
 <style>
 /* העורך. בד ציור אחד ולוח בקרה אחד; כל השאר מ-/brand.css. */
@@ -66,6 +67,16 @@ canvas.paper{ display:block; width:100%; height:min(64vh,600px); touch-action:no
 .grid3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:var(--s2) }
 .field label{ display:block; font-size:11px; color:var(--ink-500); margin-bottom:3px }
 .field input,.field select{ width:100%; font-variant-numeric:tabular-nums; direction:ltr; text-align:right }
+/* **`direction:ltr` הוא כלל של מספרים, ובורר החומר אינו מספר.**
+   נמדד 28.8.2026: השדה 92 פיקסלים, הערך "פלדה שחורה St37", וב-LTR
+   הדפדפן מציג את **סוף** המחרוזת — הלקוח ראה "ז שחורה" ולא ידע
+   איזה חומר הוא קונה. זה אותו באג של המספרים בעברית, במראה: כלל
+   שנכון לספרות הוחל על טקסט.
+   ולכן גם השורה כולה השתנתה — חומר תופס את מלוא הרוחב, ועובי
+   וכמות מתחלקים בשורה שאחריו. שם חומר אינו נכנס בשליש טור. */
+.matrow{ display:grid; grid-template-columns:1fr; gap:var(--s3) }
+.matrow .pair{ display:grid; grid-template-columns:1fr 1fr; gap:var(--s2) }
+#mat{ direction:rtl; text-align:start; text-overflow:ellipsis }
 .sel-empty{ font-size:var(--fs-sm); color:var(--ink-400); margin:0 }
 .rowbtns{ display:flex; gap:var(--s2); margin-top:var(--s3) }
 .rowbtns .btn{ flex:1 }
@@ -77,6 +88,12 @@ canvas.paper{ display:block; width:100%; height:min(64vh,600px); touch-action:no
 .brk div{ display:flex; justify-content:space-between; padding:5px 0; font-size:var(--fs-sm) }
 .brk div span{ color:var(--ink-500) }
 .brk div b{ direction:ltr; font-variant-numeric:tabular-nums }
+/* השורה המסכמת נראית כמו סכום ולא כמו עוד רכיב. */
+.brk .sum{ border-top:1px solid var(--ink-150); margin-top:2px; font-weight:650 }
+.brk .sum span{ color:var(--ink-700) }
+/* שורה שאינה עלות של החלק — מינימום או שארית — מסומנת, כדי שלא
+   תיקרא כמו עוד רכיב ייצור. */
+.brk .note span,.brk .note b{ color:var(--flame-700) }
 .hintline{ font-size:11px; color:var(--ink-500); line-height:1.5; margin:var(--s3) 0 0 }
 .chips{ display:flex; gap:6px; flex-wrap:wrap; margin-top:var(--s2) }
 .card .chips button{
@@ -85,6 +102,50 @@ canvas.paper{ display:block; width:100%; height:min(64vh,600px); touch-action:no
   font-size:11px; font-weight:600; cursor:pointer;
 }
 .card .chips button:hover{ border-color:var(--ink-400) }
+
+/* **בטלפון המחיר עלה מעל המתאר, וזו לא העדפה.**
+   נמדד 28.8.2026 ב-390×844: הבד התחיל ב-343 פיקסלים והיה בגובה 540,
+   ותיבת המחיר ישבה ב-**1,567** — כמעט שני מסכים מתחת לחלק. כלומר
+   אי אפשר היה לראות את המוצר ואת מה שהוא עולה באותו רגע, ו"הוסף
+   לעגלה" היה עוד למטה. מי שמתמחר בטלפון עושה בדיוק את הדבר האחד
+   הזה: משנה מידה, מסתכל על המחיר.
+   הבד גם מתקצר: 64vh נועד למסך רחב, ובטלפון הוא בלע את כל הגלילה. */
+@media (max-width:1040px){
+  .split{ grid-template-columns:minmax(0,1fr) }
+  #price-card{ order:-1 }
+  canvas.paper{ height:min(46vh,380px) }
+}
+
+/* **ופס המחיר שנשאר על המסך.** גם אחרי שהבד התקצר והכרטיס עלה,
+   המחיר נשאר 1,061 פיקסלים מלמעלה — מסך שלם מתחת לחלק. הפס הזה
+   הוא הפתרון היחיד שבו **רואים את המוצר ואת מה שהוא עולה באותו
+   רגע**, וזו כל הפעולה שעושים כאן בטלפון.
+   הוא אינו מחשב מחיר בעצמו: אותה פונקציה שכותבת לתיבה כותבת גם
+   לכאן. שני מקומות שמחשבים מחיר הם שני מחירים שייפרדו בשקט. */
+.mobar{ display:none }
+@media (max-width:1040px){
+  .mobar{
+    display:flex; align-items:center; gap:var(--s3);
+    position:fixed; inset-inline:0; inset-block-end:0; z-index:30;
+    padding:var(--s3) var(--s4); background:var(--paper);
+    border-top:1px solid var(--ink-200); box-shadow:0 -2px 12px rgba(20,26,34,.08);
+    padding-block-end:calc(var(--s3) + env(safe-area-inset-bottom));
+  }
+  .mobar .who{ flex:1; min-width:0 }
+  .mobar b{ display:block; font-size:20px; font-weight:800; letter-spacing:-.02em;
+            direction:ltr; text-align:start; font-variant-numeric:tabular-nums }
+  .mobar b.stale{ opacity:.35 }
+  .mobar small{ display:block; font-size:11px; color:var(--ink-500) }
+  .mobar .btn{ flex:none }
+  /* מקום לפס, אחרת הוא יושב על הכרטיס האחרון. */
+  .wrap-ed{ padding-block-end:96px }
+  /* **הכותרת בלעה ארבע שורות.** `#name` נמדד 320 פיקסלים (34ch)
+     בתוך שורה של 350, ולכן "עורך" ו"חלק" ירדו זה מתחת לזה ולפניהם
+     גם שם המקור — 130 פיקסלים של כותרת לפני שרואים משהו. השדה
+     מקבל כאן לגדול ולהתכווץ עם המקום שנשאר, במקום רוחב קבוע. */
+  .head{ gap:var(--s3) }
+  #name{ flex:1 1 0; min-width:0; max-width:none }
+}
 </style>
 </head>
 <body>
@@ -150,12 +211,14 @@ canvas.paper{ display:block; width:100%; height:min(64vh,600px); touch-action:no
         <div id="sel"><p class="sel-empty">לחץ על חור, על חיתוך או על קו כיפוף.</p></div>
       </section>
 
-      <section class="card">
+      <section class="card" id="price-card">
         <h2>חומר ומחיר</h2>
-        <div class="grid3">
+        <div class="matrow">
           <div class="field"><label for="mat">חומר</label><select id="mat"></select></div>
-          <div class="field"><label for="thk">עובי</label><select id="thk"></select></div>
-          <div class="field"><label for="qty">כמות</label><input id="qty" type="number" min="1" step="1" value="1"></div>
+          <div class="pair">
+            <div class="field"><label for="thk">עובי</label><select id="thk"></select></div>
+            <div class="field"><label for="qty">כמות</label><input id="qty" type="number" min="1" step="1" value="1"></div>
+          </div>
         </div>
         <div class="note note-bad hidden" id="err" style="margin-top:var(--s3)"></div>
         <div class="pricebox" id="price"><div class="big">—</div><div class="sub">מתמחר…</div></div>
@@ -184,6 +247,14 @@ canvas.paper{ display:block; width:100%; height:min(64vh,600px); touch-action:no
     </aside>
   </div>
 </main>
+
+<!-- פס המחיר לטלפון. הכפתור אינו מוסיף לעגלה בעצמו אלא לוחץ על
+     הכפתור האמיתי — כדי שיהיה מסלול הוספה **אחד**, עם אותן בדיקות
+     ואותן הודעות שגיאה. -->
+<div class="mobar" id="mobar">
+  <div class="who"><b id="mobar-total">—</b><small id="mobar-sub">מתמחר…</small></div>
+  <button class="btn btn-primary" id="mobar-cart" type="button">הוסף לעגלה</button>
+</div>
 
 <script type="module">
 import { mountSidebar, refreshCartBadge } from '/shell.js';
@@ -642,6 +713,7 @@ async function refresh() {
       const chosen = selection.find((s) => s.kind === 'bend');
       const face = chosen ? data.model.faces.findIndex((f) => f.bend_index === chosen.index) : -1;
       viewer.select(face);
+      if (!bendDrag) paintReadout3d();
     }
     else { $('c').style.display = 'block'; if (viewer) viewer.canvas.style.display = 'none'; draw(); }
     schedulePrice();
@@ -650,8 +722,17 @@ async function refresh() {
 
 function schedulePrice() {
   $('price').querySelector('.big').classList.add('stale');
+  $('mobar-total').classList.add('stale');
   clearTimeout(priceTimer);
   priceTimer = setTimeout(quote, 350);
+}
+
+/* פס הטלפון מקבל את **אותם מספרים** של התיבה, מאותה נקודה בקוד.
+   הוא תצוגה שנייה, לא חישוב שני. */
+function paintMobar(total, sub) {
+  $('mobar-total').textContent = total;
+  $('mobar-total').classList.remove('stale');
+  $('mobar-sub').textContent = sub;
 }
 
 async function quote(record = false) {
@@ -669,6 +750,7 @@ async function quote(record = false) {
     $('err').textContent = data.detail || 'לא הצלחנו לתמחר.';
     $('err').classList.remove('hidden');
     $('price').innerHTML = '<div class="big">—</div><div class="sub">אין מחיר</div>';
+    paintMobar('—', data.detail || 'אין מחיר');
     return;
   }
   $('err').classList.add('hidden');
@@ -677,13 +759,60 @@ async function quote(record = false) {
   let html = `<div class="big">${money(q.total)}</div>
     <div class="sub">כולל מע"מ${qty > 1 ? ` · ${money(q.total / qty)} ליחידה` : ''}</div>`;
   if (line) {
+    /* **הפירוק חייב להסתכם לסכום שמעליו.**
+
+       נמדד 28.8.2026 על מגש 4 דפנות: חומר 84.40 + חיתוך 10.82 +
+       כיפוף 187.00 = 282.22, ומתחתיהם התנוססו 350.00 "לפני מע"מ".
+       67.78 ₪ הופיעו יש מאין. הסיבה התבררה כשנמדדה אותה הצעה בכמות
+       60: שם הכול הסתכם בדיוק. **הפער היה `min_order_applied`** —
+       מינימום הזמנה של 350 ₪ שהרים את הסכום, ושלא הופיע בשום שורה.
+
+       וזה בדיוק הדבר שהכי חשוב שיופיע: לקוח שמזמין חלק אחד קטן
+       ורואה 413 ₪ בלי הסבר חושב שהמנוע המציא מספר. פער שאין לו
+       שורה נראה כמו מנוע שממציא, וזה מה שהטבלה כאן אמורה למנוע. */
+    const parts = [
+      ['חומר', line.material_cost],
+      ['חיתוך', line.cutting_cost],
+      ['ניקוב', line.piercing_cost],
+      ['ריתוך', line.welding_cost],
+      ['כיפוף', line.bending_cost],
+      ['הקמת חלק', line.setup_cost],
+    ].filter(([, value]) => Number(value));
+    const shown = parts.slice();
+    if (Number(q.order_setup_fee)) shown.push(['הקמת הזמנה', q.order_setup_fee]);
+    if (Number(q.margin_amount)) shown.push(['רווח', q.margin_amount]);
+    const sum = shown.reduce((acc, [, value]) => acc + Number(value), 0);
+    const gap = Math.round((q.total_before_vat - sum) * 100) / 100;
+    /* המינימום מוצג כהפרש ולא כסכום, כי זה מה שהוא: השלמה. שורה
+       שכתוב בה "מינימום 350" ליד חלקים ב-95 נקראת כאילו שילמו 445. */
+    if (q.min_order_applied && gap > 0) shown.push(['השלמה למינימום הזמנה', gap, 'note']);
+    /* ואם נשאר הפרש שאינו המינימום — הוא נאמר, ולא מתחלק בשקט בין
+       השורות. רכיב עלות חדש בשרת יופיע כאן כ"שאר" עד שיקבל שם.
+
+       **הסף גדל עם הכמות, וזה לא שרירותי.** המנוע מעגל את מחיר
+       היחידה לאגורה ורק אז מכפיל בכמות, בעוד כל רכיב מעוגל בנפרד
+       מהסכום הלא-מעוגל — ולכן ההפרש הצפוי הוא חצי אגורה לכל יחידה.
+       נמדד 28.8.2026 בכמות 60: 0.17- ₪, בדיוק בסדר הגודל הזה.
+       סף קבוע של אגורה היה מציג שורת "שאר" בכל כמות גדולה, ושורה
+       שמופיעה תמיד מפסיקים לקרוא — וזו בדיוק הדרך שבה רכיב אמיתי
+       שיתווסף מחר יעבור בלי שאיש ישים לב. */
+    else if (Math.abs(gap) > 0.005 * qty + 0.02) shown.push(['שאר', gap, 'note']);
     html += `<div class="brk">
-      <div><span>חומר</span><b>${money(line.material_cost)}</b></div>
-      <div><span>חיתוך</span><b>${money(line.cutting_cost)}</b></div>
-      ${line.bending_cost ? `<div><span>כיפוף</span><b>${money(line.bending_cost)}</b></div>` : ''}
-      <div><span>לפני מע"מ</span><b>${money(q.total_before_vat)}</b></div></div>`;
+      ${shown
+        .map(([name, value, cls]) =>
+          `<div${cls ? ` class="${cls}"` : ''}><span>${name}</span><b>${money(value)}</b></div>`)
+        .join('')}
+      <div class="sum"><span>לפני מע"מ</span><b>${money(q.total_before_vat)}</b></div></div>`;
+    if (q.min_order_applied) {
+      html += `<p class="hintline">ההזמנה לא הגיעה למינימום, והושלמה אליו.
+        <b>כמות גדולה יותר תוזיל את היחידה בהרבה</b> — אותו מינימום מתחלק על יותר חלקים.</p>`;
+    }
   }
   $('price').innerHTML = html;
+  paintMobar(
+    money(q.total),
+    qty > 1 ? `כולל מע"מ · ${money(q.total / qty)} ליחידה` : 'כולל מע"מ'
+  );
   if (record) flash('ההצעה נשמרה בהיסטוריה.');
 }
 
@@ -701,6 +830,21 @@ function thickness() { return Number($('thk').value) || 2; }
 let bendDrag = false;
 let foldTimer = 0;
 let foldPending = false;
+
+/* **הצמדה לזוויות שבאמת מזמינים.**
+   הידית מתרגמת 0.6° לפיקסל, ולכן לעצור בדיוק על 90 ביד דורש מזל.
+   בלי ההצמדה יצאו מהגרירה מגשים ב-89.5° וב-90.5° — מספרים שנראים
+   כמו טעות במסמך, ושאף מכבש לא באמת מכייל אליהם. חלון של 2.5°
+   רחב מספיק כדי שהיד תיפול פנימה וצר מספיק כדי שמי שרוצה 87°
+   יקבל 87°. */
+const SNAP_ANGLES = [30, 45, 60, 90, 120, 135, 150];
+const SNAP_WINDOW_DEG = 2.5;
+function snapAngle(value) {
+  for (const target of SNAP_ANGLES) {
+    if (Math.abs(value - target) <= SNAP_WINDOW_DEG) return [target, true];
+  }
+  return [value, false];
+}
 function liveFold() {
   if (foldTimer) { foldPending = true; return; }
   foldTimer = setTimeout(async () => {
@@ -732,6 +876,7 @@ function solid() {
       onPick(face, bend) {
         selection = bend >= 0 ? [{ kind: 'bend', index: bend }] : [];
         paintSelection();
+        paintReadout3d();
       },
       /* גרירת הידית משנה זווית. **החישוב נשאר בשרת** — הדפדפן
          מזיז מספר אחד ומבקש את הגוף מחדש, ולכן אין כאן מודל שני
@@ -742,9 +887,11 @@ function solid() {
         if (!bendDrag) { commit(); bendDrag = true; }
         // חצי מעלה. מכבש אינו מכייל ל-118.79999999999987, ומספר
         // כזה בשדה נראה כמו תקלה ולא כמו זווית.
-        const next = Math.max(1, Math.min(170, item.angle_deg + delta));
-        item.angle_deg = Math.round(next * 2) / 2;
+        const raw = Math.max(1, Math.min(170, item.angle_deg + delta));
+        const [angle, snapped] = snapAngle(Math.round(raw * 2) / 2);
+        item.angle_deg = angle;
         paintSelection();
+        paintReadout3d(`כיפוף ${NUM(angle, 1)}°${snapped ? '  ⟵ נצמד' : ''}`);
         liveFold();
       },
     });
@@ -755,13 +902,21 @@ function solid() {
 }
 
 function paintFacts(data) {
-  const rows = [
+  const rows = [];
+  /* **המידה של המוצר קודמת למידה של הפריסה.**
+     מגש 300×200 עם דופן 50 נחתך מפריסה של 400×300, ושני המספרים
+     נכונים — אבל זה שהלקוח מודד בו את המגש הוא הראשון. עד היום
+     הופיעה כאן הפריסה בלבד, וזו הסיבה שהתלת-ממד נראה כמו תמונה
+     ולא כמו מוצר: אפשר היה לסובב אותו בלי לדעת כמה הוא גדול. */
+  const size = data.model && data.model.size_mm;
+  if (size) rows.push(['מידה חיצונית', size.map((v) => NUM(v)).join(' × ')]);
+  rows.push(
     ['פריסה לחיתוך', `${NUM(data.bbox.width_mm)} × ${NUM(data.bbox.height_mm)}`],
     ['אורך חיתוך', `${NUM(data.cut_length_mm / 1000, 2)} מ׳`],
     ['שטח נטו', `${NUM(data.net_area_mm2 / 1e6, 3)} מ״ר`],
     ['חורים', data.holes],
     ['כיפופים', data.bend_count],
-  ];
+  );
   if (!data.fits_single_plate) rows.push(['⚠ פלטה', 'לא נכנס']);
   $('facts').innerHTML = rows.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
 }
@@ -942,9 +1097,53 @@ function setTool(next) {
 for (const button of document.querySelectorAll('.bar button[data-tool]'))
   button.addEventListener('click', () => setTool(button.dataset.tool));
 
-$('v-flat').addEventListener('click', () => { view3d = false; $('v-flat').classList.add('on'); $('v-solid').classList.remove('on'); refresh(); });
-$('v-solid').addEventListener('click', () => { view3d = true; $('v-solid').classList.add('on'); $('v-flat').classList.remove('on'); refresh(); });
-$('fit').addEventListener('click', fitView);
+/* **כלי ציור בתצוגת הגוף הוא כפתור שמבטיח ולא מקיים.**
+   נמדד 28.8.2026: בתצוגת "גוף" ששת כלי הציור והרשת נשארו לחיצים,
+   הבד הדו-ממדי מוסתר, ולחיצה על "חור" שינתה את הכלי הפעיל **בלי
+   שיהיה איפה לצייר**. אותו כלל שכבר נכתב כאן על חומר בלי מחיר ועל
+   אמצעי תשלום שאינו מוגדר: מסך אינו מציע בחירה שנועדה להיכשל. */
+function paintViewButtons() {
+  $('v-flat').classList.toggle('on', !view3d);
+  $('v-solid').classList.toggle('on', view3d);
+  for (const button of document.querySelectorAll('.bar button[data-tool]')) button.disabled = view3d;
+  $('grid').disabled = view3d;
+  $('fit').textContent = view3d ? 'אפס תצוגה' : 'התאם';
+  $('fit').title = view3d ? 'החזרת המצלמה לזווית ההתחלה — F' : 'התאם לחלון — F';
+  if (view3d) paintReadout3d();
+}
+
+/* **תיבת הקריאה בתלת-ממד — היא שמלמדת שאפשר לגעת.**
+   עד 28.8.2026 היא הציגה `—` בתצוגת הגוף (המספרים שבה הם קואורדינטות
+   הבד הדו-ממדי, שאינו מצויר שם), ושום דבר במסך לא רמז שהגוף ניתן
+   ללחיצה או שיש בו ידית כיפוף. משתמש שלא מגלה יכולת — אין לו אותה. */
+function paintReadout3d(live) {
+  const box = $('readout');
+  if (live !== undefined) { box.textContent = live; return; }
+  const chosen = selection.find((s) => s.kind === 'bend');
+  const bend = chosen ? doc.bends[chosen.index] : null;
+  if (bend) box.textContent = `כיפוף ${NUM(bend.angle_deg, 1)}° · גרור את הידית הכתומה`;
+  else if (doc.bends.length) box.textContent = 'לחץ על דופן כדי לכופף אותה · גרור לסיבוב';
+  else box.textContent = 'גרור לסיבוב · צבוט או גלגל לזום · F לאיפוס';
+}
+$('v-flat').addEventListener('click', () => { view3d = false; paintViewButtons(); refresh(); });
+$('v-solid').addEventListener('click', () => {
+  view3d = true;
+  // כלי ציור פעיל שנשאר פעיל אחרי המעבר היה בוחר בחזרה בפריסה
+  // צורה שהמשתמש כבר שכח שביקש.
+  if (tool !== 'select') setTool('select');
+  paintViewButtons();
+  refresh();
+});
+/* **"התאם" היה כפתור מת בתלת-ממד.** הוא קרא ל-`fitView` של המצלמה
+   הדו-ממדית, שאינה זו שמציירת את הגוף — לחיצה עליו לא עשתה כלום,
+   וכך גם מקש F. אותו כפתור, שתי מצלמות. */
+function fitOrReset() {
+  if (view3d && viewer) viewer.reset();
+  else fitView();
+}
+$('fit').addEventListener('click', fitOrReset);
+// מסלול הוספה אחד: הפס לוחץ על הכפתור האמיתי ולא משכפל את הלוגיקה.
+$('mobar-cart').addEventListener('click', () => $('tocart').click());
 $('grid').addEventListener('click', () => {
   snap = snap === 5 ? 1 : snap === 1 ? 0 : 5;
   $('grid').textContent = snap ? `רשת ${snap}` : 'בלי רשת';
@@ -977,9 +1176,11 @@ document.addEventListener('keydown', (event) => {
   if (meta && event.key.toLowerCase() === 'z') { event.preventDefault(); event.shiftKey ? redo() : undo(); return; }
   if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); $('del').click(); return; }
   const keys = { v: 'select', a: 'vertex', h: 'hole', c: 'cutout', b: 'bend', t: 'text' };
-  if (keys[event.key.toLowerCase()]) { setTool(keys[event.key.toLowerCase()]); return; }
-  if (event.key.toLowerCase() === 'f') { fitView(); return; }
-  if (event.key.toLowerCase() === 'g') { $('grid').click(); return; }
+  // קיצור שמפעיל כלי ציור בתצוגת הגוף הוא בדיוק אותו כפתור מת,
+  // רק בלי שרואים אותו נדלק.
+  if (keys[event.key.toLowerCase()]) { if (!view3d) setTool(keys[event.key.toLowerCase()]); return; }
+  if (event.key.toLowerCase() === 'f') { fitOrReset(); return; }
+  if (event.key.toLowerCase() === 'g') { if (!view3d) $('grid').click(); return; }
   if (event.key.startsWith('Arrow') && selection.length) {
     event.preventDefault();
     const step = event.shiftKey ? 10 : (snap || 1);
@@ -1149,6 +1350,7 @@ async function boot() {
     }
   }
   window.addEventListener('resize', () => { draw(); if (viewer) viewer.redraw(); });
+  paintViewButtons();
   fitView();
   refresh();
 }

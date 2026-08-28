@@ -356,6 +356,16 @@ button:disabled{opacity:.45; cursor:not-allowed}
 body:has(.sidebar){ padding-inline-start:var(--sb-w) }
 /* מסך שכבר נושא topbar לא צריך גם אותו וגם סרגל — הסרגל מנצח. */
 body:has(.sidebar) .topbar{ display:none }
+/* **והסרגל חייב להחזיר את מה שהסתיר.** ה-topbar לא היה רק ניווט:
+   הוא היה גם המרווח העליון של הדף. ברגע שהוא הוסתר, כל מסך שהסתמך
+   עליו התחיל **בפיקסל אפס** — הכרטיס הראשון נגזר בשפת החלון.
+   נמדד 28.8.2026 ב-`/`, `/catalog` ו-`/dashboard`: `top: 0` בכולם,
+   וזה מה שגרם למסכים להיראות לא-מעוצבים יותר מכל דבר אחר.
+   בטלפון הריפוד כבר קיים (56px מתחת לכפתור התפריט) ולכן הכלל הזה
+   שייך למסך הרחב בלבד. */
+@media (min-width:901px){
+  body:has(.sidebar){ padding-block-start:var(--s5) }
+}
 
 .sb-brand{
   display:flex; align-items:center; gap:var(--s3); padding:var(--s2);
@@ -390,7 +400,12 @@ body:has(.sidebar) .topbar{ display:none }
 .sb-legal a:hover{ color:var(--flame-600); text-decoration:underline }
 .sb-who{ padding:var(--s2) var(--s3); font-size:var(--fs-xs); line-height:1.5 }
 .sb-who b{ display:block; color:var(--ink-900); font-size:var(--fs-sm) }
-.sb-who span{ color:var(--ink-500) }
+.sb-who span{
+  color:var(--ink-500);
+  /* שתי שורות ולא יותר: היכולות הן שני משפטים מלאים, והשלישית
+     הייתה דוחפת את התקנון והנגישות מתחת לקצה הסרגל. */
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+}
 
 /* **`button` בסלקטור, ו-`.ghost` על האלמנט — שניהם חובה.**
    שורת הגשר `button:not(.btn):not(.ghost)` הופכת כל כפתור חשוף

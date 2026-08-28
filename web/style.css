@@ -87,17 +87,39 @@ nav.tabs {
   background: var(--card);
   border-bottom: 1px solid var(--line);
 }
-nav.tabs button {
+/* **שלושת המינוסים בסלקטור הם התיקון, לא קישוט.**
+   שורת הגשר ב-brand.css — `button:not(.btn):not(.ghost)` — הופכת כל
+   כפתור חשוף לכפתור ראשי כתום, וסגוליותה (0,2,1) גברה על
+   `nav.tabs button` (0,1,1). נמדד 28.8.2026 במסך הראשי: **שלוש
+   הלשוניות יצאו שלוש קופסאות כתומות מלאות**, אי אפשר היה לדעת על
+   איזו עומדים, והן צעקו יותר מכל תוכן שמתחתן.
+   וזו הפעם הרביעית שאותה שורת גשר תופסת אלמנט שלא נועד לה, ולכן
+   האיפוס כאן מפורש: גם `min-height`, גם `border-radius` וגם
+   `box-shadow` — הצורה נשארת אחרת גם כשהצבע כבר תוקן. */
+nav.tabs button:not(.btn):not(.ghost) {
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
+  border-radius: 0;
+  box-shadow: none;
+  min-height: 0;
   color: var(--muted);
   padding: 11px 0;
   font-size: 14.5px;
+  font-weight: 600;
   font-family: inherit;
   cursor: pointer;
 }
-nav.tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+nav.tabs button:not(.btn):not(.ghost):hover { background: none; color: var(--text); }
+/* **וגם הלשונית הפעילה חייבת לעלות בסגוליות.** הרגע שבו הועלה
+   הסלקטור שמעל, הוא גבר גם על `nav.tabs button.active` (0,2,1)
+   ושתל אצלה `border-bottom: transparent` — כלומר התיקון לצבע היה
+   מוחק את הסימון של הלשונית הפעילה, ואי אפשר היה לדעת איפה עומדים
+   בכלל. נמדד מיד אחרי השינוי: `borderBottomColor: rgba(0,0,0,0)`. */
+nav.tabs button.active:not(.btn):not(.ghost) {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
 
 main { padding: 22px 28px 70px; max-width: 1240px; }
 .view { display: none; }

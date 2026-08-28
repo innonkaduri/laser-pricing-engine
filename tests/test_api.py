@@ -4038,3 +4038,145 @@ class TestEveryScreenReachesTheTerms:
         landing = (self.WEB / "landing.html").read_text(encoding="utf-8")
         assert "מזמינים" in landing
         assert "/terms" in landing
+
+
+class TestTheBreakdownAddsUp:
+    """**פירוק שאינו מסתכם לסכום נראה כמו מנוע שממציא.**
+
+    נמדד 28.8.2026 בעורך, על מגש 4 דפנות: חומר 84.40 + חיתוך 10.82 +
+    כיפוף 187.00 = 282.22, ומתחתיהם "לפני מע"מ 350.00". 67.78 ₪ בלי
+    שורה. הסיבה התבררה כשנמדדה אותה הצעה בכמות 60 — שם הכול הסתכם
+    בדיוק: הפער היה **מינימום ההזמנה**, שהרים את הסכום ולא הופיע
+    בשום מקום.
+
+    המסך מציג היום את כל הרכיבים ואת ההשלמה למינימום. הבדיקה כאן
+    שומרת על ההנחה שהוא נשען עליה: **הרכיבים שהוא יודע לקרוא בשם
+    מכסים את כל הסכום.** רכיב עלות חדש שיתווסף למנוע ולא יקבל שורה
+    יפיל את הבדיקה הזאת, ולא יופיע אצל הלקוח כ"שאר".
+    """
+
+    NAMED = (
+        "material_cost",
+        "cutting_cost",
+        "piercing_cost",
+        "welding_cost",
+        "bending_cost",
+        "setup_cost",
+    )
+
+    def _quote(self, client: TestClient, quantity: int) -> dict:
+        part = _manual(client, name="מגש", width_mm=300, height_mm=200)
+        response = client.post(
+            "/api/quote",
+            json={
+                "parts": [
+                    {
+                        "geometry_id": part["geometry_id"],
+                        "name": "מגש",
+                        "material_key": "st37",
+                        "thickness_mm": 3.0,
+                        "quantity": quantity,
+                    }
+                ]
+            },
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    def _gap(self, quote: dict) -> float:
+        named = sum(sum(line[field] for field in self.NAMED) for line in quote["lines"])
+        named += quote["order_setup_fee"] + quote["margin_amount"]
+        return round(quote["total_before_vat"] - named, 2)
+
+    def test_a_small_order_is_short_by_exactly_the_minimum(self, priced_client):
+        """חלק אחד אינו מגיע למינימום, וההפרש **הוא** ההשלמה אליו.
+
+        המינימום נקבע כאן במפורש ולא נלקח מטבלת הבדיקה: הבדיקה
+        אמורה לתאר את **המנגנון**, ולא להישבר ביום שבו מישהו ישנה
+        מספר בטבלה.
+        """
+        tariff_store.STATE.replace(TEST_TARIFF | {"min_order_total": 9000.0})
+        quote = self._quote(priced_client, quantity=1)
+        assert quote["min_order_applied"] is True
+        assert self._gap(quote) > 0
+        # והפער הוא בדיוק ההשלמה — לא רכיב עלות שנשכח.
+        assert quote["total_before_vat"] == pytest.approx(9000.0)
+
+    def test_an_order_above_the_minimum_has_nothing_unaccounted(self, priced_client):
+        """**וכשהמינימום אינו חוסם, אין פער בכלל.**
+
+        הסבילות גדלה עם הכמות מפני שהמנוע מעגל את מחיר היחידה
+        לאגורה ורק אז מכפיל, בעוד כל רכיב מעוגל בנפרד מהסכום
+        הלא-מעוגל — חצי אגורה ליחידה. זו בדיוק הנוסחה שהמסך
+        משתמש בה כדי להחליט אם להציג שורת "שאר".
+        """
+        quantity = 60
+        quote = self._quote(priced_client, quantity=quantity)
+        assert quote["min_order_applied"] is False
+        assert abs(self._gap(quote)) <= 0.005 * quantity + 0.02
+
+    def test_the_editor_names_the_minimum_instead_of_hiding_it(self):
+        """מסך שמציג את הפער בלי לקרוא לו בשם חוזר לבעיה המקורית."""
+        editor = (Path(__file__).resolve().parents[1] / "web" / "editor.html").read_text(
+            encoding="utf-8"
+        )
+        assert "min_order_applied" in editor
+        assert "מינימום הזמנה" in editor
+        assert "order_setup_fee" in editor
+
+
+class TestTheTabIsNotBlank:
+    """**סמל אחד לכל המסכים.**
+
+    נמדד 28.8.2026: `/favicon.ico` החזיר 404 בכל טעינת מסך, ובין
+    המסכים שכן הגדירו סמל היו **ארבעה שונים** — גלגל שיניים בדשבורד,
+    שקית כסף במסך הראשי, והסימן האמיתי בשניים בלבד. זה בדיוק אותו
+    פיצול שקרה לניווט לפני `shell.js`: מה שמועתק, מתפצל.
+    """
+
+    WEB = Path(__file__).resolve().parents[1] / "web"
+
+    def test_the_icon_is_served_without_a_session(self, client):
+        for path in ("/favicon.svg", "/favicon.ico"):
+            response = client.get(path)
+            assert response.status_code == 200, path
+            assert "svg" in response.headers["content-type"]
+
+    def test_every_screen_points_at_the_one_icon(self):
+        missing = []
+        for page in sorted(self.WEB.glob("*.html")):
+            text = page.read_text(encoding="utf-8")
+            if '<link rel="icon" href="/favicon.svg"' not in text:
+                missing.append(page.name)
+        assert not missing, f"מסכים בלי סמל משותף: {missing}"
+
+    def test_no_screen_carries_an_icon_of_its_own(self):
+        """סמל מוטבע ב-HTML הוא סמל שיתפצל שוב."""
+        offenders = [
+            page.name
+            for page in sorted(self.WEB.glob("*.html"))
+            if 'rel="icon" href="data:' in page.read_text(encoding="utf-8")
+        ]
+        assert not offenders, f"סמל מוטבע במקום המשותף: {offenders}"
+
+
+class TestTheSidebarKnowsWhoYouAre:
+    """`shell.js` קורא `capability_labels`, ו-`/api/me` לא החזיר אותו.
+
+    התוצאה: תחת השם בסרגל הופיע תמיד "משתמש" — גם לאבא וגם לבית
+    המלאכה. שדה שמסך קורא ושרת אינו שולח נכשל **בשקט**, וזה הזן
+    שנרדף כאן כל החודש.
+    """
+
+    @pytest.fixture
+    def gated(self, monkeypatch):
+        monkeypatch.setenv("APP_USER", "ynon")
+        monkeypatch.setenv("APP_PASSWORD", "strong-secret")
+        return TestClient(app)
+
+    def test_me_returns_the_labels_the_sidebar_reads(self, gated):
+        me = gated.get("/api/me", auth=("ynon", "strong-secret")).json()
+        assert me["authenticated"] is True
+        assert me["capability_labels"], "הסרגל יציג 'משתמש' במקום היכולות"
+        assert len(me["capability_labels"]) == len(me["capabilities"])
+        assert all(label.strip() for label in me["capability_labels"])

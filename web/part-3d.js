@@ -351,10 +351,57 @@ export function createViewer(canvas, options = {}) {
     });
   }
 
+  /* **זום סביב נקודה, במקום אחד.** הגלגלת והצביטה עושות בדיוק את
+     אותו דבר, ושתי מימושים נפרדים היו נפרדים בשקט ברגע שאחד מהם
+     יתוקן. הנקודה מתחת לאצבע נשארת תחתיה — זה מה שהופך זום מקפיצה
+     לתנועה. */
+  function zoomAround(px, py, factor) {
+    const rect = canvas.getBoundingClientRect();
+    const x = px - rect.left - rect.width / 2 - cam.panX;
+    const y = py - rect.top - rect.height / 2 - cam.panY;
+    const next = Math.min(12, Math.max(0.3, cam.zoom * factor));
+    const applied = next / cam.zoom;
+    cam.panX -= x * (applied - 1);
+    cam.panY -= y * (applied - 1);
+    cam.zoom = next;
+    schedule();
+  }
+
+  /* **שתי אצבעות: צביטה והזזה, לעולם לא סיבוב.**
+     עד 28.8.2026 היה כאן טיפול במצביע אחד בלבד, והגלגלת הייתה הדרך
+     היחידה לשנות זום — כלומר **בטלפון אי אפשר היה לקרב את החלק
+     בכלל**. מי שרוצה לבדוק פינה במגש בן 300 מ"מ על מסך בן 390
+     פיקסלים חייב לקרב, ולא הייתה לו שום דרך.
+
+     והסיבוב מושבת בזמן שתי האצבעות בכוונה: אצבע שנייה שנוגעת רגע
+     אחרי הראשונה הייתה מוסיפה קפיצת זווית לכל צביטה. */
+  const touching = new Map();
+  let pinch = null;
+  function pinchState() {
+    const [a, b] = [...touching.values()];
+    return {
+      dist: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+      cx: (a.x + b.x) / 2,
+      cy: (a.y + b.y) / 2,
+    };
+  }
+
   let lastX = 0;
   let lastY = 0;
   let downAt = null;
   const start = (event) => {
+    touching.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (touching.size === 2) {
+      // האצבע השנייה מבטלת את מה שהראשונה התחילה — גם סיבוב וגם כיפוף.
+      dragging = false;
+      panning = false;
+      bending = null;
+      downAt = null;
+      pinch = pinchState();
+      event.preventDefault();
+      return;
+    }
+    if (touching.size > 2) return;
     downAt = [event.clientX, event.clientY];
     /* הידית נבדקת **לפני** הסיבוב: היא קטנה, היא מעל הגוף,
        ובלי הקדימות הזאת כל ניסיון לכופף היה מסובב במקום. */
@@ -381,6 +428,18 @@ export function createViewer(canvas, options = {}) {
     event.preventDefault();
   };
   const move = (event) => {
+    if (touching.has(event.pointerId)) {
+      touching.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    }
+    if (pinch && touching.size >= 2) {
+      const now = pinchState();
+      zoomAround(now.cx, now.cy, now.dist / pinch.dist);
+      cam.panX += now.cx - pinch.cx;
+      cam.panY += now.cy - pinch.cy;
+      pinch = now;
+      schedule();
+      return;
+    }
     if (bending) {
       const dx = event.clientX - bending.x;
       const dy = event.clientY - bending.y;
@@ -433,6 +492,17 @@ export function createViewer(canvas, options = {}) {
   }
 
   const end = (event) => {
+    touching.delete(event.pointerId);
+    if (touching.size < 2) pinch = null;
+    /* אצבע שהורמה מצביטה אינה לחיצה. בלי זה, כל צביטה הייתה
+       מסיימת בבחירת הדופן שמתחת לאצבע שהורמה אחרונה. */
+    if (touching.size >= 1) {
+      dragging = false;
+      panning = false;
+      downAt = null;
+      if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+      return;
+    }
     /* **לחיצה היא גרירה שלא זזה.** בלי הסף הזה כל סיבוב קטן היה
        גם בוחר לוח אחר, ומי שמסתכל על החלק היה משנה את הבחירה
        בלי לרצות. */
@@ -463,16 +533,8 @@ export function createViewer(canvas, options = {}) {
     'wheel',
     (event) => {
       event.preventDefault();
-      const rect = canvas.getBoundingClientRect();
       // הנקודה שמתחת לסמן נשארת תחתיו, בדיוק כמו בתצוגה הדו-ממדית.
-      const x = event.clientX - rect.left - rect.width / 2 - cam.panX;
-      const y = event.clientY - rect.top - rect.height / 2 - cam.panY;
-      const next = Math.min(12, Math.max(0.3, cam.zoom * Math.exp(-event.deltaY * 0.0016)));
-      const applied = next / cam.zoom;
-      cam.panX -= x * (applied - 1);
-      cam.panY -= y * (applied - 1);
-      cam.zoom = next;
-      schedule();
+      zoomAround(event.clientX, event.clientY, Math.exp(-event.deltaY * 0.0016));
     },
     { passive: false }
   );
