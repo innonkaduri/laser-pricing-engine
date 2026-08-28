@@ -16,6 +16,7 @@ import hmac
 import json
 import math
 import os
+import secrets
 import sqlite3
 import tempfile
 import time
@@ -49,7 +50,7 @@ from .serialize import (
     quote_to_json,
     thin_for_preview,
 )
-from . import business, orders, payment
+from . import business, google_auth, orders, payment
 from .simple_tariff import MONEY_FIELDS, apply_form, to_form
 from .store import STORE, GeometryExpired, StoredGeometry
 from .tariff_store import STATE
@@ -171,6 +172,11 @@ OPEN_PATHS = frozenset(
         "/accessibility",
         "/contact",
         "/api/business",
+        # הכניסה עם גוגל היא הדרך **להשיג** זהות, ולכן היא פתוחה
+        # בדיוק כמו /login ו-/signup.
+        "/api/auth/google",
+        "/api/auth/google/start",
+        "/api/auth/google/callback",
         # **טרנזילה אינה דפדפן ואין לה סשן.** הקריאה שרת-לשרת חייבת
         # להגיע, ומה שמגן עליה הוא סוד בכתובת ובדיקת סכום — לא כניסה.
         "/api/payment/tranzila/notify",
@@ -2327,6 +2333,111 @@ def checkout(body: CheckoutRequest, request: Request) -> dict:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     return {"order": order, "payment": instruction}
+
+
+@app.get("/api/auth/google")
+def google_available() -> dict:
+    """האם להציג את הכפתור. **מסך אינו מציע בחירה שנועדה להיכשל.**"""
+    return {"enabled": google_auth.configured()}
+
+
+@app.get("/api/auth/google/start")
+def google_start(request: Request) -> RedirectResponse:
+    """שולח לגוגל, ומניח עוגיית `state`.
+
+    **ה-`state` אינו קישוט.** בלעדיו אפשר לגרום למשתמש להשלים
+    כניסה שמישהו אחר התחיל — הוא לוחץ על קישור, וחוזר מחובר
+    לחשבון של התוקף. העוגייה קצרת-חיים ונמחקת מיד אחרי השימוש.
+    """
+    if not google_auth.configured():
+        raise HTTPException(
+            status_code=503,
+            detail=f"כניסה עם גוגל אינה מוגדרת בשרת. חסר: {', '.join(google_auth.missing())}.",
+        )
+    state = google_auth.new_state()
+    response = RedirectResponse(google_auth.auth_url(state), status_code=303)
+    response.set_cookie(
+        google_auth.STATE_COOKIE,
+        state,
+        max_age=google_auth.STATE_TTL_SECONDS,
+        httponly=True,
+        samesite="lax",
+        secure=request.url.scheme == "https",
+        path="/api/auth/google",
+    )
+    return response
+
+
+def _google_failed(reason: str) -> RedirectResponse:
+    """חזרה למסך הכניסה עם סיבה. **לא מסך שגיאה גולמי.**
+
+    מי שנכשל בכניסה צריך לנסות שוב, לא לקרוא JSON. הסיבה נוסעת
+    בכתובת ומוצגת שם.
+    """
+    from urllib.parse import quote
+
+    return RedirectResponse(f"/login?google_error={quote(reason)}", status_code=303)
+
+
+@app.get("/api/auth/google/callback")
+def google_callback(request: Request) -> Response:
+    """חוזרים מגוגל. **כאן נולדת הזהות, ורק כאן.**"""
+    if request.query_params.get("error"):
+        return _google_failed("הכניסה עם גוגל בוטלה.")
+
+    cookie_state = request.cookies.get(google_auth.STATE_COOKIE, "")
+    query_state = request.query_params.get("state", "")
+    if not cookie_state or not secrets.compare_digest(cookie_state, query_state):
+        return _google_failed("הכניסה פגה או הגיעה מדף אחר. נסה שוב.")
+
+    code = request.query_params.get("code", "")
+    if not code:
+        return _google_failed("גוגל לא החזירה קוד.")
+
+    try:
+        profile = google_auth.exchange(code)
+    except google_auth.GoogleError as exc:
+        return _google_failed(str(exc))
+
+    user = identity.find_by_google(profile["sub"])
+    if user is None:
+        # **כניסה עם גוגל אינה דלת אחורית להרשמה.** `SIGNUP_MODE`
+        # הוא הכרעה של ינון דרך האב, וספק זהות חיצוני אינו עוקף
+        # אותה. מי שכבר מקושר נכנס תמיד — הסגירה חלה על **חדשים**.
+        if SIGNUP_MODE == "closed":
+            return _google_failed("ההרשמה סגורה כרגע.")
+        if not _rate_ok(_SIGNUPS, _client_ip(request), SIGNUPS_PER_IP, SIGNUP_WINDOW_SECONDS):
+            return _google_failed("נפתחו יותר מדי חשבונות מהכתובת הזאת. נסה שוב בעוד שעה.")
+        try:
+            user = identity.create_user(
+                identity.username_from_email(profile["email"]),
+                password="",
+                display_name=profile["name"] or profile["email"].split("@")[0],
+                capabilities=set(identity.PUBLIC_SIGNUP_CAPABILITIES),
+                disabled=SIGNUP_MODE == "approval",
+                google_sub=profile["sub"],
+                email=profile["email"],
+            )
+        except identity.UserError as exc:
+            return _google_failed(str(exc))
+        if SIGNUP_MODE == "approval":
+            return _google_failed("החשבון נוצר וממתין לאישור. נעדכן כשייפתח.")
+
+    fresh = identity.load_user(user.username, "session")
+    if fresh is None:
+        return _google_failed("החשבון אינו זמין.")
+
+    response = RedirectResponse("/", status_code=303)
+    response.set_cookie(
+        identity.SESSION_COOKIE,
+        identity.issue_session(fresh.username),
+        max_age=identity.SESSION_TTL_SECONDS,
+        httponly=True,
+        samesite="lax",
+        secure=request.url.scheme == "https",
+    )
+    response.delete_cookie(google_auth.STATE_COOKIE, path="/api/auth/google")
+    return response
 
 
 @app.post("/api/payment/tranzila/notify")

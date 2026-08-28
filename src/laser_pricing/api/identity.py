@@ -167,6 +167,14 @@ def _connect() -> sqlite3.Connection:
                created_at   TEXT NOT NULL
            )"""
     )
+    # **הגירה, כי המסד החי כבר קיים.** `CREATE TABLE IF NOT EXISTS`
+    # אינו מוסיף עמודה לטבלה שכבר נוצרה, ולכן מסד שנולד לפני
+    # הכניסה עם גוגל היה נשאר בלי העמודות ונופל בכל שאילתה עליהן.
+    have = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+    for column in ("google_sub", "email"):
+        if column not in have:
+            conn.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
+    conn.execute("CREATE INDEX IF NOT EXISTS users_by_google ON users(google_sub)")
     return conn
 
 
@@ -212,15 +220,24 @@ RESERVED_USERNAMES = frozenset(
 """
 
 
+GOOGLE_ONLY = "google"
+"""ערך `password_hash` של חשבון שנפתח דרך גוגל. **אינו hash תקין**,
+ולכן `verify_password` מחזיר עליו `False` תמיד — כלומר אי אפשר
+להיכנס אליו בסיסמה, ואין כאן סיסמת ברירת מחדל שמישהו ינחש."""
+
+
 def create_user(
     username: str,
     password: str,
     display_name: str = "",
     capabilities: set[str] | None = None,
     disabled: bool = False,
+    google_sub: str = "",
+    email: str = "",
 ) -> User:
     username = normalize_username(username)
-    if len(password) < PASSWORD_MIN:
+    # חשבון גוגל נפתח בלי סיסמה בכוונה; כל השאר חייב אחת.
+    if not google_sub and len(password) < PASSWORD_MIN:
         raise UserError(f"סיסמה קצרה מ-{PASSWORD_MIN} תווים. זו כתובת פומבית.")
     caps = set(capabilities or {CAP_QUOTE_USE})
     unknown = caps - ALL_CAPABILITIES
@@ -233,15 +250,24 @@ def create_user(
     with _connect() as conn:
         if conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
             raise UserError(f"המשתמש {username} כבר קיים.")
+        # **עמודות בשם ולא במיקום.** `INSERT INTO users VALUES (...)`
+        # נשבר בשקט ברגע שנוספת עמודה — וזה בדיוק מה שקרה כאן
+        # בהוספת `google_sub`. אותה מלכודת הפילה גם 23 בדיקות
+        # כשנוסף שדה באמצע `FlatPanel`.
         conn.execute(
-            "INSERT INTO users VALUES (?, ?, ?, ?, ?, ?)",
+            """INSERT INTO users
+                   (username, display_name, password_hash, capabilities,
+                    disabled, created_at, google_sub, email)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 username,
                 display,
-                hash_password(password),
+                hash_password(password) if password else GOOGLE_ONLY,
                 json.dumps(sorted(caps)),
                 1 if disabled else 0,
                 time.strftime("%Y-%m-%dT%H:%M:%S"),
+                google_sub,
+                email[:200],
             ),
         )
     return User(username, display, frozenset(caps), source="created")
@@ -450,3 +476,75 @@ def _from_service_token(request) -> User | None:
     if not hmac.compare_digest(supplied, expected):
         return None
     return User("crm", "CRM ימיש", frozenset({CAP_QUOTE_USE}), source="service")
+
+
+# ---- כניסה עם גוגל ----
+
+
+def find_by_google(sub: str) -> User | None:
+    """חשבון לפי מזהה גוגל. **לפי `sub` ולא לפי כתובת מייל.**
+
+    כתובת מייל אפשר להעביר בין חשבונות ואפשר לשנות; `sub` הוא
+    מזהה קבוע של חשבון גוגל ואינו מוחזר לעולם למישהו אחר. קישור
+    לפי מייל היה מאפשר להשתלט על חשבון קיים על ידי רכישת דומיין
+    ישן — וזה קרה כבר במערכות אחרות.
+    """
+    if not sub:
+        return None
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE google_sub = ? AND google_sub != ''", (sub,)
+        ).fetchone()
+    return _row_to_user(row, "session") if row else None
+
+
+def username_from_email(email: str) -> str:
+    """שם משתמש פנוי שנגזר מכתובת המייל.
+
+    האלפבית של שמות המשתמש מצומצם בכוונה (הם נכנסים לכתובות
+    וללוגים), וכתובת מייל יכולה להכיל תווים שאינם בו. לכן גוזרים,
+    מנקים, ואם נשאר קצר מדי — משלימים.
+    """
+    local = (email or "").split("@")[0].lower()
+    cleaned = "".join(c for c in local if c.isascii() and (c.isalnum() or c in "._-"))
+    while cleaned and not cleaned[0].isalnum():
+        cleaned = cleaned[1:]
+    base = (cleaned or "user")[:USERNAME_MAX]
+    while len(base) < USERNAME_MIN:
+        base += "0"
+    if base in RESERVED_USERNAMES:
+        base = f"{base}1"[:USERNAME_MAX]
+
+    with _connect() as conn:
+        taken = {
+            row[0]
+            for row in conn.execute(
+                "SELECT username FROM users WHERE username LIKE ?", (base[:20] + "%",)
+            )
+        }
+    if base not in taken:
+        return base
+    # **סיומת מספרית ולא אקראית.** מי שנכנס פעם שנייה צריך לזהות
+    # את השם שלו, ו-`yossi7` קריא יותר מ-`yossi-a91f`.
+    for index in range(2, 500):
+        candidate = f"{base[: USERNAME_MAX - len(str(index))]}{index}"
+        if candidate not in taken:
+            return candidate
+    raise UserError("לא נמצא שם משתמש פנוי לכתובת הזאת.")
+
+
+def link_google(username: str, sub: str, email: str) -> None:
+    """מקשר חשבון קיים לגוגל. **לא דורס קישור קיים.**"""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT google_sub FROM users WHERE username = ?", (username,)
+        ).fetchone()
+        if row is None:
+            raise UserError(f"אין משתמש בשם {username}.")
+        if row["google_sub"] and row["google_sub"] != sub:
+            raise UserError("החשבון הזה כבר מקושר לחשבון גוגל אחר.")
+        conn.execute(
+            "UPDATE users SET google_sub = ?, email = COALESCE(NULLIF(email,''), ?) "
+            "WHERE username = ?",
+            (sub, email[:200], username),
+        )

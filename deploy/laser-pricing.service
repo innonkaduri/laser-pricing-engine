@@ -19,6 +19,7 @@
 #   TARIFF_PATH · USERS_DB · BACKUP_STATUS_FILE · USAGE_LOG · QUOTES_DB
 #   ORDERS_DB · PUBLIC_BASE_URL
 #   TRANZILA_TERMINAL · TRANZILA_NOTIFY_SECRET (סליקה)
+#   GOOGLE_CLIENT_ID · GOOGLE_CLIENT_SECRET (כניסה עם גוגל)
 # `SIGNUP_MODE` מפורש ולא בהשמטה: ברירת מחדל שקטה שפותחת הרשמה
 # ציבורית היא החלטה שאיש לא קיבל.
 

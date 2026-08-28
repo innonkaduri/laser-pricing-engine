@@ -58,6 +58,9 @@ PUBLIC_BASE_URL=https://laser.82.29.184.166.nip.io
 # סליקה — רק כשטרנזילה מחוברת. חסר אחד מהם = כרטיס אשראי לא מוצע.
 TRANZILA_TERMINAL=
 TRANZILA_NOTIFY_SECRET=
+# כניסה עם גוגל — חסר אחד מהם והכפתור אינו מופיע כלל.
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
 USAGE_LOG=/var/lib/laser/usage.jsonl
 ENV
 chmod 600 /etc/laser-pricing.env

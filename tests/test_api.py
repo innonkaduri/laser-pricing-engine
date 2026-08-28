@@ -16,7 +16,16 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from laser_pricing.api import business, history, identity, orders, payment, tariff_store, usage
+from laser_pricing.api import (
+    business,
+    google_auth,
+    history,
+    identity,
+    orders,
+    payment,
+    tariff_store,
+    usage,
+)
 from laser_pricing.domain import text as text_mod
 # היבוא הפרטי מכוון: מונה הניסיונות הכושלים הוא מצב של התהליך, ובדיקה
 # חייבת לאפס אותו כדי לא לחסום את הבדיקה הבאה.
@@ -3827,3 +3836,142 @@ class TestTranzilaCannotBeFaked:
         client.post("/api/signup", json={"username": "aher", "password": "sisma-arukka-2"})
         client.post("/api/login", json={"username": "aher", "password": "sisma-arukka-2"})
         assert client.get(f"/api/payment/status/{ref}").status_code == 404
+
+
+class TestSigningInWithGoogle:
+    """כניסה עם גוגל. **הבדיקות הן על מה שקורה כשמשהו לא אמיתי.**"""
+
+    @pytest.fixture
+    def google_on(self, monkeypatch):
+        monkeypatch.setenv("GOOGLE_CLIENT_ID", "id.apps.googleusercontent.com")
+        monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "sod")
+        monkeypatch.setenv("PUBLIC_BASE_URL", "https://laser.example.invalid")
+
+    def test_without_keys_the_button_never_appears(self, client, monkeypatch):
+        """**מסך אינו מציע בחירה שנועדה להיכשל.**"""
+        monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+        assert client.get("/api/auth/google").json() == {"enabled": False}
+        assert client.get("/api/auth/google/start", follow_redirects=False).status_code == 503
+
+    def test_with_keys_the_start_sends_you_to_google_with_a_state(self, client, google_on):
+        response = client.get("/api/auth/google/start", follow_redirects=False)
+        assert response.status_code == 303
+        target = response.headers["location"]
+        assert target.startswith("https://accounts.google.com/o/oauth2/v2/auth?")
+        assert "response_type=code" in target
+        assert "redirect_uri=https%3A%2F%2Flaser.example.invalid%2Fapi%2Fauth%2Fgoogle%2Fcallback" in target
+        # ה-state נשמר בעוגייה ונשלח לגוגל — שניהם, אחרת אין מה להשוות.
+        assert google_auth.STATE_COOKIE in response.cookies
+        assert f"state={response.cookies[google_auth.STATE_COOKIE]}" in target
+
+    def test_a_callback_without_a_matching_state_is_refused(self, client, google_on):
+        """**בלי `state` אפשר להכניס מישהו לחשבון של תוקף.**
+
+        הוא לוחץ על קישור, וחוזר "מחובר" — לחשבון שאינו שלו.
+        """
+        response = client.get(
+            "/api/auth/google/callback?code=abc&state=lo-nachon", follow_redirects=False
+        )
+        assert response.status_code == 303
+        assert "google_error" in response.headers["location"]
+
+    def test_an_unverified_google_email_is_not_an_identity(self):
+        """חשבון גוגל יכול לטעון לכל כתובת. **האימות הוא מה שהופך
+        אותה לשלו.**"""
+        import httpx
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/token"):
+                return httpx.Response(200, json={"access_token": "t"})
+            return httpx.Response(200, json={"sub": "1", "email": "a@b.com",
+                                             "email_verified": False})
+
+        with pytest.MonkeyPatch.context() as m:
+            m.setenv("GOOGLE_CLIENT_ID", "id")
+            m.setenv("GOOGLE_CLIENT_SECRET", "sod")
+            m.setenv("PUBLIC_BASE_URL", "https://x.invalid")
+            # **המחלקה המקורית נשמרת לפני ההחלפה.** למדה שקוראת ל-
+            # `httpx.Client` אחרי שהיא עצמה הוחלפה קוראת לעצמה —
+            # וזו הייתה רקורסיה אינסופית, לא כשל בקוד הנבדק.
+            real_client = httpx.Client
+            m.setattr(
+                google_auth.httpx,
+                "Client",
+                lambda **kw: real_client(
+                    **{**kw, "transport": httpx.MockTransport(handler)}
+                ),
+            )
+            with pytest.raises(google_auth.GoogleError, match="אינה מאומתת"):
+                google_auth.exchange("code")
+
+    def test_a_google_account_has_no_password_that_anyone_can_guess(self, client):
+        user = identity.create_user(
+            "googler", password="", display_name="גוגלר",
+            google_sub="sub-123", email="googler@example.invalid",
+        )
+        assert identity.authenticate("googler", "") is None
+        assert identity.authenticate("googler", identity.GOOGLE_ONLY) is None
+        assert identity.find_by_google("sub-123").username == user.username
+
+    def test_the_link_is_by_google_id_and_not_by_email(self, client):
+        """כתובת מייל עוברת בין חשבונות ואפשר לקנות דומיין ישן;
+        `sub` לא מוחזר לעולם למישהו אחר."""
+        identity.create_user("aviv", password="", google_sub="sub-a", email="same@x.invalid")
+        assert identity.find_by_google("sub-a").username == "aviv"
+        assert identity.find_by_google("sub-b") is None
+        assert identity.find_by_google("") is None
+
+    def test_a_username_is_derived_from_the_email_and_never_collides(self, client):
+        assert identity.username_from_email("Yossi.Levi@gmail.com") == "yossi.levi"
+        identity.create_user("yossi.levi", password="", google_sub="s1", email="a@b.invalid")
+        assert identity.username_from_email("yossi.levi@other.com") == "yossi.levi2"
+        # כתובת שכולה תווים לא חוקיים עדיין מייצרת שם תקין
+        assert identity.normalize_username(identity.username_from_email("שלום@x.com"))
+
+    def test_a_reserved_name_is_never_handed_out(self, client):
+        assert identity.username_from_email("admin@x.com") not in identity.RESERVED_USERNAMES
+
+    def test_google_does_not_open_a_back_door_when_signup_is_closed(
+        self, client, google_on, monkeypatch
+    ):
+        """**`SIGNUP_MODE` הוא הכרעה של ינון דרך האב.** ספק זהות
+        חיצוני אינו עוקף אותה."""
+        import importlib
+
+        app_module = importlib.import_module("laser_pricing.api.app")
+        monkeypatch.setattr(app_module, "SIGNUP_MODE", "closed")
+        monkeypatch.setattr(
+            app_module.google_auth, "exchange",
+            lambda code: {"sub": "new-1", "email": "new@x.invalid", "name": "חדש", "picture": ""},
+        )
+        start = client.get("/api/auth/google/start", follow_redirects=False)
+        state = start.cookies[google_auth.STATE_COOKIE]
+        response = client.get(
+            f"/api/auth/google/callback?code=abc&state={state}", follow_redirects=False
+        )
+        assert response.status_code == 303
+        assert "ההרשמה+סגורה" in response.headers["location"] or "%D7%A1%D7%92%D7%95%D7%A8" in response.headers["location"]
+        assert identity.find_by_google("new-1") is None
+
+    def test_a_verified_google_user_gets_an_account_and_a_session(
+        self, client, google_on, monkeypatch
+    ):
+        import importlib
+
+        app_module = importlib.import_module("laser_pricing.api.app")
+        monkeypatch.setattr(
+            app_module.google_auth, "exchange",
+            lambda code: {"sub": "new-2", "email": "dana@x.invalid", "name": "דנה", "picture": ""},
+        )
+        start = client.get("/api/auth/google/start", follow_redirects=False)
+        state = start.cookies[google_auth.STATE_COOKIE]
+        response = client.get(
+            f"/api/auth/google/callback?code=abc&state={state}", follow_redirects=False
+        )
+        assert response.status_code == 303
+        assert response.headers["location"] == "/"
+        created = identity.find_by_google("new-2")
+        assert created is not None and created.username == "dana"
+        # והיכולת היא בדיוק זו של הרשמה ציבורית — מחיר אחד, בלי פירוק.
+        assert set(created.capabilities) == set(identity.PUBLIC_SIGNUP_CAPABILITIES)
+        assert client.get("/api/me").json()["username"] == "dana"

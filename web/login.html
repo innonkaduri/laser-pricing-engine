@@ -4,52 +4,152 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>כניסה — ימיש כדורי</title>
+<meta name="description" content="כניסה למערכת התמחור והחיתוך של ימיש כדורי.">
 <link rel="preload" as="font" type="font/woff2" href="/fonts/assistant-hebrew.woff2" crossorigin>
 <link rel="stylesheet" href="/brand.css">
 <style>
-/* מסך כניסה — כרטיס אחד במרכז. כל השאר מ-/brand.css. */
-body{min-height:100dvh; display:flex; align-items:center; justify-content:center; padding:var(--s5)}
-.card{width:100%; max-width:400px; padding:var(--s8) var(--s6)}
-h1{font-size:21px; margin-bottom:var(--s1)}
-p.sub{font-size:var(--fs-sm); margin-bottom:var(--s6)}
-label{display:block; font-size:var(--fs-xs); font-weight:600; color:var(--ink-600); margin:0 0 6px}
+/* מסך כניסה — **שני חצאים.** מימין הטופס, משמאל מה שקונים כאן.
+   כרטיס בודד באמצע מסך ריק נראה כמו שער, וזה בדיוק מה שהוא לא:
+   רוב מי שמגיע לכאן עוד לא החליט אם להירשם.
+
+   בטלפון הצד השמאלי נעלם — לא כי הוא פחות חשוב, אלא כי מי שפתח
+   מסך כניסה בטלפון כבר יודע למה הוא בא, וגלילה אל מתחת לטופס
+   היא גלילה שאיש לא עושה. */
+body{min-height:100dvh; margin:0}
+.split{
+  min-height:100dvh; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+}
+.pane{display:flex; align-items:center; justify-content:center; padding:var(--s8) var(--s6)}
+
+.side{
+  background:linear-gradient(160deg, var(--ink-900) 0%, #1a1410 55%, #2a1a0e 100%);
+  color:#fff; position:relative; overflow:hidden;
+}
+/* קו החיתוך: רמז לצורה, לא איור. */
+.side::after{
+  content:''; position:absolute; inset:-30% -10% auto auto; width:70%; aspect-ratio:1;
+  background:radial-gradient(circle at 30% 30%, rgba(232,120,40,.30), transparent 62%);
+  pointer-events:none;
+}
+.side .inner{position:relative; max-width:38ch}
+.side h2{font-size:30px; line-height:1.25; letter-spacing:-.025em; margin:0 0 var(--s4)}
+.side p{color:rgba(255,255,255,.72); line-height:1.75; margin:0 0 var(--s6)}
+.side ul{list-style:none; padding:0; margin:0; display:grid; gap:var(--s3)}
+.side li{display:flex; gap:var(--s3); align-items:flex-start; font-size:var(--fs-sm);
+  color:rgba(255,255,255,.9)}
+.side li svg{width:19px; height:19px; flex:none; margin-top:2px; color:var(--flame-500)}
+
+.card{width:100%; max-width:380px}
+.mark{display:flex; align-items:center; gap:10px; margin-bottom:var(--s6)}
+.mark svg{width:34px; height:34px; color:var(--flame-600)}
+.mark b{font-size:17px; letter-spacing:-.015em}
+h1{font-size:26px; letter-spacing:-.025em; margin:0 0 6px}
+p.sub{font-size:var(--fs-sm); color:var(--ink-500); margin:0 0 var(--s6)}
+
+label{display:block; font-size:var(--fs-xs); font-weight:650; color:var(--ink-700); margin:0 0 6px}
 input{margin-bottom:var(--s4)}
-button{width:100%}
-.error{margin-bottom:var(--s4)}
-.foot{margin:var(--s5) 0 0; font-size:var(--fs-xs); color:var(--ink-500); line-height:1.7; text-align:center}
-.foot a{color:var(--flame-600); font-weight:600}
-.brand-top{display:flex; justify-content:center; margin-bottom:var(--s6)}
-.brand-top svg{width:38px; height:38px; color:var(--flame-600)}
+.submit{width:100%}
+
+/* **כפתור גוגל לפי המותג שלו, לא לפי שלנו.** לוגו צבעוני על רקע
+   לבן עם מסגרת אפורה הוא מה שאנשים מזהים כ"המשך עם גוogle";
+   כפתור כתום עם המילה גוגל נראה כמו חיקוי, ואנשים לא לוחצים עליו.
+   האיפוס המפורש כאן הוא מול שורת הגשר ב-brand.css שהופכת כל
+   כפתור חשוף לכתום — היא כבר תפסה שלושה מסכים. */
+.google{
+  width:100%; display:flex; align-items:center; justify-content:center; gap:10px;
+  font:inherit; font-size:var(--fs-sm); font-weight:650; cursor:pointer;
+  background:var(--paper); color:var(--ink-800); border:1px solid var(--ink-200);
+  border-radius:var(--r-md); padding:11px 16px; min-height:46px; box-shadow:none;
+  text-decoration:none;
+}
+.google:hover{background:var(--ink-50); border-color:var(--ink-300)}
+.google svg{width:18px; height:18px; flex:none}
+
+.or{display:flex; align-items:center; gap:var(--s3); margin:var(--s5) 0;
+  font-size:var(--fs-xs); color:var(--ink-400)}
+.or::before,.or::after{content:''; flex:1; height:1px; background:var(--ink-150)}
+
+.foot{margin:var(--s6) 0 0; font-size:var(--fs-xs); color:var(--ink-500);
+  line-height:1.75; text-align:center}
+.foot a{color:var(--flame-600); font-weight:650}
+.hint{margin-top:var(--s4); padding-top:var(--s4); border-top:1px solid var(--ink-150)}
+
+@media (max-width:880px){
+  .split{grid-template-columns:1fr}
+  .side{display:none}
+  .pane{padding:var(--s6) var(--s5)}
+}
 </style>
 </head>
 <body>
 
-<form class="card" id="form">
-  <div class="brand-top"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M5 8.5A3.5 3.5 0 0 1 8.5 5h9.9L27 13.6v9.9A3.5 3.5 0 0 1 23.5 27h-15A3.5 3.5 0 0 1 5 23.5v-15Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M18.4 5v5.1a3.5 3.5 0 0 0 3.5 3.5H27" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><circle cx="12.4" cy="19.6" r="3" fill="currentColor"/></svg></div>
-  <h1>ימיש כדורי</h1>
-  <p class="sub">כניסה למערכת התמחור</p>
+<div class="split">
+  <section class="pane">
+    <form class="card" id="form">
+      <a class="mark" href="/">
+        <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M5 8.5A3.5 3.5 0 0 1 8.5 5h9.9L27 13.6v9.9A3.5 3.5 0 0 1 23.5 27h-15A3.5 3.5 0 0 1 5 23.5v-15Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M18.4 5v5.1a3.5 3.5 0 0 0 3.5 3.5H27" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><circle cx="12.4" cy="19.6" r="3" fill="currentColor"/></svg>
+        <b>ימיש כדורי</b>
+      </a>
 
-  <div class="note note-bad error hidden" id="error"></div>
+      <h1>ברוך שובך</h1>
+      <p class="sub">כניסה למערכת התמחור והחיתוך</p>
 
-  <label for="u">שם משתמש</label>
-  <input id="u" name="username" autocomplete="username" autocapitalize="off" autocorrect="off" required>
+      <div class="note note-bad hidden" id="error" style="margin-bottom:var(--s4)"></div>
 
-  <label for="p">סיסמה</label>
-  <input id="p" name="password" type="password" autocomplete="current-password" required>
+      <a class="google hidden" id="google" href="/api/auth/google/start">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5a5.6 5.6 0 0 1-2.4 3.7v3h3.9c2.3-2.1 3.5-5.2 3.5-8.9Z"/>
+          <path fill="#34A853" d="M12 24c3.2 0 5.9-1.1 7.9-2.9l-3.9-3c-1.1.7-2.4 1.2-4 1.2-3.1 0-5.7-2.1-6.6-4.9H1.4v3.1A12 12 0 0 0 12 24Z"/>
+          <path fill="#FBBC05" d="M5.4 14.4a7.2 7.2 0 0 1 0-4.6V6.7H1.4a12 12 0 0 0 0 10.7l4-3Z"/>
+          <path fill="#EA4335" d="M12 4.8c1.8 0 3.4.6 4.6 1.8l3.4-3.4A12 12 0 0 0 1.4 6.7l4 3.1C6.3 6.9 8.9 4.8 12 4.8Z"/>
+        </svg>
+        המשך עם Google
+      </a>
 
-  <button id="go" type="submit">כניסה</button>
+      <div class="or hidden" id="or">או</div>
 
-  <p class="foot">
-    אין לך חשבון? <a href="/signup">הרשמה</a> — חינם, פחות מדקה.
-  </p>
+      <label for="u">שם משתמש</label>
+      <input id="u" name="username" autocomplete="username" autocapitalize="off"
+             autocorrect="off" spellcheck="false" required>
 
-  <p class="foot">
-    ממלא את טבלת המחירים? הקישור שקיבלת בטלפון עובד כמו שהוא — אין
-    צורך בשם משתמש.
-  </p>
-</form>
+      <label for="p">סיסמה</label>
+      <input id="p" name="password" type="password" autocomplete="current-password" required>
+
+      <button class="btn btn-primary submit" id="go" type="submit">כניסה</button>
+
+      <p class="foot">אין לך חשבון? <a href="/signup">הרשמה</a> — חינם, פחות מדקה.</p>
+
+      <p class="foot hint">
+        ממלא את טבלת המחירים? הקישור שקיבלת בטלפון עובד כמו שהוא —
+        אין צורך בשם משתמש.
+      </p>
+    </form>
+  </section>
+
+  <aside class="pane side" aria-hidden="true">
+    <div class="inner">
+      <h2>מחיר לחיתוך לייזר,<br>תוך שניות</h2>
+      <p>
+        מעלים DXF או מציירים בעצמכם, בוחרים חומר ועובי — ורואים מחיר.
+        אותו מנוע, אותה טבלה, בלי הצעות מחיר שממתינות שלושה ימים.
+      </p>
+      <ul>
+        <li>${TICK} עורך חלקים עם כיפופים ותצוגת תלת-ממד</li>
+        <li>${TICK} שם חתוך בפח — אותיות אמיתיות עם גשרים</li>
+        <li>${TICK} קובץ DXF מוכן למכונה</li>
+        <li>${TICK} כמה חלקים בהזמנה אחת עולים פחות</li>
+      </ul>
+    </div>
+  </aside>
+</div>
 
 <script>
+/* הסימון מוזרק פעם אחת במקום להיכתב ארבע פעמים ב-HTML. */
+const TICK =
+  '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 13 4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+document.querySelector('.side .inner ul').innerHTML =
+  document.querySelector('.side .inner ul').innerHTML.split('${TICK}').join(TICK);
+
 const params = new URLSearchParams(location.search);
 const next = params.get('next') || '/';
 const errorBox = document.getElementById('error');
@@ -58,6 +158,24 @@ function showError(message) {
   errorBox.textContent = message;
   errorBox.classList.remove('hidden');
 }
+
+/* שגיאה שחזרה מגוגל נוסעת בכתובת, כי החזרה משם היא הפניה ולא
+   בקשת רשת — ואין לאן להחזיר JSON. */
+if (params.get('google_error')) showError(params.get('google_error'));
+
+/* **הכפתור מופיע רק אם השרת באמת יודע לדבר עם גוגל.** כפתור
+   שמוביל ל-503 גרוע מכפתור שאינו קיים — אותו כלל שכבר נכתב כאן
+   על חומרים בלי מחיר ועל אמצעי תשלום שאינם מוגדרים. */
+fetch('/api/auth/google')
+  .then((r) => (r.ok ? r.json() : { enabled: false }))
+  .then(({ enabled }) => {
+    if (!enabled) return;
+    const link = document.getElementById('google');
+    link.href = '/api/auth/google/start' + (next !== '/' ? `?next=${encodeURIComponent(next)}` : '');
+    link.classList.remove('hidden');
+    document.getElementById('or').classList.remove('hidden');
+  })
+  .catch(() => {});
 
 document.getElementById('form').addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -68,7 +186,7 @@ document.getElementById('form').addEventListener('submit', async (event) => {
   try {
     const response = await fetch('/api/login', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         username: document.getElementById('u').value,
         password: document.getElementById('p').value,
