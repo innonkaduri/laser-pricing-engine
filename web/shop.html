@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>הזמנות שהתקבלו — ימיש כדורי</title>
+<link rel="preload" as="font" type="font/woff2" href="/fonts/assistant-hebrew.woff2" crossorigin>
+<link rel="stylesheet" href="/brand.css">
+<style>
+/* מסך עבודה, לא מסך שיווק: הטלפון והמצב הם מה שקוראים ממנו
+   בעמידה ליד המכונה, ולכן הם גדולים והשאר קטן. */
+.counts{display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+  gap:var(--s3); margin-bottom:var(--s6)}
+.count{background:var(--paper); border:1px solid var(--ink-150); border-radius:var(--r-md);
+  padding:var(--s4)}
+.count b{display:block; font-size:26px; font-weight:750; letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums; direction:ltr; text-align:right}
+.count span{font-size:var(--fs-xs); color:var(--ink-500)}
+
+.order{background:var(--paper); border:1px solid var(--ink-150); border-radius:var(--r-md);
+  padding:var(--s4) var(--s5); margin-bottom:var(--s3)}
+.order.is-new{border-color:var(--flame-600); border-inline-start-width:4px}
+.head{display:flex; flex-wrap:wrap; gap:var(--s3); align-items:baseline}
+.head h3{margin:0; font-size:17px; font-weight:750; font-variant-numeric:tabular-nums;
+  direction:ltr; text-align:right; letter-spacing:-.01em}
+.head .money{margin-inline-start:auto; font-size:19px; font-weight:750;
+  font-variant-numeric:tabular-nums; direction:ltr}
+.who{margin:var(--s3) 0; font-size:var(--fs-sm); line-height:1.8}
+.who a{font-weight:700; font-size:17px; direction:ltr; display:inline-block}
+.note-text{background:var(--ink-50); border-radius:var(--r-sm); padding:var(--s2) var(--s3);
+  font-size:var(--fs-sm); margin:var(--s2) 0}
+.parts{font-size:var(--fs-xs); color:var(--ink-600); line-height:1.8;
+  border-top:1px solid var(--ink-150); padding-top:var(--s3); margin-top:var(--s3)}
+.parts b{color:var(--ink-900)}
+.states{display:flex; flex-wrap:wrap; gap:var(--s2); margin-top:var(--s3)}
+/* איפוס מלא מול שורת הגשר ב-brand.css שהופכת כל כפתור חשוף לכתום. */
+.states button{
+  font:inherit; font-size:var(--fs-xs); font-weight:650; cursor:pointer;
+  padding:5px 12px; min-height:0; border-radius:var(--r-full); box-shadow:none;
+  background:var(--ink-100); color:var(--ink-700); border:1px solid transparent;
+}
+.states button:hover{background:var(--ink-150)}
+.states button.on{background:var(--flame-600); color:#fff}
+</style>
+</head>
+<body>
+
+<main class="wrap" style="padding-block:var(--s6) var(--s10)">
+  <h1 style="font-size:var(--fs-h2); letter-spacing:-.02em; margin-bottom:var(--s2)">
+    הזמנות שהתקבלו
+  </h1>
+  <p class="muted" style="max-width:66ch; line-height:1.65; margin-bottom:var(--s6)">
+    כל מה שלקוחות שלחו דרך האתר. הטלפון וההערה הם מה שהלקוח עצמו
+    הקליד. <b>שינוי מצב נשמר מיד.</b>
+  </p>
+
+  <div class="counts hidden" id="counts"></div>
+  <div class="note note-info" id="state">טוען…</div>
+  <div id="list"></div>
+</main>
+
+<script type="module">
+import { mountSidebar } from '/shell.js';
+
+const $ = (id) => document.getElementById(id);
+const money = (n) =>
+  '₪' + Number(n).toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const STATES = [
+  ['new', 'התקבלה'],
+  ['confirmed', 'אושרה'],
+  ['in_production', 'בייצור'],
+  ['done', 'הושלמה'],
+  ['cancelled', 'בוטלה'],
+];
+
+const escape = (v) => String(v ?? '').replace(/[&<>"]/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+function when(seconds) {
+  const d = new Date(seconds * 1000);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} · ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/* **הטלפון הוא קישור חיוג.** מי שקורא את המסך הזה עומד ליד המכונה
+   עם הטלפון ביד, וההזמנה נסגרת בשיחה — לכן זה הדבר הכי גדול בכרטיס. */
+function telLink(phone) {
+  const digits = String(phone || '').replace(/[^\d+]/g, '');
+  return digits ? `<a href="tel:${digits}">${escape(phone)}</a>` : '—';
+}
+
+function paint(orders) {
+  const counts = {};
+  for (const order of orders) counts[order.status] = (counts[order.status] || 0) + 1;
+  $('counts').classList.remove('hidden');
+  $('counts').innerHTML = STATES.map(
+    ([key, label]) => `<div class="count"><b>${counts[key] || 0}</b><span>${label}</span></div>`
+  ).join('');
+
+  $('list').innerHTML = orders
+    .map((order) => {
+      const parts = (order.items || [])
+        .map((item) => `<b>${escape(item.name)}</b> · ${escape(item.material_key)} ·
+           ${item.thickness_mm} מ״מ · ×${item.quantity}`)
+        .join('<br>');
+      return `<article class="order ${order.status === 'new' ? 'is-new' : ''}">
+        <div class="head">
+          <h3>${escape(order.ref)}</h3>
+          <span class="muted" style="font-size:var(--fs-xs)">${when(order.at)}</span>
+          <span class="money">${money(order.total)}</span>
+        </div>
+        <div class="who">טלפון: ${telLink(order.phone)}</div>
+        ${order.note ? `<div class="note-text">${escape(order.note)}</div>` : ''}
+        <div class="parts">${parts || 'אין פריטים'}</div>
+        <div class="states" data-ref="${escape(order.ref)}">
+          ${STATES.map(([key, label]) =>
+            `<button data-status="${key}" class="${order.status === key ? 'on' : ''}">${label}</button>`
+          ).join('')}
+        </div>
+      </article>`;
+    })
+    .join('');
+
+  for (const group of document.querySelectorAll('.states')) {
+    for (const button of group.querySelectorAll('button')) {
+      button.addEventListener('click', async () => {
+        const response = await fetch(
+          `/api/shop/orders/${encodeURIComponent(group.dataset.ref)}/status`,
+          { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: button.dataset.status }) }
+        );
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          $('state').className = 'note note-bad';
+          $('state').textContent = data.detail || 'לא הצלחנו לשנות מצב.';
+          $('state').classList.remove('hidden');
+          return;
+        }
+        load();
+      });
+    }
+  }
+}
+
+async function load() {
+  const response = await fetch('/api/shop/orders');
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    $('state').className = 'note note-bad';
+    $('state').textContent = data.detail || 'לא הצלחנו לטעון הזמנות.';
+    $('state').classList.remove('hidden');
+    return;
+  }
+  const { orders } = await response.json();
+  if (!orders.length) {
+    $('state').className = 'note note-info';
+    $('state').textContent = 'עדיין לא התקבלו הזמנות.';
+    $('state').classList.remove('hidden');
+    $('counts').classList.add('hidden');
+    return;
+  }
+  $('state').classList.add('hidden');
+  paint(orders);
+}
+
+await mountSidebar('/shop');
+load();
+</script>
+</body>
+</html>

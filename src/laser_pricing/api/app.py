@@ -273,7 +273,7 @@ PRICE_TABLE_PATHS = ("/prices", "/api/prices", "/api/tariff")
 עליו מחליף את הטבלה **כולה** — כולל הכיול שאף אחד לא רואה בטופס.
 """
 
-INTERNAL_PATHS = ("/api/dashboard", "/dashboard")
+INTERNAL_PATHS = ("/api/dashboard", "/dashboard", "/api/shop", "/shop")
 """פנימי: `quote:use` **או** `prices:edit`. לא הציבור.
 
 הדשבורד מדווח אילו שדות בטבלה ריקים, מה מצב השער, מתי גובה לאחרונה
@@ -2105,6 +2105,10 @@ class CartQuantityRequest(BaseModel):
     quantity: int = Field(ge=1, le=10000)
 
 
+class OrderStatusRequest(BaseModel):
+    status: Literal["new", "confirmed", "in_production", "done", "cancelled"]
+
+
 class CheckoutRequest(BaseModel):
     phone: str = Field(min_length=6, max_length=40)
     note: str = Field(default="", max_length=orders.MAX_NOTE)
@@ -2296,6 +2300,32 @@ def checkout(body: CheckoutRequest, request: Request) -> dict:
     )
     usage.record_quote(result, user)
     return {"order": order, "payment": instruction}
+
+
+@app.get("/api/shop/orders")
+def shop_orders(request: Request, limit: int = 100) -> dict:
+    """כל ההזמנות — **לבית המלאכה.**
+
+    **וזו אינה פרצה בגבול מול ה-CRM.** הגבול שנקבע ב-19.8 אומר
+    שהמערכת אינה מנהלת לקוחות: `usage.jsonl` הוא טלמטריה, ו-
+    `quotes.db` הוא המשתמש מול עצמו — ולכן הדשבורד מציג מהם מספרים
+    מצטברים בלבד. **הזמנה היא הדבר ההפוך:** היא מופנית אל בית
+    המלאכה ומבקשת ממנו לחתוך. מערכת שמקבלת הזמנות ואינה מציגה אותן
+    למי שאמור לבצע אותן אינה שומרת על גבול — היא פשוט מאבדת עבודה.
+    זה היה חור אמיתי: הפונקציות נכתבו ולא חוברו, כלומר לקוח יכול
+    היה להזמין ואיש לא היה יודע.
+
+    מה שמוצג כאן הוא **מה שהלקוח עצמו הקליד** — טלפון והערה — ולא
+    שדה שהמערכת גזרה עליו.
+    """
+    return {"orders": orders.all_orders(limit)}
+
+
+@app.put("/api/shop/orders/{ref}/status")
+def shop_order_status(ref: str, body: OrderStatusRequest, request: Request) -> dict:
+    if not orders.set_status(ref, body.status):
+        raise HTTPException(status_code=404, detail=f"אין הזמנה {ref}.")
+    return {"ref": ref, "status": body.status}
 
 
 @app.get("/api/orders")
@@ -2952,6 +2982,11 @@ if WEB_DIR.exists():
     @app.get("/orders")
     def orders_page() -> FileResponse:
         return FileResponse(WEB_DIR / "orders.html")
+
+    @app.get("/shop")
+    def shop_page() -> FileResponse:
+        """ההזמנות שהתקבלו — המסך של בית המלאכה."""
+        return FileResponse(WEB_DIR / "shop.html")
 
     # **שלושה שמות, מסמך אחד.** תקנון, נגישות ויצירת קשר הם מסמך
     # אחד קצר, ופיצולו לשלושה קבצים היה מייצר שלושה מקומות שבהם

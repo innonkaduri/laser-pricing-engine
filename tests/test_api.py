@@ -3603,3 +3603,85 @@ class TestTheOrderFlow:
         )
         assert response.status_code == 422
         assert "0" in response.json()["detail"]
+
+
+class TestTheWorkshopSeesItsOrders:
+    """**החור שנסגר:** אפשר היה להזמין, ואיש לא היה יודע.
+
+    `all_orders` ו-`set_status` נכתבו בשכבת הנתונים ולא חוברו לשום
+    נקודת קצה. מערכת שמקבלת הזמנות ואינה מציגה אותן למי שאמור לבצע
+    אותן אינה שומרת על גבול מול ה-CRM — היא מאבדת עבודה.
+    """
+
+    SHOP = ("ynon", "sod")
+
+    @pytest.fixture
+    def shop(self, client, monkeypatch, tmp_path):
+        path = tmp_path / "business.json"
+        path.write_text(
+            json.dumps({"legal_name": "ב", "company_id": "1", "phone": "2",
+                        "email": "a@b.invalid", "address": "ג"}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(business, "PATH", path)
+        assert client.put("/api/tariff", json=TEST_TARIFF).status_code == 200
+        monkeypatch.setenv("APP_PASSWORD", "sod")
+        monkeypatch.setenv("APP_USER", "ynon")
+        assert client.post(
+            "/api/signup", json={"username": "koneh", "password": "sisma-arukka-1"}
+        ).status_code == 201
+        assert client.post(
+            "/api/login", json={"username": "koneh", "password": "sisma-arukka-1"}
+        ).status_code == 200
+        client.post("/api/cart", json={
+            "name": "לוחית", "source": "editor", "material_key": "st37",
+            "thickness_mm": 3.0, "quantity": 1,
+            "doc": {"name": "לוחית", "outline": [[0, 0], [200, 0], [200, 120], [0, 120]]}})
+        placed = client.post(
+            "/api/checkout", json={"phone": "050-1234567", "note": "דחוף", "payment": "phone"})
+        assert placed.status_code == 200, placed.text
+        return client, placed.json()["order"]["ref"]
+
+    def test_a_customer_may_not_read_the_whole_shop(self, shop):
+        """**לקוח אינו בית מלאכה.** `quote:total` אינו `quote:use`."""
+        client, _ = shop
+        assert client.get("/api/shop/orders").status_code == 403
+
+    def test_the_shop_sees_the_order_with_what_the_customer_typed(self, shop, monkeypatch):
+        client, ref = shop
+        # **זהות בית המלאכה עוברת ב-Basic ולא בסשן.** סיסמת הסביבה
+        # אינה משתמש במסד, ולכן `/api/login` מחזיר עליה 401 — וזה נכון.
+        # **הסשן של הלקוח גובר על Basic**, ולכן יוצאים ממנו קודם.
+        # זה אינו עקיפה בבדיקה אלא התנהגות אמיתית: דפדפן שנשאר
+        # מחובר כלקוח לא יראה את מסך בית המלאכה גם עם סיסמה נכונה.
+        client.post("/api/logout")
+        raw = client.get("/api/shop/orders", auth=self.SHOP)
+        assert raw.status_code == 200, (raw.status_code, raw.text[:200])
+        body = raw.json()
+        found = next(o for o in body["orders"] if o["ref"] == ref)
+        assert found["phone"] == "050-1234567"
+        assert found["note"] == "דחוף"
+        assert found["items"] and found["items"][0]["name"] == "לוחית"
+
+    def test_the_shop_can_move_an_order_forward(self, shop):
+        client, ref = shop
+        client.post("/api/logout")
+        assert client.put(
+            f"/api/shop/orders/{ref}/status", json={"status": "in_production"}, auth=self.SHOP
+        ).status_code == 200
+        body = client.get("/api/shop/orders", auth=self.SHOP).json()
+        assert next(o for o in body["orders"] if o["ref"] == ref)["status"] == "in_production"
+
+    def test_an_unknown_status_is_refused(self, shop):
+        client, ref = shop
+        client.post("/api/logout")
+        assert client.put(
+            f"/api/shop/orders/{ref}/status", json={"status": "נעלם"}, auth=self.SHOP
+        ).status_code == 422
+
+    def test_a_missing_order_is_a_404_not_a_silent_ok(self, shop):
+        client, _ = shop
+        client.post("/api/logout")
+        assert client.put(
+            "/api/shop/orders/99-ZZZZZ/status", json={"status": "done"}, auth=self.SHOP
+        ).status_code == 404
