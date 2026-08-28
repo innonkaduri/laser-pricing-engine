@@ -116,21 +116,27 @@ backup_tariff || STATUS=1
 # כמו הטבלה. `.backup` של sqlite ולא `cp`: העתקה של קובץ שנכתב באותו
 # רגע נותנת מסד פגום שנראה תקין עד הפעם הראשונה שקוראים ממנו.
 QUOTES_DB="${QUOTES_DB:-/var/lib/laser/quotes.db}"
+# **הזמנות — הדבר היחיד כאן שאובדנו עולה כסף ללקוח**, לא רק
+# היסטוריה. אם הן לא בחבילה, הן לא מגיעות למק.
+ORDERS_DB="${ORDERS_DB:-/var/lib/laser/orders.db}"
 
-backup_quotes() {
+# מגבה מסד sqlite וסופר שורות בטבלה שנמסרת בארגומנט השלישי.
+# **שם הטבלה היה קשיח ל-`quotes`**, ובמסד ההזמנות זה היה נכשל
+# ומחזיר 0 — כלומר חבילת גיבוי שמדווחת "0 הזמנות" בזמן שיש.
+backup_sqlite() {
   # `.backup` של sqlite ולא `cp`: העתקת מסד שנכתב באותו רגע נותנת
   # קובץ שנראה תקין עד הקריאה הראשונה ממנו.
-  python3 - "$1" "$2" <<'QUOTESPY'
+  python3 - "$1" "$2" "$3" <<'SQLITEPY'
 import sqlite3, sys
 
-src, dest = sys.argv[1], sys.argv[2]
+src, dest, table = sys.argv[1], sys.argv[2], sys.argv[3]
 with sqlite3.connect(f"file:{src}?mode=ro", uri=True) as conn:
     if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-        sys.exit("מסד ההצעות פגום — לא מגבים אותו.")
+        sys.exit(f"המסד {src} פגום — לא מגבים אותו.")
     with sqlite3.connect(dest) as out:
         conn.backup(out)
-    print(conn.execute("SELECT COUNT(*) FROM quotes").fetchone()[0])
-QUOTESPY
+    print(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+SQLITEPY
 }
 
 USERS_DB="${USERS_DB:-/var/lib/laser/users.db}"
@@ -241,15 +247,22 @@ offbox_copy() {
   # אובדן שלה. **אם היא לא כאן, היא לא מגיעה למק.**
   quotes_rows=0
   if [[ -f "$QUOTES_DB" ]]; then
-    if ! quotes_rows="$(backup_quotes "$QUOTES_DB" "$staging/laser-backup/quotes.db")"; then
+    if ! quotes_rows="$(backup_sqlite "$QUOTES_DB" "$staging/laser-backup/quotes.db" quotes)"; then
       echo "אזהרה: גיבוי היסטוריית ההצעות נכשל — החבילה יוצאת בלעדיה." >&2
       quotes_rows=0
     fi
   fi
-  printf 'laser-pricing\nמקור: %s\nנוצר: %s\ntariff: %s\nusers: %s\nusage: %s שורות\nquotes: %s הצעות\n' \
+  orders_rows=0
+  if [[ -f "$ORDERS_DB" ]]; then
+    if ! orders_rows="$(backup_sqlite "$ORDERS_DB" "$staging/laser-backup/orders.db" orders)"; then
+      echo "אזהרה: גיבוי ההזמנות נכשל — החבילה יוצאת בלעדיהן." >&2
+      orders_rows=0
+    fi
+  fi
+  printf 'laser-pricing\nמקור: %s\nנוצר: %s\ntariff: %s\nusers: %s\nusage: %s שורות\nquotes: %s הצעות\norders: %s הזמנות\n' \
     "$(hostname)" "$(date +%Y-%m-%dT%H:%M:%S)" \
     "$(basename "${newest_tariff:-אין}")" "$(basename "${newest_users:-אין}")" \
-    "$usage_lines" "$quotes_rows" \
+    "$usage_lines" "$quotes_rows" "$orders_rows" \
     > "$staging/laser-backup/MANIFEST.txt"
 
   # כתיבה לקובץ זמני והחלפה אטומית: המושך רץ ב-09:00 ואין שום סיבה

@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from laser_pricing.api import history, identity, tariff_store, usage
+from laser_pricing.api import business, history, identity, orders, payment, tariff_store, usage
 from laser_pricing.domain import text as text_mod
 # היבוא הפרטי מכוון: מונה הניסיונות הכושלים הוא מצב של התהליך, ובדיקה
 # חייבת לאפס אותו כדי לא לחסום את הבדיקה הבאה.
@@ -102,6 +102,10 @@ def isolated_users(tmp_path, monkeypatch):
     # הזה הבדיקות היו יוצרות `config/quotes.db` אמיתי בריפו — אותה
     # תאונה בדיוק כמו עם הטבלה ועם רישום השימוש.
     monkeypatch.setattr(history, "DB_PATH", tmp_path / "quotes.db")
+    # וההזמנות הן המסד הרביעי. אותה תאונה בדיוק, פעם רביעית.
+    monkeypatch.setattr(orders, "DB_PATH", tmp_path / "orders.db")
+    monkeypatch.setattr(business, "PATH", tmp_path / "business.json")
+    orders.WRITE_FAILURES.clear()
     history.WRITE_FAILURES.clear()
     usage.WRITE_FAILURES.clear()
     _LOGIN_FAILURES.clear()
@@ -3403,3 +3407,199 @@ class TestTheSolidCanBeTouched:
     def test_faces_are_numbered_so_the_screen_can_point_at_one(self, client):
         model = self._model(client)
         assert [f["face_index"] for f in model["faces"]] == list(range(len(model["faces"])))
+
+
+class TestTheOrderFlow:
+    """מהעגלה עד ההזמנה. **הכסף עובר כאן, ולכן זה נבדק כאן.**"""
+
+    PLATE = {"name": "לוחית", "outline": [[0, 0], [200, 0], [200, 120], [0, 120]]}
+
+    @pytest.fixture
+    def priced_client(self, client, monkeypatch):
+        """לקוח **מחובר** עם טבלה מתומחרת.
+
+        עגלה שייכת לחשבון, ולכן אין דרך לבדוק אותה בלי אחד. הטבלה
+        נזרעת לפני שהשער נדלק — הסדר ההפוך נכשל ב-401 על
+        `/api/tariff`, וזה בדיוק מה שהופך פיקסצ'ר לבדיקה של עצמו.
+        """
+        assert client.put("/api/tariff", json=TEST_TARIFF).status_code == 200
+        monkeypatch.setenv("APP_PASSWORD", "sod")
+        monkeypatch.setenv("APP_USER", "ynon")
+        assert client.post(
+            "/api/signup", json={"username": "koneh", "password": "sisma-arukka-1"}
+        ).status_code == 201
+        assert client.post(
+            "/api/login", json={"username": "koneh", "password": "sisma-arukka-1"}
+        ).status_code == 200
+        return client
+
+    def _add(self, client, name="לוחית", quantity=1, thickness=3.0):
+        return client.post(
+            "/api/cart",
+            json={
+                "name": name,
+                "source": "editor",
+                "material_key": "st37",
+                "thickness_mm": thickness,
+                "quantity": quantity,
+                "doc": self.PLATE,
+            },
+        )
+
+    def _open_for_business(self, tmp_path, monkeypatch):
+        """פרטי עסק אמיתיים־לצורך־הבדיקה. **לא ברירת מחדל בקוד.**"""
+        path = tmp_path / "business.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "legal_name": "בדיקה בע\"מ",
+                    "company_id": "000000000",
+                    "phone": "00-0000000",
+                    "email": "test@example.invalid",
+                    "address": "רחוב הבדיקה 1",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(business, "PATH", path)
+
+    def test_the_cart_holds_the_part_and_never_the_price(self, priced_client):
+        """**מפרט נשמר, מחיר לא.** טבלה שהתעדכנה בבוקר חייבת לשנות
+        עגלה שנפתחה אמש, אחרת הלקוח משלם מחיר שאיש לא אישר."""
+        assert self._add(priced_client).status_code == 200
+        stored = orders.items("")  # ללא משתמש — לא אמור להחזיר דבר
+        assert stored == []
+        body = priced_client.get("/api/cart").json()
+        assert body["count"] == 1
+        assert "total" in body["quote"]
+        # המחיר לא נשמר במסד, אלא מחושב:
+        with orders._connect() as conn:
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(cart)")}
+        assert "price" not in columns and "total" not in columns
+
+    def test_two_parts_together_cost_less_than_two_parts_apart(self, priced_client):
+        """**זו הסיבה שהעגלה קיימת**, והיא פיזיקה ולא שיווק.
+
+        כל הפריטים מתומחרים ב-`price_order` אחד, כלומר מנוסטים על
+        אותה פלטה. אם זה מפסיק להיות נכון — העגלה הפכה לסכימה של
+        שורות, ומישהו שבר את הנסטינג בלי לשים לב.
+        """
+        self._add(priced_client, name="א")
+        alone = priced_client.get("/api/cart").json()["quote"]["total"]
+        self._add(priced_client, name="ב")
+        together = priced_client.get("/api/cart").json()["quote"]["total"]
+        assert together < alone * 2
+
+    def test_a_part_that_cannot_be_built_never_enters_the_cart(self, priced_client):
+        """פריט שבור בעגלה היה מפיל כל צפייה בה — גם על פריטים תקינים."""
+        response = priced_client.post(
+            "/api/cart",
+            json={
+                "name": "שבור",
+                "source": "editor",
+                "material_key": "st37",
+                "thickness_mm": 3.0,
+                "quantity": 1,
+                "doc": {"name": "שבור", "outline": [[0, 0], [10, 0]]},
+            },
+        )
+        assert response.status_code == 422
+        assert priced_client.get("/api/cart").json()["count"] == 0
+
+    def test_the_badge_endpoint_does_not_price_anything(self, priced_client):
+        self._add(priced_client)
+        body = priced_client.get("/api/cart/count").json()
+        assert body == {"count": 1}
+
+    def test_without_business_details_no_order_is_taken(self, priced_client):
+        """**מסך אינו מציע בחירה שנועדה להיכשל**, וגם השרת לא."""
+        self._add(priced_client)
+        options = priced_client.get("/api/checkout").json()
+        assert options["can_order"] is False
+        assert options["blockers"]
+        response = priced_client.post(
+            "/api/checkout", json={"phone": "0500000000", "note": "", "payment": "phone"}
+        )
+        assert response.status_code == 409
+        assert "אי אפשר לקבל הזמנות" in response.json()["detail"]
+
+    def test_an_order_empties_the_cart_and_gets_a_reference(
+        self, priced_client, tmp_path, monkeypatch
+    ):
+        self._open_for_business(tmp_path, monkeypatch)
+        self._add(priced_client, name="א")
+        self._add(priced_client, name="ב")
+        response = priced_client.post(
+            "/api/checkout",
+            json={"phone": "050-0000000", "note": "דחוף", "payment": "phone"},
+        )
+        assert response.status_code == 200, response.text
+        order = response.json()["order"]
+        assert order["ref"] and order["total"] > 0
+        assert len(order["items"]) == 2
+        assert order["note"] == "דחוף"
+        # העגלה התרוקנה **באותה טרנזקציה**, אחרת הלקוח מזמין פעמיים.
+        assert priced_client.get("/api/cart").json()["count"] == 0
+        listing = priced_client.get("/api/orders").json()["orders"]
+        assert [o["ref"] for o in listing] == [order["ref"]]
+
+    def test_an_order_reference_is_not_a_guessable_serial(self, tmp_path, monkeypatch):
+        """מספר רץ מספר לכל לקוח כמה הזמנות היו לפניו, וגם מאפשר
+        לנחש הזמנה של מישהו אחר."""
+        refs = {orders._ref() for _ in range(200)}
+        assert len(refs) > 190
+        assert all("-" in ref for ref in refs)
+
+    def test_one_customer_cannot_read_another_customers_order(
+        self, priced_client, tmp_path, monkeypatch
+    ):
+        """**הסינון בשאילתה.** מזהה הזמנה אינו סיסמה."""
+        self._open_for_business(tmp_path, monkeypatch)
+        self._add(priced_client)
+        ref = priced_client.post(
+            "/api/checkout", json={"phone": "0500000000", "note": "", "payment": "phone"}
+        ).json()["order"]["ref"]
+        assert orders.one("someone-else", ref) is None
+
+    def test_an_unconfigured_payment_method_is_refused_loudly(self, tmp_path, monkeypatch):
+        """**אין גבייה דרך מסלול שלא נכתב.** ספק שנוסף לרשימה בלי
+        מימוש נופל ברעש ולא בשקט."""
+        assert payment.configured("card") is False
+        assert all(m["key"] != "card" for m in payment.available())
+        with pytest.raises(payment.PaymentError, match="אינו מוגדר"):
+            payment.start("card", {"total": 100})
+
+    def test_the_legal_pages_are_open_without_a_login(self, client):
+        """מסמך משפטי מאחורי מסך כניסה אינו מסמך משפטי."""
+        for path in ("/terms", "/accessibility", "/contact", "/api/business"):
+            assert client.get(path).status_code == 200, path
+
+    def test_business_details_are_never_invented(self, client):
+        body = client.get("/api/business").json()
+        assert body["ready"] is False
+        assert body["legal_name"] == ""
+        assert body["company_id"] == ""
+
+    def test_an_order_for_zero_shekels_is_refused(
+        self, priced_client, tmp_path, monkeypatch
+    ):
+        """**0 אינו מחיר.** צירוף שאינו בטבלה גורם למנוע לשתוק, ו-0
+        שעובר לקופה הוא לקוח שמזמין חינם — בדיוק הכשל שהפרויקט
+        הזה מתריע עליו בכל מקום אחר."""
+        self._open_for_business(tmp_path, monkeypatch)
+        self._add(priced_client)
+        # **הטבלה מוחלפת דרך `STATE` ולא דרך ה-API**, כי ללקוח
+        # שמזמין יש `quote:total` בלבד — הוא אינו רשאי לגעת
+        # במחירים, וזה בדיוק כפי שצריך להיות.
+        empty = {key: value for key, value in TEST_TARIFF.items()}
+        empty["rates"] = [
+            {**row, "plate_price": 0.0, "cut_rate_per_m": 0.0, "pierce_price": 0.0}
+            for row in TEST_TARIFF["rates"]
+        ]
+        tariff_store.STATE.replace(empty)
+        response = priced_client.post(
+            "/api/checkout", json={"phone": "0500000000", "note": "", "payment": "phone"}
+        )
+        assert response.status_code == 422
+        assert "0" in response.json()["detail"]

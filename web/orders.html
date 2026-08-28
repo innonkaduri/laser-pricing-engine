@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ההזמנות שלי — ימיש כדורי</title>
+<link rel="preload" as="font" type="font/woff2" href="/fonts/assistant-hebrew.woff2" crossorigin>
+<link rel="stylesheet" href="/brand.css">
+<style>
+.entry{
+  background:var(--paper); border:1px solid var(--ink-150); border-radius:var(--r-md);
+  padding:var(--s4) var(--s5); display:grid; gap:var(--s2);
+  grid-template-columns:1fr auto; align-items:start;
+}
+.entry+.entry{margin-top:var(--s3)}
+.entry h3{margin:0; font-size:16px; font-weight:700; letter-spacing:-.01em;
+  font-variant-numeric:tabular-nums; direction:ltr; text-align:right}
+.entry .meta{font-size:var(--fs-xs); color:var(--ink-500); line-height:1.7}
+.entry .price{text-align:start; font-variant-numeric:tabular-nums; direction:ltr;
+  font-size:19px; font-weight:750; letter-spacing:-.02em; white-space:nowrap}
+.tag{display:inline-block; font-size:11px; font-weight:700; padding:2px 8px;
+  border-radius:var(--r-full); background:var(--ink-100); color:var(--ink-700)}
+.tag.new{background:var(--flame-50); color:var(--flame-700)}
+.tag.done{background:var(--ok-50); color:var(--ok-700)}
+@media (max-width:520px){ .entry{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+
+<main class="wrap" style="padding-block:var(--s6) var(--s10)">
+  <h1 style="font-size:var(--fs-h2); letter-spacing:-.02em; margin-bottom:var(--s2)">ההזמנות שלי</h1>
+  <p class="muted" style="max-width:62ch; line-height:1.65; margin-bottom:var(--s6)">
+    כל הזמנה ששלחת, עם המזהה שאפשר להקריא בטלפון.
+  </p>
+
+  <div class="note note-ok hidden" id="placed"></div>
+  <div class="note note-info" id="state">טוען…</div>
+  <div id="list"></div>
+</main>
+
+<script type="module">
+import { mountSidebar } from '/shell.js';
+
+const $ = (id) => document.getElementById(id);
+const money = (n) =>
+  '₪' + Number(n).toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const STATUS = {
+  new: ['התקבלה', 'new'],
+  confirmed: ['אושרה', ''],
+  in_production: ['בייצור', ''],
+  done: ['הושלמה', 'done'],
+  cancelled: ['בוטלה', ''],
+};
+
+function when(seconds) {
+  const d = new Date(seconds * 1000);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} · ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function escape(value) {
+  return String(value ?? '').replace(/[&<>"]/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+}
+
+const placed = new URLSearchParams(location.search).get('placed');
+if (placed) {
+  $('placed').classList.remove('hidden');
+  $('placed').innerHTML =
+    `<b>ההזמנה נשלחה.</b> המזהה שלה הוא <b dir="ltr">${escape(placed)}</b> — ` +
+    'שמור אותו, הוא מה שנקריא בטלפון.';
+}
+
+const response = await fetch('/api/orders');
+if (!response.ok) {
+  const data = await response.json().catch(() => ({}));
+  $('state').className = 'note note-bad';
+  $('state').textContent = data.detail || 'לא הצלחנו לטעון את ההזמנות.';
+} else {
+  const { orders } = await response.json();
+  if (!orders.length) {
+    $('state').className = 'note note-info';
+    $('state').innerHTML = 'אין עדיין הזמנות. אפשר להתחיל מ<a href="/catalog">הקטלוג</a>.';
+  } else {
+    $('state').classList.add('hidden');
+    $('list').innerHTML = orders
+      .map((order) => {
+        const [label, tone] = STATUS[order.status] || [order.status, ''];
+        return `<article class="entry">
+          <div>
+            <h3>${escape(order.ref)}</h3>
+            <div class="meta">
+              <span class="tag ${tone}">${label}</span> ·
+              ${order.item_count} פריטים · ${when(order.at)}
+              ${order.note ? `<br>${escape(order.note)}` : ''}
+            </div>
+          </div>
+          <div class="price">${money(order.total)}</div>
+        </article>`;
+      })
+      .join('');
+  }
+}
+
+mountSidebar('/orders');
+</script>
+</body>
+</html>

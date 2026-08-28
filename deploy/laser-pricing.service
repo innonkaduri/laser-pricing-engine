@@ -17,6 +17,7 @@
 #   APP_USER · APP_PASSWORD · EDITOR_PASSWORD · SESSION_SECRET
 #   SERVICE_TOKEN · SIGNUP_MODE (open|approval|closed)
 #   TARIFF_PATH · USERS_DB · BACKUP_STATUS_FILE · USAGE_LOG · QUOTES_DB
+#   ORDERS_DB
 # `SIGNUP_MODE` מפורש ולא בהשמטה: ברירת מחדל שקטה שפותחת הרשמה
 # ציבורית היא החלטה שאיש לא קיבל.
 

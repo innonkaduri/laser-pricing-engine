@@ -1,0 +1,11 @@
+{
+  "_": "העתק ל-config/business.json ומלא. כל שדה ריק חוסם קבלת הזמנות, ובכוונה: מסך שממציא מספר ח\"פ גרוע ממסך שאומר 'אי אפשר להזמין עדיין'.",
+  "legal_name": "",
+  "trade_name": "",
+  "company_id": "",
+  "phone": "",
+  "email": "",
+  "address": "",
+  "vat_pct": 18,
+  "accessibility_contact": ""
+}

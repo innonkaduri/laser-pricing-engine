@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>העגלה — ימיש כדורי</title>
+<link rel="preload" as="font" type="font/woff2" href="/fonts/assistant-hebrew.woff2" crossorigin>
+<link rel="stylesheet" href="/brand.css">
+<style>
+/* עגלה — כרטיסים ולא טבלה, מאותה סיבה כמו בהיסטוריה: בטלפון
+   טבלה בת שש עמודות מתכווצת עד שהמספרים נדבקים זה לזה. */
+.layout{display:grid; grid-template-columns:1fr 320px; gap:var(--s6); align-items:start}
+@media (max-width:860px){ .layout{grid-template-columns:1fr} }
+
+.item{
+  background:var(--paper); border:1px solid var(--ink-150); border-radius:var(--r-md);
+  padding:var(--s4) var(--s5); display:grid; gap:var(--s2);
+  grid-template-columns:1fr auto; align-items:start;
+}
+.item+.item{margin-top:var(--s3)}
+.item h3{margin:0; font-size:15.5px; font-weight:650; letter-spacing:-.01em}
+.item .meta{font-size:var(--fs-xs); color:var(--ink-500); line-height:1.7}
+.item .meta b{color:var(--ink-700); font-weight:600}
+.item .acts{grid-column:1/-1; display:flex; gap:var(--s4); align-items:center;
+  padding-top:var(--s3); border-top:1px solid var(--ink-150)}
+/* **גם `padding`, `min-height` ו-`border-radius` צריכים איפוס.**
+   ב-brand.css יושבת שורת גשר `button:not(.btn):not(.ghost)` שהופכת
+   כל כפתור חשוף לכפתור ראשי כתום, והסגוליות שלה גוברת. איפוס של
+   הרקע בלבד משאיר עיגול לבן מרחף — זה כבר קרה פעמיים במסכים אחרים. */
+.item .acts button{
+  font:inherit; font-size:var(--fs-xs); font-weight:650; border:0; background:none;
+  color:var(--flame-600); cursor:pointer; padding:0; min-height:0;
+  border-radius:0; box-shadow:none;
+}
+.item .acts .drop{color:var(--ink-400); margin-inline-start:auto}
+.item .acts .drop:hover{color:var(--bad-600)}
+.qty{display:flex; align-items:center; gap:var(--s2)}
+.qty input{
+  width:70px; text-align:center; font-variant-numeric:tabular-nums; direction:ltr;
+  padding:4px 6px; border:1px solid var(--ink-200); border-radius:var(--r-sm); font:inherit;
+}
+
+.side{background:var(--paper); border:1px solid var(--ink-150); border-radius:var(--r-md);
+  padding:var(--s5); position:sticky; top:var(--s5)}
+.side h2{margin:0 0 var(--s4); font-size:var(--fs-h3); letter-spacing:-.01em}
+.row-line{display:flex; justify-content:space-between; gap:var(--s3);
+  font-size:var(--fs-sm); padding:5px 0}
+.row-line b{font-variant-numeric:tabular-nums; direction:ltr}
+.total{border-top:1px solid var(--ink-150); margin-top:var(--s3); padding-top:var(--s3);
+  font-size:20px; font-weight:750; letter-spacing:-.02em}
+.field{display:block; margin-bottom:var(--s4)}
+.field label{display:block; font-size:var(--fs-xs); font-weight:650; margin-bottom:4px; color:var(--ink-700)}
+.field input,.field textarea,.field select{
+  width:100%; font:inherit; padding:8px 10px; border:1px solid var(--ink-200);
+  border-radius:var(--r-sm); background:var(--paper);
+}
+.field textarea{min-height:70px; resize:vertical}
+.hintline{font-size:11.5px; color:var(--ink-500); line-height:1.6; margin:var(--s2) 0 0}
+.line-price{text-align:start; font-variant-numeric:tabular-nums; direction:ltr;
+  font-size:18px; font-weight:750; white-space:nowrap}
+</style>
+</head>
+<body>
+
+<main class="wrap" style="padding-block:var(--s6) var(--s10)">
+  <h1 style="font-size:var(--fs-h2); letter-spacing:-.02em; margin-bottom:var(--s2)">העגלה</h1>
+  <p class="muted" style="max-width:64ch; line-height:1.65; margin-bottom:var(--s6)">
+    כל החלקים בהזמנה אחת מסודרים יחד על אותה פלטה, ולכן הם עולים פחות
+    משהם היו מוזמנים בנפרד. <b>המחיר מחושב מחדש בכל פתיחה</b> — מה
+    שנשמר כאן הוא החלק, לא הסכום.
+  </p>
+
+  <div class="note note-info" id="state">טוען…</div>
+
+  <div class="layout hidden" id="layout">
+    <section>
+      <div id="items"></div>
+      <div style="margin-top:var(--s4)">
+        <button class="btn btn-ghost" id="clear">רוקן עגלה</button>
+      </div>
+    </section>
+
+    <aside class="side">
+      <h2>סיכום</h2>
+      <div id="sum"></div>
+
+      <div class="note note-bad hidden" id="blocked" style="margin:var(--s4) 0"></div>
+
+      <form id="checkout" style="margin-top:var(--s5)">
+        <label class="field">
+          <span>טלפון לחזרה</span>
+          <input id="phone" type="tel" inputmode="tel" autocomplete="tel" required
+                 placeholder="050-0000000" dir="ltr" style="text-align:right">
+        </label>
+        <label class="field">
+          <span>אמצעי תשלום</span>
+          <select id="method"></select>
+        </label>
+        <label class="field">
+          <span>הערה להזמנה (לא חובה)</span>
+          <textarea id="note" maxlength="500" placeholder="למשל: דחוף לשבוע הבא"></textarea>
+        </label>
+        <button class="btn btn-primary" id="send" style="width:100%">שלח הזמנה</button>
+        <p class="hintline" id="terms-line"></p>
+      </form>
+    </aside>
+  </div>
+</main>
+
+<script type="module">
+import { mountSidebar, refreshCartBadge } from '/shell.js';
+
+const $ = (id) => document.getElementById(id);
+const money = (n) =>
+  '₪' + Number(n).toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function fail(message) {
+  $('state').className = 'note note-bad';
+  $('state').textContent = message;
+  $('state').classList.remove('hidden');
+}
+
+async function load() {
+  const [cartRes, checkoutRes] = await Promise.all([
+    fetch('/api/cart'),
+    fetch('/api/checkout'),
+  ]);
+  if (!cartRes.ok) {
+    const data = await cartRes.json().catch(() => ({}));
+    return fail(data.detail || 'לא הצלחנו לטעון את העגלה.');
+  }
+  const cart = await cartRes.json();
+  const checkout = checkoutRes.ok ? await checkoutRes.json() : { can_order: false, blockers: [], methods: [] };
+
+  if (!cart.count) {
+    $('state').className = 'note note-info';
+    $('state').innerHTML =
+      'העגלה ריקה. אפשר להוסיף חלק מ<a href="/editor">העורך</a> או מ<a href="/catalog">הקטלוג</a>.';
+    $('layout').classList.add('hidden');
+    return;
+  }
+  $('state').classList.add('hidden');
+  $('layout').classList.remove('hidden');
+  paintItems(cart);
+  const priced = paintSummary(cart);
+  if (priced) paintCheckout(checkout);
+}
+
+function paintItems(cart) {
+  const lines = (cart.quote && cart.quote.lines) || [];
+  $('items').innerHTML = cart.items
+    .map((item, index) => {
+      const line = lines[index] || {};
+      const price = line.line_total ?? line.total ?? null;
+      return `<article class="item" data-id="${item.id}">
+        <div>
+          <h3>${escape(item.name || 'חלק')}</h3>
+          <div class="meta">
+            <b>${escape(line.material_name || item.material_key)}</b> ·
+            עובי <b>${item.thickness_mm}</b> מ״מ
+            ${line.width_mm ? ` · <b>${Math.round(line.width_mm)}×${Math.round(line.height_mm)}</b> מ״מ` : ''}
+          </div>
+        </div>
+        <div class="line-price">${price === null ? '' : money(price)}</div>
+        <div class="acts">
+          <span class="qty">כמות
+            <input type="number" min="1" max="10000" value="${item.quantity}" data-qty="${item.id}">
+          </span>
+          <button class="drop" data-drop="${item.id}">הסר</button>
+        </div>
+      </article>`;
+    })
+    .join('');
+
+  for (const input of document.querySelectorAll('[data-qty]')) {
+    input.addEventListener('change', async () => {
+      const quantity = Math.max(1, Number(input.value) || 1);
+      await fetch(`/api/cart/${input.dataset.qty}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantity }),
+      });
+      load();
+    });
+  }
+  for (const button of document.querySelectorAll('[data-drop]')) {
+    button.addEventListener('click', async () => {
+      await fetch(`/api/cart/${button.dataset.drop}`, { method: 'DELETE' });
+      refreshCartBadge();
+      load();
+    });
+  }
+}
+
+function paintSummary(cart) {
+  const quote = cart.quote || {};
+  /* **הפירוק מוצג רק למי שרשאי לראות אותו.** משתמש ציבורי מקבל
+     מחיר סופי אחד — הפירוק *הוא* טבלת המחירים, ומי שמחלק שורה
+     בשורה מקבל אותה. השרת אינו שולח `lines` לציבור, והמסך **אינו
+     מצייר עמודת מחיר ריקה** כדי להעמיד פנים שהיא קיימת: מקף ליד
+     כל פריט נראה כמו תקלה, ואינו. */
+  const rows = [];
+  if (quote.subtotal !== undefined) rows.push(['סכום ביניים', quote.subtotal]);
+  if (quote.vat !== undefined) rows.push([`מע״מ ${quote.vat_pct ?? ''}%`, quote.vat]);
+  const total = quote.total ?? 0;
+  $('sum').innerHTML =
+    rows.map(([k, v]) => `<div class="row-line"><span>${k}</span><b>${money(v)}</b></div>`).join('') +
+    `<div class="row-line total"><span>סה״כ${quote.vat_included ? ' כולל מע״מ' : ''}</span>
+       <b>${money(total)}</b></div>` +
+    (quote.lines ? '' : '<p class="hintline">פירוק העלויות פנימי ואינו מוצג.</p>');
+
+  /* **סכום 0 חייב לצעוק.** זה כלל של הפרויקט ולא זהירות יתר: 0
+     שמוצג בלי אזהרה נראה כמו מנוע עובד, והלקוח מזמין חינם. */
+  if (!(total > 0)) {
+    $('blocked').classList.remove('hidden');
+    $('blocked').innerHTML =
+      '<b>המחיר יצא 0 ואי אפשר להזמין.</b> החומר או העובי שנבחרו אינם ' +
+      'מתומחרים בטבלה. נא לבחור צירוף אחר או לפנות אלינו.';
+    $('checkout').classList.add('hidden');
+    return false;
+  }
+  return true;
+}
+
+function paintCheckout(checkout) {
+  const select = $('method');
+  select.innerHTML = checkout.methods
+    .map((m) => `<option value="${m.key}">${escape(m.label)}</option>`).join('');
+
+  /* מסך לא מציע בחירה שנועדה להיכשל: אם אין ממי לקבל הזמנה —
+     חסרים פרטי עסק או שאין אמצעי תשלום מוגדר — הכפתור נעלם
+     והסיבה נכתבת. כפתור "שלם" שמחזיר 409 גרוע מכפתור שאינו קיים. */
+  if (!checkout.can_order) {
+    $('checkout').classList.add('hidden');
+    $('blocked').classList.remove('hidden');
+    $('blocked').innerHTML =
+      '<b>אי אפשר לקבל הזמנות עדיין.</b><br>' +
+      (checkout.blockers.length
+        ? 'חסר: ' + checkout.blockers.map(escape).join(' · ')
+        : 'לא הוגדר אמצעי תשלום בשרת.') +
+      '<br>אפשר לשמור את העגלה ולחזור אליה.';
+    return;
+  }
+  const b = checkout.business || {};
+  $('terms-line').innerHTML =
+    `בשליחה אתה מאשר את <a href="/terms">התקנון</a>. המוכר: ${escape(b.legal_name || '')}` +
+    (b.company_id ? ` · ח״פ ${escape(b.company_id)}` : '');
+}
+
+function escape(value) {
+  return String(value ?? '').replace(/[&<>"]/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+}
+
+$('clear').addEventListener('click', async () => {
+  await fetch('/api/cart', { method: 'DELETE' });
+  refreshCartBadge();
+  load();
+});
+
+$('checkout').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  $('send').disabled = true;
+  const response = await fetch('/api/checkout', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      phone: $('phone').value.trim(),
+      note: $('note').value.trim(),
+      payment: $('method').value,
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  $('send').disabled = false;
+  if (!response.ok) return fail(data.detail || 'ההזמנה לא נשלחה.');
+  refreshCartBadge();
+  location.href = `/orders?placed=${encodeURIComponent(data.order.ref)}`;
+});
+
+await mountSidebar('/cart');
+load();
+</script>
+</body>
+</html>

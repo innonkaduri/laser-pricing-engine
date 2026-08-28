@@ -49,6 +49,7 @@ from .serialize import (
     quote_to_json,
     thin_for_preview,
 )
+from . import business, orders, payment
 from .simple_tariff import MONEY_FIELDS, apply_form, to_form
 from .store import STORE, GeometryExpired, StoredGeometry
 from .tariff_store import STATE
@@ -80,6 +81,7 @@ REQUIRED_ENV: dict[str, str] = {
     "SIGNUP_MODE": "בלעדיו ההרשמה הציבורית פתוחה כברירת מחדל שקטה, ולא כהחלטה",
     "SERVICE_TOKEN": "בלעדיו כל קריאה מימיש חוזרת 401",
     "QUOTES_DB": "בלעדיו היסטוריית ההצעות של כל המשתמשים נכתבת לעץ ה-git",
+    "ORDERS_DB": "בלעדיו הזמנות של לקוחות נכתבות לעץ ה-git ו-git clean מוחק אותן",
 }
 """משתני הסביבה שפריסה אמיתית **חייבת** להגדיר, והסיבה לכל אחד.
 
@@ -153,7 +155,22 @@ app = FastAPI(
 # ---- נעילה ----
 
 OPEN_PATHS = frozenset(
-    {"/health", "/login", "/api/login", "/signup", "/api/signup", "/", "/api/offering"}
+    {
+        "/health",
+        "/login",
+        "/api/login",
+        "/signup",
+        "/api/signup",
+        "/",
+        "/api/offering",
+        # **תקנון ונגישות פתוחים, וזו אינה נוחות.** מסמך משפטי
+        # מאחורי מסך כניסה אינו מסמך משפטי: מי שצריך לדעת ממי הוא
+        # קונה, ומי שבודק את הצהרת הנגישות, אינם לקוחות רשומים.
+        "/terms",
+        "/accessibility",
+        "/contact",
+        "/api/business",
+    }
 )
 """מה שנפתח בלי זהות — כולם מחזירים מסכים, בוליאנים ושמות, ולעולם
 לא מחירים.
@@ -271,7 +288,7 @@ INTERNAL_PATHS = ("/api/dashboard", "/dashboard")
 """
 
 
-ANY_USER_PATHS = ("/api/me", "/api/logout", "/api/account", "/api/history")
+ANY_USER_PATHS = ("/api/me", "/api/logout", "/api/account", "/api/history", "/api/cart", "/api/orders", "/api/checkout")
 """מה שכל מי שנכנס רשאי, ויהיו יכולותיו אשר יהיו.
 
 "מי אני" ו"צא" אינם יכולת. אבא, שיש לו `prices:edit` בלבד, קיבל על
@@ -2064,6 +2081,243 @@ def text_outline(body: TextOutlineRequest) -> dict:
     }
 
 
+# ── עגלה, הזמנה, תשלום ───────────────────────────────────────────
+
+
+class CartAddRequest(BaseModel):
+    """פריט לעגלה. **מפרט, לא מחיר.**
+
+    הלקוח שולח את מה שהוא עיצב; המחיר מגיע מהטבלה בכל צפייה. פריט
+    ששולח מחיר היה הופך את הדפדפן למקור אמת שני, וזו בדיוק הדלת
+    שדרכה נכנס "תמחור" שאיש לא אישר.
+    """
+
+    name: str = Field(default="חלק", max_length=120)
+    source: Literal["editor", "catalog", "manual"] = "editor"
+    product_id: str = Field(default="", max_length=80)
+    material_key: str
+    thickness_mm: float = Field(gt=0, le=50)
+    quantity: int = Field(default=1, ge=1, le=10000)
+    doc: PartDoc
+
+
+class CartQuantityRequest(BaseModel):
+    quantity: int = Field(ge=1, le=10000)
+
+
+class CheckoutRequest(BaseModel):
+    phone: str = Field(min_length=6, max_length=40)
+    note: str = Field(default="", max_length=orders.MAX_NOTE)
+    payment: str = payment.PHONE
+
+
+def _cart_owner(request: Request) -> str:
+    return _require_account(request).username
+
+
+def _price_cart(username: str) -> dict:
+    """מתמחר את **כל** העגלה יחד. זה גם מה שמוזיל אותה.
+
+    `price_order` מנסטת את כל החלקים על אותה פלטה, ולכן שני חלקים
+    בהזמנה אחת עולים פחות משניים בשתי הזמנות. זו אינה הנחה שיווקית
+    אלא הפיזיקה של הפלטה — וזו הסיבה שהעגלה אינה סכימה של שורות
+    שכל אחת תומחרה לבד.
+    """
+    rows = orders.items(username)
+    if not rows:
+        return {"items": [], "quote": None, "warnings": []}
+    tariff = _require_tariff()
+    parts: list[Part] = []
+    for row in rows:
+        doc = PartDoc(**row["spec"])
+        blank = _doc_blank(doc, row["thickness_mm"])
+        geometry = _build_manual_geometry(ManualPartSpec(name=doc.name, **blank.spec))
+        parts.append(
+            Part(
+                name=row["name"] or doc.name,
+                geometry=geometry,
+                material_key=row["material_key"],
+                thickness_mm=row["thickness_mm"],
+                quantity=row["quantity"],
+                source=PartSource.MANUAL,
+                bend_count=blank.bend_count,
+                bend_length_mm=blank.bend_length_mm,
+            )
+        )
+    try:
+        result = price_order(parts, tariff)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (MissingTariffError, PricingError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"rows": rows, "result": result}
+
+
+@app.get("/api/cart")
+def cart_get(request: Request) -> dict:
+    username = _cart_owner(request)
+    priced = _price_cart(username)
+    if not priced.get("rows"):
+        return {"items": [], "count": 0, "quote": None}
+    result = priced["result"]
+    lines = (
+        quote_to_json(result) if _sees_breakdown(request) else public_quote_to_json(result)
+    )
+    return {
+        "count": len(priced["rows"]),
+        "items": [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "source": row["source"],
+                "product_id": row["product_id"],
+                "material_key": row["material_key"],
+                "thickness_mm": row["thickness_mm"],
+                "quantity": row["quantity"],
+            }
+            for row in priced["rows"]
+        ],
+        "quote": lines,
+    }
+
+
+@app.get("/api/cart/count")
+def cart_count(request: Request) -> dict:
+    """רק המספר. **בלי תמחור.** הסרגל מבקש את זה בכל מסך, ותמחור
+    של כל העגלה על כל טעינת דף היה נסטינג מלא בשביל תג קטן."""
+    return {"count": orders.count(_cart_owner(request))}
+
+
+@app.post("/api/cart")
+def cart_add(body: CartAddRequest, request: Request) -> dict:
+    username = _cart_owner(request)
+    # נבדק **לפני** שהוא נכנס: פריט שאי אפשר לבנות ממנו גיאומטריה
+    # היה יושב בעגלה ומפיל כל צפייה בה, כולל של פריטים תקינים.
+    blank = _doc_blank(body.doc, body.thickness_mm)
+    _build_manual_geometry(ManualPartSpec(name=body.doc.name, **blank.spec))
+    try:
+        item_id = orders.add(
+            username,
+            name=body.name,
+            source=body.source,
+            product_id=body.product_id,
+            material_key=body.material_key,
+            thickness_mm=body.thickness_mm,
+            quantity=body.quantity,
+            spec=body.doc.model_dump(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"id": item_id, "count": orders.count(username)}
+
+
+@app.put("/api/cart/{item_id}")
+def cart_quantity(item_id: int, body: CartQuantityRequest, request: Request) -> dict:
+    username = _cart_owner(request)
+    if not orders.set_quantity(username, item_id, body.quantity):
+        raise HTTPException(status_code=404, detail="הפריט אינו בעגלה שלך.")
+    return {"ok": True}
+
+
+@app.delete("/api/cart/{item_id}")
+def cart_remove(item_id: int, request: Request) -> dict:
+    username = _cart_owner(request)
+    if not orders.remove(username, item_id):
+        raise HTTPException(status_code=404, detail="הפריט אינו בעגלה שלך.")
+    return {"count": orders.count(username)}
+
+
+@app.delete("/api/cart")
+def cart_clear(request: Request) -> dict:
+    return {"removed": orders.clear(_cart_owner(request))}
+
+
+@app.get("/api/checkout")
+def checkout_options(request: Request) -> dict:
+    """מה אפשר לעשות בקופה — **וגם מה חוסם.**
+
+    מסך שמציג כפתור "שלם" בזמן שאין ח"פ ואין תקנון מבטיח משהו
+    שאסור לקיים. לכן החסמים חוזרים כאן במפורש, והמסך מציג אותם
+    במקום את הכפתור.
+    """
+    _cart_owner(request)
+    return {
+        "business": business.public(),
+        "methods": payment.available(),
+        "blockers": business.blockers(),
+        "can_order": business.ready() and bool(payment.available()),
+    }
+
+
+@app.post("/api/checkout")
+def checkout(body: CheckoutRequest, request: Request) -> dict:
+    user = _require_account(request)
+    if not business.ready():
+        raise HTTPException(
+            status_code=409,
+            detail="אי אפשר לקבל הזמנות עדיין: " + " · ".join(business.blockers()),
+        )
+    priced = _price_cart(user.username)
+    if not priced.get("rows"):
+        raise HTTPException(status_code=422, detail="העגלה ריקה.")
+    result = priced["result"]
+    public = public_quote_to_json(result)
+    # **0 אינו מחיר.** הזמנה בסכום אפס פירושה שהצירוף אינו בטבלה,
+    # והמנוע העדיף לשתוק. הכלל של הפרויקט הוא שכישלון תמיד מפורש.
+    if not public.get("total", 0) > 0:
+        raise HTTPException(
+            status_code=422,
+            detail="המחיר יצא 0 — החומר או העובי אינם מתומחרים בטבלה. לא נקבל הזמנה בסכום אפס.",
+        )
+    try:
+        instruction = payment.start(body.payment, {"total": public["total"]})
+    except payment.PaymentError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    order = orders.place(
+        user.username,
+        phone=body.phone,
+        note=body.note,
+        total=public["total"],
+        currency=public.get("currency", "ILS"),
+        payment=body.payment,
+        # **מה שנשמר בהזמנה הוא מה שהלקוח אישר**, ולא הפירוק
+        # הפנימי: הזמנה היא מסמך מול הלקוח, וטבלת המחירים אינה שלו.
+        priced_items=[
+            {
+                "name": row["name"],
+                "material_key": row["material_key"],
+                "thickness_mm": row["thickness_mm"],
+                "quantity": row["quantity"],
+                "spec": row["spec"],
+            }
+            for row in priced["rows"]
+        ],
+    )
+    usage.record_quote(result, user)
+    return {"order": order, "payment": instruction}
+
+
+@app.get("/api/orders")
+def orders_list(request: Request) -> dict:
+    return {"orders": orders.listing(_require_account(request).username)}
+
+
+@app.get("/api/orders/{ref}")
+def orders_one(ref: str, request: Request) -> dict:
+    order = orders.one(_require_account(request).username, ref)
+    if order is None:
+        raise HTTPException(status_code=404, detail="אין הזמנה כזאת בחשבון שלך.")
+    return order
+
+
+@app.get("/api/business")
+def business_details() -> dict:
+    """פרטי העסק. **פתוח** — תקנון, נגישות ויצירת קשר חייבים
+    להיות נגישים גם למי שאינו מחובר."""
+    return business.public()
+
+
 PRODUCTION_TARGETS = ("cut", "bend")
 
 
@@ -2690,6 +2944,29 @@ if WEB_DIR.exists():
     def account_page() -> FileResponse:
         """מסך החשבון. עצמאי, כמו כל השאר."""
         return FileResponse(WEB_DIR / "account.html")
+
+    @app.get("/cart")
+    def cart_page() -> FileResponse:
+        return FileResponse(WEB_DIR / "cart.html")
+
+    @app.get("/orders")
+    def orders_page() -> FileResponse:
+        return FileResponse(WEB_DIR / "orders.html")
+
+    # **שלושה שמות, מסמך אחד.** תקנון, נגישות ויצירת קשר הם מסמך
+    # אחד קצר, ופיצולו לשלושה קבצים היה מייצר שלושה מקומות שבהם
+    # פרטי העסק יכולים להיפרד זה מזה.
+    @app.get("/terms")
+    def terms_page() -> FileResponse:
+        return FileResponse(WEB_DIR / "legal.html")
+
+    @app.get("/accessibility")
+    def accessibility_page() -> FileResponse:
+        return FileResponse(WEB_DIR / "legal.html")
+
+    @app.get("/contact")
+    def contact_page() -> FileResponse:
+        return FileResponse(WEB_DIR / "legal.html")
 
     @app.get("/history")
     def history_page() -> FileResponse:

@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>תקנון, נגישות ויצירת קשר — ימיש כדורי</title>
+<link rel="preload" as="font" type="font/woff2" href="/fonts/assistant-hebrew.woff2" crossorigin>
+<link rel="stylesheet" href="/brand.css">
+<style>
+/* מסמך לקריאה: שורה קצרה, ריווח נדיב, וכותרות שאפשר לקשר אליהן. */
+.doc{max-width:68ch; line-height:1.75}
+.doc h2{margin:var(--s8) 0 var(--s3); font-size:var(--fs-h3); letter-spacing:-.015em; scroll-margin-top:var(--s6)}
+.doc h3{margin:var(--s5) 0 var(--s2); font-size:16px; font-weight:650}
+.doc p,.doc li{color:var(--ink-700)}
+.doc ul{padding-inline-start:1.2em; display:grid; gap:6px}
+.doc dl{display:grid; grid-template-columns:auto 1fr; gap:6px var(--s4); margin:var(--s3) 0}
+.doc dt{font-weight:650; color:var(--ink-900)}
+.doc dd{margin:0; font-variant-numeric:tabular-nums}
+.jump{display:flex; flex-wrap:wrap; gap:var(--s2); margin-bottom:var(--s6)}
+.jump a{font-size:var(--fs-xs); font-weight:650; padding:5px 12px; border-radius:var(--r-full);
+  background:var(--ink-100); color:var(--ink-700); text-decoration:none}
+.jump a:hover{background:var(--flame-50); color:var(--flame-700)}
+</style>
+</head>
+<body>
+
+<main class="wrap" style="padding-block:var(--s6) var(--s10)">
+  <h1 style="font-size:var(--fs-h2); letter-spacing:-.02em; margin-bottom:var(--s4)">
+    תקנון, נגישות ויצירת קשר
+  </h1>
+
+  <nav class="jump">
+    <a href="#contact">יצירת קשר</a>
+    <a href="#terms">תקנון</a>
+    <a href="#accessibility">הצהרת נגישות</a>
+  </nav>
+
+  <div class="note note-bad hidden" id="missing"></div>
+
+  <div class="doc">
+    <h2 id="contact">יצירת קשר</h2>
+    <dl id="details"></dl>
+
+    <h2 id="terms">תקנון</h2>
+
+    <h3>מה נמכר כאן</h3>
+    <p>
+      חיתוך לייזר וכיפוף של פחים לפי מידות שהלקוח מגדיר. המחיר מחושב
+      ממפרט החלק — שטח, אורך חיתוך, מספר ניקובים, חומר, עובי, כמות
+      וכיפופים — לפי טבלת מחירים אחת.
+    </p>
+
+    <h3>המוצר מסופק גולמי</h3>
+    <p>
+      החלקים יוצאים <b>ללא צביעה, ללא ליטוש וללא הסרת סימני חיתוך</b>.
+      שוליים ועיוותים בגבולות הסבירות המקובלת בחיתוך לייזר אינם פגם.
+    </p>
+
+    <h3>מחיר, מע״מ ותוקף</h3>
+    <p>
+      המחירים המוצגים הם לפי טבלת המחירים בזמן ההצגה. הצעה שנשמרה
+      אינה נעילת מחיר: <b>הסכום מחושב מחדש בכל פתיחה של העגלה</b>,
+      וההזמנה נסגרת לפי המחיר שאושר מול הלקוח.
+    </p>
+
+    <h3>הזמנה ואישור</h3>
+    <p>
+      שליחת הזמנה דרך האתר היא <b>בקשה</b>. ההזמנה מאושרת רק אחרי
+      בדיקת הקובץ ושיחה עם הלקוח. עד לאישור אין התחייבות לייצור או
+      לזמן אספקה.
+    </p>
+
+    <h3>ביטול</h3>
+    <p>
+      חלק שנחתך לפי מידות שהלקוח הגדיר הוא מוצר שיוצר במיוחד עבורו.
+      ביטול אפשרי <b>עד תחילת הייצור</b>. אחרי שהחיתוך התחיל לא ניתן
+      לבטל, מפני שהפח כבר נצרך.
+    </p>
+
+    <h3>קבצים של הלקוח</h3>
+    <p>
+      קבצי DXF שמועלים לאתר <b>מעובדים על השרת של העסק בלבד</b> ואינם
+      נשלחים לשום שירות חיצוני. שם הקובץ אינו נשמר ברישומי המערכת.
+    </p>
+
+    <h3>מה נשמר על הלקוח</h3>
+    <ul>
+      <li><b>היסטוריית ההצעות</b> — מוצר, מידות, חומר, עובי, כמות וסכום. נראית ללקוח בלבד.</li>
+      <li><b>הזמנות</b> — הפריטים, הטלפון שהלקוח הזין, וההערה שכתב.</li>
+      <li><b>רישום שימוש</b> — נתוני מנוע בלבד: מה נתמחר ובאיזה חומר. בלי שם, בלי מזהה לקוח, ובלי שם קובץ.</li>
+    </ul>
+
+    <h2 id="accessibility">הצהרת נגישות</h2>
+    <p>
+      האתר נבנה מתוך כוונה לאפשר שימוש נוח לכלל הציבור, לרבות אנשים
+      עם מוגבלות, בהתאם לתקנות שוויון זכויות לאנשים עם מוגבלות
+      (התאמות נגישות לשירות) ולתקן הישראלי <b>ת״י 5568</b>.
+    </p>
+    <h3>מה נעשה</h3>
+    <ul>
+      <li>ניווט מלא במקלדת, וסימון ברור של הפריט שבמיקוד.</li>
+      <li>מבנה כותרות היררכי ותוויות לכל שדה טופס.</li>
+      <li>ניגודיות צבע וגודל טקסט שנבדקו מול רקע בהיר.</li>
+      <li>הודעות שגיאה בטקסט, ולא בצבע בלבד.</li>
+      <li>תמיכה בהגדלת טקסט בדפדפן בלי אובדן תוכן.</li>
+    </ul>
+    <h3>מה עדיין מוגבל</h3>
+    <p>
+      <b>מסכי העריכה והתצוגה התלת-ממדית מבוססים על ציור גרפי ועל
+      גרירה בעכבר, ואינם נגישים במלואם לקורא מסך.</b> נאמר כאן
+      במפורש ולא הושמט: הצהרה שמתארת נגישות מלאה בזמן שאינה קיימת
+      גרועה מהצהרה שמודה במגבלה. לקוח שזקוק לסיוע בהגדרת חלק
+      מוזמן לפנות בטלפון, והזמנה תיקלט ידנית.
+    </p>
+    <h3>פניות בנושא נגישות</h3>
+    <dl id="a11y"></dl>
+  </div>
+</main>
+
+<script type="module">
+import { mountSidebar } from '/shell.js';
+
+const $ = (id) => document.getElementById(id);
+const escape = (v) => String(v ?? '').replace(/[&<>"]/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+/* **פרטי העסק נטענים, ולא נכתבים בקובץ.** מסמך משפטי עם שם או ח״פ
+   שהודפסו בקוד הופך לשקר ברגע שמשהו משתנה, ואף אחד לא זוכר לעדכן
+   שני מקומות. מה שחסר מוצג כחסר. */
+const response = await fetch('/api/business');
+const b = response.ok ? await response.json() : { missing: ['לא הצלחנו לטעון את פרטי העסק'] };
+
+const rows = [
+  ['שם העסק', b.legal_name],
+  ['ח״פ / עוסק מורשה', b.company_id],
+  ['טלפון', b.phone],
+  ['דוא״ל', b.email],
+  ['כתובת', b.address],
+].filter(([, value]) => value);
+
+$('details').innerHTML = rows.length
+  ? rows.map(([k, v]) => `<dt>${k}</dt><dd>${escape(v)}</dd>`).join('')
+  : '<dt>—</dt><dd>טרם הוזנו פרטי העסק.</dd>';
+
+$('a11y').innerHTML = b.accessibility_contact || b.phone || b.email
+  ? `<dt>איש קשר</dt><dd>${escape(b.accessibility_contact || b.phone || b.email)}</dd>`
+  : '<dt>—</dt><dd>טרם הוזן איש קשר לנגישות.</dd>';
+
+if (b.missing && b.missing.length) {
+  $('missing').classList.remove('hidden');
+  $('missing').innerHTML =
+    '<b>המסמך הזה אינו שלם.</b> חסרים פרטי עסק, ולכן האתר אינו מקבל הזמנות:<br>' +
+    b.missing.map(escape).join('<br>');
+}
+
+mountSidebar('/terms');
+</script>
+</body>
+</html>

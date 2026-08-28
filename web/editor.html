@@ -160,7 +160,8 @@ canvas.paper{ display:block; width:100%; height:min(64vh,600px); touch-action:no
         <div class="note note-bad hidden" id="err" style="margin-top:var(--s3)"></div>
         <div class="pricebox" id="price"><div class="big">—</div><div class="sub">מתמחר…</div></div>
         <div class="rowbtns">
-          <button class="btn btn-primary" id="save">שמור כהצעה</button>
+          <button class="btn btn-primary" id="tocart">הוסף לעגלה</button>
+          <button class="btn btn-secondary" id="save">שמור כהצעה</button>
         </div>
         <p class="hintline">
           המחיר מתעדכן לבד בכל שינוי. <b>חישוב אינו הצעה</b> — הוא נרשם
@@ -185,7 +186,7 @@ canvas.paper{ display:block; width:100%; height:min(64vh,600px); touch-action:no
 </main>
 
 <script type="module">
-import { mountSidebar } from '/shell.js';
+import { mountSidebar, refreshCartBadge } from '/shell.js';
 import { createViewer } from '/part-3d.js';
 
 const $ = (id) => document.getElementById(id);
@@ -1067,6 +1068,33 @@ $('mat').addEventListener('change', () => { paintMaterials(materials); refresh()
 $('thk').addEventListener('change', refresh);
 $('qty').addEventListener('change', schedulePrice);
 $('save').addEventListener('click', () => quote(true));
+
+/* **לעגלה נשלח החלק, לא המחיר.** השרת מתמחר מחדש בכל צפייה, ולכן
+   אין כאן סכום שאפשר להיאחז בו — וזה בדיוק מה שמונע מהדפדפן להפוך
+   למקור אמת שני על כסף. */
+$('tocart').addEventListener('click', async () => {
+  const button = $('tocart');
+  button.disabled = true;
+  try {
+    const response = await fetch('/api/cart', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: $('name').value || 'חלק',
+        source: 'editor',
+        material_key: $('mat').value,
+        thickness_mm: thickness(),
+        quantity: Math.max(1, Number($('qty').value) || 1),
+        doc: wire(),
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) { flash(data.detail || 'לא הצלחנו להוסיף לעגלה.'); return; }
+    await refreshCartBadge();
+    flash(`נוסף לעגלה — ${data.count} פריטים.`);
+  } finally {
+    button.disabled = false;
+  }
+});
 
 async function download(target) {
   const response = await fetch('/api/part/dxf', {
