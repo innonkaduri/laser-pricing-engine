@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>התשלום — ימיש כדורי</title>
+<link rel="preload" as="font" type="font/woff2" href="/fonts/assistant-hebrew.woff2" crossorigin>
+<link rel="stylesheet" href="/brand.css">
+<style>
+.box{max-width:44ch; margin:0 auto; text-align:center; padding-block:var(--s10)}
+.ref{font-size:26px; font-weight:750; letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums; direction:ltr; margin:var(--s4) 0}
+.spin{width:34px; height:34px; margin:var(--s5) auto; border-radius:var(--r-full);
+  border:3px solid var(--ink-150); border-top-color:var(--flame-600);
+  animation:turn .9s linear infinite}
+@keyframes turn{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){ .spin{animation-duration:3s} }
+</style>
+</head>
+<body>
+
+<main class="wrap">
+  <div class="box">
+    <h1 style="font-size:var(--fs-h2); letter-spacing:-.02em" id="head">בודקים את התשלום…</h1>
+    <div class="ref" id="ref"></div>
+    <div class="spin" id="spin"></div>
+    <p class="muted" style="line-height:1.7" id="says">
+      התשובה מגיעה מחברת הסליקה אל השרת, ולא דרך הדפדפן. זה לוקח
+      כמה שניות.
+    </p>
+    <p style="margin-top:var(--s6)">
+      <a class="btn btn-secondary" href="/orders">ההזמנות שלי</a>
+    </p>
+  </div>
+</main>
+
+<script type="module">
+import { mountSidebar } from '/shell.js';
+
+const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const ref = params.get('ref') || '';
+const failed = params.get('failed') === '1';
+$('ref').textContent = ref;
+
+/* **המסך הזה אינו מחליט כלום, ובכוונה.**
+
+   ההפניה שהחזירה אותנו לכאן עברה בדפדפן, וכל אחד יכול לפתוח את
+   הכתובת ביד. לכן מה שקובע הוא **מה שהשרת יודע** — והשרת יודע רק
+   אחרי שקיבל קריאה שרת-לשרת מטרנזילה, עם קוד אישור ועם סכום
+   שתואם. כאן רק שואלים אותו, שוב, עד שהתשובה משתנה. */
+function settle(head, says, spinning) {
+  $('head').textContent = head;
+  $('says').textContent = says;
+  $('spin').style.display = spinning ? '' : 'none';
+}
+
+if (failed) {
+  settle('התשלום לא הושלם', 'לא חויבת. אפשר לנסות שוב מההזמנות שלי, או להתקשר אלינו.', false);
+} else if (!ref) {
+  settle('חסר מזהה הזמנה', 'הכתובת אינה שלמה. אפשר לבדוק את המצב במסך ההזמנות.', false);
+} else {
+  let tries = 0;
+  const ask = async () => {
+    tries += 1;
+    try {
+      const response = await fetch(`/api/payment/status/${encodeURIComponent(ref)}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.paid) {
+          settle('שולם. תודה!', 'ההזמנה אושרה ונכנסה לעבודה. שמור את המזהה — הוא מה שנקריא בטלפון.', false);
+          return;
+        }
+      }
+    } catch { /* רשת שנפלה אינה תשובה; מנסים שוב */ }
+    /* **עשרים ניסיונות ואז עוצרים.** לולאה בלי סוף היא מסך שמסתובב
+       לנצח ולקוח שלא יודע מה קרה — וזה גרוע מהודעה שאומרת "בדוק
+       מול בית המלאכה". */
+    if (tries >= 20) {
+      settle(
+        'עדיין מחכים לאישור',
+        'החיוב אולי עבר והאישור מתעכב. אל תשלם שוב — התקשר אלינו עם המזהה שלמעלה.',
+        false
+      );
+      return;
+    }
+    setTimeout(ask, 1500);
+  };
+  ask();
+}
+
+mountSidebar('/orders');
+</script>
+</body>
+</html>

@@ -82,6 +82,7 @@ REQUIRED_ENV: dict[str, str] = {
     "SERVICE_TOKEN": "בלעדיו כל קריאה מימיש חוזרת 401",
     "QUOTES_DB": "בלעדיו היסטוריית ההצעות של כל המשתמשים נכתבת לעץ ה-git",
     "ORDERS_DB": "בלעדיו הזמנות של לקוחות נכתבות לעץ ה-git ו-git clean מוחק אותן",
+    "PUBLIC_BASE_URL": "בלעדיו טרנזילה אינה יודעת לאן להחזיר את הלקוח ולאן לדווח",
 }
 """משתני הסביבה שפריסה אמיתית **חייבת** להגדיר, והסיבה לכל אחד.
 
@@ -170,6 +171,10 @@ OPEN_PATHS = frozenset(
         "/accessibility",
         "/contact",
         "/api/business",
+        # **טרנזילה אינה דפדפן ואין לה סשן.** הקריאה שרת-לשרת חייבת
+        # להגיע, ומה שמגן עליה הוא סוד בכתובת ובדיקת סכום — לא כניסה.
+        "/api/payment/tranzila/notify",
+        "/payment/return",
     }
 )
 """מה שנפתח בלי זהות — כולם מחזירים מסכים, בוליאנים ושמות, ולעולם
@@ -2273,10 +2278,15 @@ def checkout(body: CheckoutRequest, request: Request) -> dict:
             status_code=422,
             detail="המחיר יצא 0 — החומר או העובי אינם מתומחרים בטבלה. לא נקבל הזמנה בסכום אפס.",
         )
-    try:
-        instruction = payment.start(body.payment, {"total": public["total"]})
-    except payment.PaymentError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # **בודקים שהאמצעי מוגדר לפני שיוצרים הזמנה**, ומתחילים את
+    # התשלום רק **אחרי** שיש לה מזהה. הסדר ההפוך שלח ללקוח הפניה
+    # לטרנזילה בלי `order_ref`, ואז הקריאה החוזרת לא הייתה יודעת
+    # איזו הזמנה לסמן — כלומר לקוח שמשלם והזמנה שנשארת פתוחה.
+    if not payment.configured(body.payment):
+        raise HTTPException(
+            status_code=422,
+            detail=f"אמצעי התשלום {body.payment!r} אינו מוגדר בשרת.",
+        )
 
     order = orders.place(
         user.username,
@@ -2299,7 +2309,77 @@ def checkout(body: CheckoutRequest, request: Request) -> dict:
         ],
     )
     usage.record_quote(result, user)
+
+    try:
+        instruction = payment.start(
+            body.payment,
+            {
+                "total": order["total"],
+                "ref": order["ref"],
+                "phone": body.phone,
+                "contact": user.username,
+            },
+        )
+    except payment.PaymentError as exc:
+        # **ההזמנה כבר קיימת, ולכן היא מבוטלת במפורש.** הזמנה
+        # פתוחה שאיש לא ישלם עליה היא עבודה שבית המלאכה יחכה לה.
+        orders.set_status(order["ref"], "cancelled")
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     return {"order": order, "payment": instruction}
+
+
+@app.post("/api/payment/tranzila/notify")
+async def tranzila_notify(request: Request) -> dict:
+    """הקריאה שרת-לשרת מטרנזילה. **רק היא מסמנת שולם.**
+
+    **שלוש שכבות, וכל אחת מהן לבדה אינה מספיקה:**
+
+    1. **סוד בכתובת.** בלעדיו כל אחד באינטרנט יכול לקרוא כאן.
+    2. **קוד אישור `000`.** כל דבר אחר אינו תשלום.
+    3. **הסכום חייב להיות שווה למה שחושב.** תשלום חלקי שמסומן
+       כמלא הוא הפסד כסף שאיש לא רואה.
+
+    **וכל מטען נרשם — גם כושל, במיוחד כושל.** תשלום שנדחה בשקט הוא
+    לקוח שחויב ולא קיבל, או להפך.
+    """
+    secret = payment.notify_secret()
+    if not secret or request.query_params.get("s", "") != secret:
+        # אין כאן פירוט: מי שמנחש לא יקבל רמז מה חסר.
+        raise HTTPException(status_code=403, detail="לא מורשה.")
+
+    form = await request.form()
+    payload = {key: str(value) for key, value in form.multi_items()}
+    payload.update({k: v for k, v in request.query_params.items() if k != "s"})
+
+    ref = payload.get("order_ref", "")
+    order = orders.by_ref(ref) if ref else None
+    if order is None:
+        orders.record_payment_event(ref, False, "אין הזמנה כזאת.", payload)
+        raise HTTPException(status_code=404, detail="אין הזמנה כזאת.")
+
+    verdict = payment.read_callback(payload, order["total"])
+    orders.record_payment_event(ref, verdict["ok"], verdict["reason"], payload)
+    if not verdict["ok"]:
+        # 200 ולא 500: זו תשובה תקפה מטרנזילה שאומרת "לא שולם".
+        # שגיאת שרת הייתה גורמת לה לנסות שוב בלי סוף.
+        return {"ok": False, "reason": verdict["reason"]}
+    orders.mark_paid(ref, verdict.get("confirmation", ""), verdict["paid"])
+    return {"ok": True}
+
+
+@app.get("/api/payment/status/{ref}")
+def payment_status(ref: str, request: Request) -> dict:
+    """האם שולם. **בלי פרטי תשלום ובלי סכום למי שאינו הבעלים.**
+
+    המסך שחוזר מטרנזילה שואל את זה בלולאה עד שהתשובה משתנה, כי
+    ההודעה שמסמנת שולם מגיעה לשרת ולא לדפדפן.
+    """
+    user = _require_account(request)
+    order = orders.one(user.username, ref)
+    if order is None:
+        raise HTTPException(status_code=404, detail="אין הזמנה כזאת בחשבון שלך.")
+    return {"ref": ref, "paid": order["paid"], "status": order["status"]}
 
 
 @app.get("/api/shop/orders")
@@ -2982,6 +3062,12 @@ if WEB_DIR.exists():
     @app.get("/orders")
     def orders_page() -> FileResponse:
         return FileResponse(WEB_DIR / "orders.html")
+
+    @app.get("/payment/return")
+    def payment_return_page() -> FileResponse:
+        """המסך שאליו הלקוח חוזר מטרנזילה. **אינו מחליט כלום** —
+        הוא שואל את השרת עד שהתשובה משתנה."""
+        return FileResponse(WEB_DIR / "payment.html")
 
     @app.get("/shop")
     def shop_page() -> FileResponse:

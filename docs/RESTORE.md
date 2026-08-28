@@ -54,6 +54,10 @@ USERS_DB=/var/lib/laser/users.db
 BACKUP_STATUS_FILE=/var/lib/laser/backup-status.json
 QUOTES_DB=/var/lib/laser/quotes.db
 ORDERS_DB=/var/lib/laser/orders.db
+PUBLIC_BASE_URL=https://laser.82.29.184.166.nip.io
+# סליקה — רק כשטרנזילה מחוברת. חסר אחד מהם = כרטיס אשראי לא מוצע.
+TRANZILA_TERMINAL=
+TRANZILA_NOTIFY_SECRET=
 USAGE_LOG=/var/lib/laser/usage.jsonl
 ENV
 chmod 600 /etc/laser-pricing.env

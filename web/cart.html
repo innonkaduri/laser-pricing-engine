@@ -272,6 +272,12 @@ $('checkout').addEventListener('submit', async (event) => {
   $('send').disabled = false;
   if (!response.ok) return fail(data.detail || 'ההזמנה לא נשלחה.');
   refreshCartBadge();
+  /* **הפניה לספק אם הוא ביקש.** תשלום טלפוני חוזר ישר להזמנות;
+     כרטיס אשראי עובר לעמוד המאובטח של טרנזילה, ומשם חזרה. */
+  if (data.payment && data.payment.kind === 'redirect' && data.payment.url) {
+    location.href = data.payment.url;
+    return;
+  }
   location.href = `/orders?placed=${encodeURIComponent(data.order.ref)}`;
 });
 

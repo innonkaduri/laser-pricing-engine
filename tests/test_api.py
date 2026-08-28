@@ -3563,12 +3563,15 @@ class TestTheOrderFlow:
         assert orders.one("someone-else", ref) is None
 
     def test_an_unconfigured_payment_method_is_refused_loudly(self, tmp_path, monkeypatch):
-        """**אין גבייה דרך מסלול שלא נכתב.** ספק שנוסף לרשימה בלי
-        מימוש נופל ברעש ולא בשקט."""
-        assert payment.configured("card") is False
-        assert all(m["key"] != "card" for m in payment.available())
+        """**אין גבייה דרך מסלול שלא נכתב.** ספק שאין לו הגדרות אינו
+        מוצע למשתמש כלל, ואם מישהו קורא לו הוא נופל ברעש."""
+        monkeypatch.delenv("TRANZILA_TERMINAL", raising=False)
+        assert payment.configured(payment.TRANZILA) is False
+        assert all(m["key"] != payment.TRANZILA for m in payment.available())
         with pytest.raises(payment.PaymentError, match="אינו מוגדר"):
-            payment.start("card", {"total": 100})
+            payment.start(payment.TRANZILA, {"total": 100, "ref": "26-AAAAA"})
+        with pytest.raises(payment.PaymentError, match="לא מוכר"):
+            payment.start("bitcoin", {"total": 100, "ref": "26-AAAAA"})
 
     def test_the_legal_pages_are_open_without_a_login(self, client):
         """מסמך משפטי מאחורי מסך כניסה אינו מסמך משפטי."""
@@ -3685,3 +3688,142 @@ class TestTheWorkshopSeesItsOrders:
         assert client.put(
             "/api/shop/orders/99-ZZZZZ/status", json={"status": "done"}, auth=self.SHOP
         ).status_code == 404
+
+
+class TestTranzilaCannotBeFaked:
+    """סליקה. **הבדיקות כאן הן על מה שקורה כשמישהו משקר.**
+
+    ההפניה שבה הלקוח חוזר מטרנזילה עוברת בדפדפן, וכל אחד יכול
+    לפתוח אותה ביד. לכן מה שמסמן "שולם" הוא **רק** הקריאה
+    שרת-לשרת, ורק אחרי שהסכום נבדק.
+    """
+
+    SECRET = "sod-ha-hitraaa"
+
+    @pytest.fixture
+    def paid_ready(self, client, monkeypatch, tmp_path):
+        path = tmp_path / "business.json"
+        path.write_text(
+            json.dumps({"legal_name": "ב", "company_id": "1", "phone": "2",
+                        "email": "a@b.invalid", "address": "ג"}, ensure_ascii=False),
+            encoding="utf-8")
+        monkeypatch.setattr(business, "PATH", path)
+        monkeypatch.setenv("TRANZILA_TERMINAL", "yamish")
+        monkeypatch.setenv("TRANZILA_NOTIFY_SECRET", self.SECRET)
+        monkeypatch.setenv("PUBLIC_BASE_URL", "https://laser.example.invalid")
+        assert client.put("/api/tariff", json=TEST_TARIFF).status_code == 200
+        monkeypatch.setenv("APP_PASSWORD", "sod")
+        monkeypatch.setenv("APP_USER", "ynon")
+        client.post("/api/signup", json={"username": "koneh", "password": "sisma-arukka-1"})
+        client.post("/api/login", json={"username": "koneh", "password": "sisma-arukka-1"})
+        client.post("/api/cart", json={
+            "name": "לוחית", "source": "editor", "material_key": "st37",
+            "thickness_mm": 3.0, "quantity": 1,
+            "doc": {"name": "לוחית", "outline": [[0, 0], [200, 0], [200, 120], [0, 120]]}})
+        placed = client.post("/api/checkout", json={
+            "phone": "050-1234567", "note": "", "payment": "tranzila"})
+        assert placed.status_code == 200, placed.text
+        return client, placed.json()
+
+    def test_the_customer_is_sent_to_tranzila_with_the_order_reference(self, paid_ready):
+        """**בלי `order_ref` הקריאה החוזרת אינה יודעת מה לסמן.**"""
+        _, body = paid_ready
+        url = body["payment"]["url"]
+        assert body["payment"]["kind"] == "redirect"
+        assert "direct.tranzila.com/yamish/" in url
+        assert f"order_ref={body['order']['ref']}" in url
+        assert "currency=1" in url and "tranmode=A" in url
+        assert f"sum={body['order']['total']:.2f}" in url
+        assert self.SECRET in url  # ה-notify נושא את הסוד
+
+    def test_the_order_is_not_paid_until_tranzila_says_so(self, paid_ready):
+        client, body = paid_ready
+        status = client.get(f"/api/payment/status/{body['order']['ref']}").json()
+        assert status["paid"] is False
+
+    def test_a_forged_notify_without_the_secret_is_refused(self, paid_ready):
+        """**בלי הסוד — 403.** בלי זה כל אחד באינטרנט מסמן שולם."""
+        client, body = paid_ready
+        ref = body["order"]["ref"]
+        response = client.post(
+            "/api/payment/tranzila/notify",
+            data={"order_ref": ref, "Response": "000", "sum": f"{body['order']['total']:.2f}"},
+        )
+        assert response.status_code == 403
+        assert client.get(f"/api/payment/status/{ref}").json()["paid"] is False
+
+    def test_a_short_payment_does_not_mark_the_order_paid(self, paid_ready):
+        """**אגורה חסרה היא אי-התאמה.** תשלום חלקי שמסומן כמלא הוא
+        הפסד כסף שאיש לא רואה."""
+        client, body = paid_ready
+        ref = body["order"]["ref"]
+        response = client.post(
+            f"/api/payment/tranzila/notify?s={self.SECRET}",
+            data={"order_ref": ref, "Response": "000", "sum": "1.00"},
+        )
+        assert response.status_code == 200
+        assert response.json()["ok"] is False
+        assert client.get(f"/api/payment/status/{ref}").json()["paid"] is False
+
+    def test_a_declined_card_does_not_mark_the_order_paid(self, paid_ready):
+        client, body = paid_ready
+        ref = body["order"]["ref"]
+        response = client.post(
+            f"/api/payment/tranzila/notify?s={self.SECRET}",
+            data={"order_ref": ref, "Response": "004", "sum": f"{body['order']['total']:.2f}"},
+        )
+        assert response.json()["ok"] is False
+        assert client.get(f"/api/payment/status/{ref}").json()["paid"] is False
+
+    def test_a_missing_response_code_is_never_treated_as_success(self, paid_ready):
+        """**כישלון סגור.** שדה שלא נמצא אינו 'כנראה בסדר'."""
+        client, body = paid_ready
+        ref = body["order"]["ref"]
+        response = client.post(
+            f"/api/payment/tranzila/notify?s={self.SECRET}",
+            data={"order_ref": ref, "sum": f"{body['order']['total']:.2f}"},
+        )
+        assert response.json()["ok"] is False
+        assert client.get(f"/api/payment/status/{ref}").json()["paid"] is False
+
+    def test_a_real_payment_marks_the_order_once_and_only_once(self, paid_ready):
+        """טרנזילה עשויה לשלוח את אותה הודעה שוב. **הזמנה נסגרת פעם
+        אחת**, אחרת ההיסטוריה נראית כאילו שולם פעמיים."""
+        client, body = paid_ready
+        ref, total = body["order"]["ref"], body["order"]["total"]
+        payload = {"order_ref": ref, "Response": "000", "sum": f"{total:.2f}",
+                   "ConfirmationCode": "12345"}
+        first = client.post(f"/api/payment/tranzila/notify?s={self.SECRET}", data=payload)
+        assert first.json() == {"ok": True}
+        status = client.get(f"/api/payment/status/{ref}").json()
+        assert status["paid"] is True and status["status"] == "confirmed"
+        assert orders.mark_paid(ref, "12345", total) is False
+
+    def test_every_callback_is_recorded_even_the_failures(self, paid_ready):
+        """תשלום שנדחה בשקט הוא לקוח שחויב ולא קיבל, או להפך."""
+        client, body = paid_ready
+        ref = body["order"]["ref"]
+        client.post(f"/api/payment/tranzila/notify?s={self.SECRET}",
+                    data={"order_ref": ref, "Response": "004", "sum": "1.00"})
+        client.post(f"/api/payment/tranzila/notify?s={self.SECRET}",
+                    data={"order_ref": ref, "Response": "000", "sum": f"{body['order']['total']:.2f}"})
+        events = orders.payment_events(ref)
+        assert len(events) == 2
+        assert [e["ok"] for e in events] == [False, True]
+        assert events[0]["payload"]["Response"] == "004"
+
+    def test_a_notify_for_an_unknown_order_is_a_404(self, paid_ready):
+        client, _ = paid_ready
+        response = client.post(
+            f"/api/payment/tranzila/notify?s={self.SECRET}",
+            data={"order_ref": "99-ZZZZZ", "Response": "000", "sum": "10.00"},
+        )
+        assert response.status_code == 404
+
+    def test_one_customer_cannot_read_another_payment_status(self, paid_ready):
+        client, body = paid_ready
+        ref = body["order"]["ref"]
+        client.post("/api/logout")
+        client.post("/api/signup", json={"username": "aher", "password": "sisma-arukka-2"})
+        client.post("/api/login", json={"username": "aher", "password": "sisma-arukka-2"})
+        assert client.get(f"/api/payment/status/{ref}").status_code == 404

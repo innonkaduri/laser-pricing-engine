@@ -94,6 +94,17 @@ def _connect() -> sqlite3.Connection:
            )"""
     )
     conn.execute("CREATE INDEX IF NOT EXISTS orders_by_user ON orders(username, id)")
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS payment_events (
+               id       INTEGER PRIMARY KEY AUTOINCREMENT,
+               at       REAL NOT NULL,
+               ref      TEXT NOT NULL DEFAULT '',
+               ok       INTEGER NOT NULL DEFAULT 0,
+               reason   TEXT NOT NULL DEFAULT '',
+               payload  TEXT NOT NULL DEFAULT '{}'
+           )"""
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS payments_by_ref ON payment_events(ref, id)")
     return conn
 
 
@@ -287,6 +298,64 @@ def set_status(ref: str, status: str) -> bool:
         )
 
 
+def by_ref(ref: str) -> dict | None:
+    """הזמנה לפי מזהה **בלי משתמש** — לשימוש קריאת התשלום בלבד.
+
+    טרנזילה אינה יודעת מי המשתמש; היא יודעת את מזהה ההזמנה. לכן
+    יש כאן דרך אחת לקרוא בלי סינון, והיא **אינה** חשופה לרשת:
+    המסלול הציבורי הוא `one(username, ref)`.
+    """
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM orders WHERE ref = ?", (ref,)).fetchone()
+    return _row(row) if row else None
+
+
+def record_payment_event(ref: str, ok: bool, reason: str, payload: dict) -> None:
+    """**כל מטען נרשם, גם כושל — במיוחד כושל.**
+
+    תשלום שנדחה בשקט הוא לקוח שחויב ולא קיבל, או להפך. הרישום הזה
+    הוא מה שמאפשר לענות על "מה קרה" בלי לנחש.
+    """
+    try:
+        with _connect() as conn:
+            conn.execute(
+                "INSERT INTO payment_events (at, ref, ok, reason, payload) VALUES (?,?,?,?,?)",
+                (time.time(), ref[:40], 1 if ok else 0, reason[:400],
+                 json.dumps(payload, ensure_ascii=False)[:4000]),
+            )
+    except sqlite3.Error as exc:  # pragma: no cover - נרשם ונראה, לא נבלע
+        WRITE_FAILURES.append(f"payment_events: {exc}")
+
+
+def payment_events(ref: str) -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM payment_events WHERE ref = ? ORDER BY id", (ref,)
+        ).fetchall()
+    return [
+        {"at": r["at"], "ok": bool(r["ok"]), "reason": r["reason"],
+         "payload": json.loads(r["payload"])}
+        for r in rows
+    ]
+
+
+def mark_paid(ref: str, confirmation: str, amount: float) -> bool:
+    """מסמן שולם **פעם אחת בלבד.**
+
+    טרנזילה עשויה לשלוח את אותה הודעה שוב (ניסיון חוזר, לחיצה
+    כפולה). `paid_at IS NULL` בתנאי הוא מה שמונע מהזמנה להיסגר
+    פעמיים ומההיסטוריה להיראות כאילו שולם פעמיים.
+    """
+    with _connect() as conn:
+        cursor = conn.execute(
+            """UPDATE orders
+                  SET paid_at = ?, status = CASE WHEN status = 'new' THEN 'confirmed' ELSE status END
+                WHERE ref = ? AND paid_at IS NULL""",
+            (time.time(), ref),
+        )
+        return cursor.rowcount > 0
+
+
 def _row(row: sqlite3.Row, with_items: bool = True) -> dict:
     out = {
         "ref": row["ref"],
@@ -298,6 +367,7 @@ def _row(row: sqlite3.Row, with_items: bool = True) -> dict:
         "currency": row["currency"],
         "payment": row["payment"],
         "paid_at": row["paid_at"],
+        "paid": row["paid_at"] is not None,
     }
     if with_items:
         out["items"] = json.loads(row["items"])
