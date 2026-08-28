@@ -635,7 +635,13 @@ async function refresh() {
     if (!response.ok) { fatal(data.detail || 'לא הצלחנו לצייר את החלק.'); return; }
     fatal(''); server = data;
     paintFacts(data); paintMaterials(data.materials || []);
-    if (view3d && data.model) { $('c').style.display = 'none'; solid().show(data.model); }
+    if (view3d && data.model) {
+      $('c').style.display = 'none';
+      solid().show(data.model, { keepCamera: true });
+      const chosen = selection.find((s) => s.kind === 'bend');
+      const face = chosen ? data.model.faces.findIndex((f) => f.bend_index === chosen.index) : -1;
+      viewer.select(face);
+    }
     else { $('c').style.display = 'block'; if (viewer) viewer.canvas.style.display = 'none'; draw(); }
     schedulePrice();
   } catch (err) { if (mine === ticket) fatal(err.message); }
@@ -687,12 +693,61 @@ function flash(message) {
 }
 function thickness() { return Number($('thk').value) || 2; }
 
+/* **גרירת זווית מבקשת גוף מהשרת, מווסתת.** בקשה על כל פיקסל
+   הייתה מציפה קופסה שהיא שתי ליבות לחמישה פרויקטים; בקשה אחת
+   בסוף הגרירה הייתה הופכת את הידית למחוון עיוור. 70 מילישניות
+   הן בערך שתי פריימים, וזה מרגיש רציף. */
+let bendDrag = false;
+let foldTimer = 0;
+let foldPending = false;
+function liveFold() {
+  if (foldTimer) { foldPending = true; return; }
+  foldTimer = setTimeout(async () => {
+    foldTimer = 0;
+    const response = await fetch('/api/part/preview', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ doc: wire(), view: 'solid', thickness_mm: thickness() }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data.model) {
+      server = data;
+      paintFacts(data);
+      solid().show(data.model, { keepCamera: true });
+    }
+    if (foldPending) { foldPending = false; liveFold(); }
+    else { bendDrag = false; schedulePrice(); }
+  }, 70);
+}
+
 function solid() {
   if (!viewer) {
     const canvas = document.createElement('canvas');
     canvas.className = 'paper';
     $('c').after(canvas);
-    viewer = createViewer(canvas); viewer.canvas = canvas;
+    viewer = createViewer(canvas, {
+      /* **הבחירה בתלת-ממד היא אותה בחירה של הדו-ממד.** אילו לכל
+         תצוגה הייתה בחירה משלה, מעבר בין "פריסה" ל"גוף" היה מאבד
+         את מה שהמשתמש בדיוק סימן. */
+      onPick(face, bend) {
+        selection = bend >= 0 ? [{ kind: 'bend', index: bend }] : [];
+        paintSelection();
+      },
+      /* גרירת הידית משנה זווית. **החישוב נשאר בשרת** — הדפדפן
+         מזיז מספר אחד ומבקש את הגוף מחדש, ולכן אין כאן מודל שני
+         של אותו חלק שיכול להיפרד בשקט. */
+      onAngle(bend, delta) {
+        const item = doc.bends[bend];
+        if (!item) return;
+        if (!bendDrag) { commit(); bendDrag = true; }
+        // חצי מעלה. מכבש אינו מכייל ל-118.79999999999987, ומספר
+        // כזה בשדה נראה כמו תקלה ולא כמו זווית.
+        const next = Math.max(1, Math.min(170, item.angle_deg + delta));
+        item.angle_deg = Math.round(next * 2) / 2;
+        paintSelection();
+        liveFold();
+      },
+    });
+    viewer.canvas = canvas;
   }
   viewer.canvas.style.display = 'block'; viewer.redraw();
   return viewer;

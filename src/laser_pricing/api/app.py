@@ -1721,14 +1721,24 @@ def _model3d(
         # נחתך מפריסה של 400×300, ושתי השורות נכונות — אבל זו
         # שהלקוח מודד בה את הארון היא הזאת.
         "size_mm": size,
+        # ציר כל כיפוף במרחב — הידית בתלת-ממד מסתובבת סביבו.
+        "fold_axes": {
+            str(face.bend_index): [*p3(face.axis3d[0]), *p3(face.axis3d[1])]
+            for face in faces
+            if face.bend_index >= 0 and face.axis3d is not None
+        },
         "faces": [
             {
                 "outline": [p3(v) for v in face.outline],
                 "holes": [[p3(v) for v in hole] for hole in face.holes],
                 "normal": [round(n, 4) for n in face.normal],
                 "label": face.label,
+                # **זהות, לא קישוט.** בלי זה לחיצה על דופן בתלת-ממד
+                # אינה יודעת איזה כיפוף לשנות, והעריכה נשארת דו-ממדית.
+                "bend_index": face.bend_index,
+                "face_index": index,
             }
-            for face in faces
+            for index, face in enumerate(faces)
         ],
     }
 

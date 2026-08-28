@@ -852,6 +852,10 @@ def deduct(blank: Blank, thickness: float, bend: BendSpec | None = None) -> Blan
                 # מסך שמראה בדיוק את ההפך ממה שלחצו עליו.
                 flip=panel.flip,
                 label=panel.label,
+                # **וגם `bend_index` חייב לשרוד** — אותה מלכודת בדיוק,
+                # פעם שנייה. בלעדיו לחיצה על דופן בתלת-ממד מחזירה -1,
+                # והמסך מציג גוף שאי אפשר לגעת בו.
+                bend_index=panel.bend_index,
                 bend_gap=gap,
             )
         )

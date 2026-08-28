@@ -3334,3 +3334,72 @@ class TestTextIsPricedLikeAnyOtherCut:
     def test_the_font_list_is_served(self, client):
         body = client.get("/api/text/fonts").json()
         assert body["default"] in body["fonts"]
+
+
+class TestTheSolidCanBeTouched:
+    """גוף שאפשר ללחוץ עליו. **זהות, לא ציור.**
+
+    עד שהפאות נשאו רק תווית, אפשר היה לצייר גוף אבל לא לגעת בו:
+    לחיצה החזירה מצולע בלי שם. הבדיקות כאן שומרות על החוט שמחבר
+    דופן על המסך לכיפוף במסמך — והוא נקרע כבר פעמיים, בשני מקומות
+    שונים, בלי שאף בדיקה הרגישה.
+    """
+
+    TRAY = {
+        "name": "מגש",
+        "outline": [[0, 0], [400, 0], [400, 300], [0, 300]],
+        "bends": [
+            {"x1": 50, "y1": 0, "x2": 50, "y2": 300, "angle_deg": 90, "flip": False},
+            {"x1": 350, "y1": 0, "x2": 350, "y2": 300, "angle_deg": 90, "flip": False},
+        ],
+    }
+
+    def _model(self, client, doc=None, thickness=2.0):
+        response = client.post(
+            "/api/part/preview",
+            json={"doc": doc or self.TRAY, "view": "solid", "thickness_mm": thickness},
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["model"]
+
+    def test_every_wall_points_back_at_the_bend_that_made_it(self, client):
+        model = self._model(client)
+        walls = {f["label"]: f["bend_index"] for f in model["faces"] if f["bend_index"] >= 0}
+        assert walls == {"כיפוף 1": 0, "כיפוף 2": 1}
+
+    def test_the_bend_index_survives_the_deduction(self, client):
+        """**נשמט כאן פעם אחת, אחרי ש-`flip` נשמט באותו מקום בדיוק.**
+
+        הניכוי בונה את הלוחות מחדש, וכל שדה שאינו מועתק במפורש
+        נעלם בשקט. התוצאה הייתה גוף שנראה תקין ולא הגיב ללחיצה.
+        """
+        thick = self._model(client, thickness=6.0)
+        assert [f["bend_index"] for f in thick["faces"] if f["bend_index"] >= 0] == [0, 1]
+
+    def test_each_bend_carries_its_axis_in_space(self, client):
+        """הידית מסתובבת סביב הציר הזה; בפריסה הוא לא מספיק."""
+        model = self._model(client)
+        axes = model["fold_axes"]
+        assert set(axes) == {"0", "1"}
+        for value in axes.values():
+            assert len(value) == 6
+            assert value[:3] != value[3:]
+
+    def test_a_flat_part_has_nothing_to_grab(self, client):
+        model = self._model(client, doc={"name": "לוח", "outline": [[0, 0], [100, 0], [100, 50], [0, 50]]})
+        assert model["fold_axes"] == {}
+        assert all(f["bend_index"] == -1 for f in model["faces"])
+
+    def test_changing_the_angle_changes_the_flat_pattern(self, client):
+        """**זה מה שגרירת הידית עושה בפועל**, ולכן זה מה שנבדק."""
+        import copy
+
+        opened = copy.deepcopy(self.TRAY)
+        opened["bends"][0]["angle_deg"] = 120
+        square = self._model(client)
+        slanted = self._model(client, doc=opened)
+        assert square["size_mm"] != slanted["size_mm"]
+
+    def test_faces_are_numbered_so_the_screen_can_point_at_one(self, client):
+        model = self._model(client)
+        assert [f["face_index"] for f in model["faces"]] == list(range(len(model["faces"])))

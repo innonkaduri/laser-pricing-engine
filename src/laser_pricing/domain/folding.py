@@ -56,6 +56,16 @@ class FlatPanel:
     מחדל נכונה לקטלוג: מגש מתקפל למעלה. **בעורך זו לא ברירת מחדל
     אלא הכרעה** — אותו קו בדיוק הוא מגש או גג, ואלה שני מוצרים.
     """
+
+    bend_index: int = -1
+    """**איזה כיפוף במסמך יצר את הלוח הזה.**
+
+    בלי המספר הזה אי אפשר ללחוץ על דופן בתלת-ממד ולדעת מה לשנות:
+    התווית היא טקסט לבני אדם, ובנייה שגוזרת ממנה מספר נשברת ברגע
+    שמישהו מתרגם מסך. **בסוף רשימת השדות ולא באמצעה** — בנאי
+    הקטלוג בונה `FlatPanel` לפי מיקום, ושדה שנדחף באמצע הזיז את
+    `fold_axis` ל-`parent` והפיל 23 בדיקות בבת אחת.
+    """
     bend_gap: float = 0.0
     """רוחב אזור הכיפוף בפריסה — קצבת הכיפוף.
 
@@ -74,6 +84,19 @@ class SolidFace:
     holes: list[list[Point3]] = field(default_factory=list)
     normal: Point3 = (0.0, 0.0, 1.0)
     label: str = ""
+    bend_index: int = -1
+    axis3d: tuple[Point3, Point3] | None = None
+    """ציר הכיפוף **במרחב**, אחרי שהאב כבר סובב.
+
+    הידית שגוררים בתלת-ממד צריכה לדעת סביב מה הלוח מסתובב. ציר
+    בקואורדינטות הפריסה אינו עונה על זה ברגע שהאב עצמו מוטה.
+    """
+    """**איזה כיפוף במסמך יצר את הלוח הזה.**
+
+    בלי המספר הזה אי אפשר ללחוץ על דופן בתלת-ממד ולדעת מה לשנות:
+    התווית היא טקסט לבני אדם, ובנייה שגוזרת ממנה מספר נשברת ברגע
+    שמישהו מתרגם מסך.
+    """
 
 
 class Matrix:
@@ -237,6 +260,13 @@ def fold(panels: list[FlatPanel], holes: list[list[Point2]]) -> list[SolidFace]:
                 holes=[[matrix.apply((x, y, 0.0)) for x, y in h] for h in mine],
                 normal=matrix.rotate_only((0.0, 0.0, 1.0)),
                 label=panel.label,
+                bend_index=panel.bend_index,
+                axis3d=(
+                    transforms[panel.parent].apply((panel.fold_axis[0], panel.fold_axis[1], 0.0)),
+                    transforms[panel.parent].apply((panel.fold_axis[2], panel.fold_axis[3], 0.0)),
+                )
+                if panel.parent >= 0 and panel.fold_axis is not None
+                else None,
             )
         )
         faces.extend(_arc_faces(panel, transforms[panel.parent] if panel.parent >= 0 else None, signs[index]))

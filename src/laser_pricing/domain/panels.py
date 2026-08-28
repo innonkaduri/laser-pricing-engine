@@ -219,6 +219,7 @@ def panels_from_bends(outline: list[Point2], bends: list[BendLine]) -> list[Flat
                 fold_axis=axis,
                 angle_deg=bend.angle_deg,
                 flip=bend.flip,
+                bend_index=bend_index,
                 label=f"כיפוף {bend_index + 1}",
             )
         )

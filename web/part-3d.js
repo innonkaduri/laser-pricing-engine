@@ -118,16 +118,20 @@ function collect(model, wallsOnHoles) {
        דפנות ההיקף וקשתות הכיפוף אינן מסומנות: הנורמל שלהן נגזר
        ממכפלה וקטורית שסימנה תלוי בכיוון שבו הבנאי כתב את המתאר,
        וסילוק לפיו היה קורע חורים בגוף במקום לנקות אותו. */
-    pieces.push({ loops: [prism.top, ...liftedHoles], normal: face.normal, cull: true });
-    pieces.push({
+    /* **כל חתיכה נושאת את הלוח שהיא באה ממנו.** בלי זה אפשר
+       לצייר גוף אבל אי אפשר לגעת בו: לחיצה מחזירה מצולע בלי שם,
+       והעריכה נשארת דו-ממדית גם כשהמסך תלת-ממדי. */
+    const of = (extra) => Object.assign({ face: face.face_index, bend: face.bend_index }, extra);
+    pieces.push(of({ loops: [prism.top, ...liftedHoles], normal: face.normal, cull: true }));
+    pieces.push(of({
       loops: [prism.bottom, ...face.holes],
       normal: [-face.normal[0], -face.normal[1], -face.normal[2]],
       cull: true,
-    });
-    pieces.push(...quads(prism.bottom, prism.top, face.normal));
+    }));
+    for (const q of quads(prism.bottom, prism.top, face.normal)) pieces.push(of(q));
     if (wallsOnHoles) {
       for (let i = 0; i < face.holes.length; i++) {
-        pieces.push(...quads(face.holes[i], liftedHoles[i], face.normal));
+        for (const q of quads(face.holes[i], liftedHoles[i], face.normal)) pieces.push(of(q));
       }
     }
   }
@@ -146,6 +150,17 @@ export function createViewer(canvas, options = {}) {
   let panning = false;
   const HOME = { yaw: -0.62, pitch: 1.02, zoom: 1, panX: 0, panY: 0 };
   const cam = { ...HOME };
+  /* בחירה והדגשה. הצבעים נגזרים מצבע הבסיס ולא נכתבים ביד, כדי
+     שהצופה יישאר נכון גם כשהמסך שמארח אותו יחליף ערכת צבעים. */
+  const HIGHLIGHT = [232, 152, 84];
+  const HOVER = [206, 200, 194];
+  let selected = -1;
+  let hovered = -1;
+  let projection = null;
+  let handle = null;          // {x, y, dir:[dx,dy], bend}
+  let bending = null;         // גרירת זווית פעילה
+  const onPick = options.onPick || (() => {});
+  const onAngle = options.onAngle || (() => {});
 
   /* **שתי רמות פירוט, ולא תקציב חורים.**
 
@@ -198,7 +213,7 @@ export function createViewer(canvas, options = {}) {
          אחרונה, ומסתירה את שפת הרצפה — בדיוק כמו במציאות. */
       let near = Infinity;
       for (const loop of loops) for (const q of loop) if (q[1] < near) near = q[1];
-      flat.push({ loops, depth: near, normal });
+      flat.push({ loops, depth: near, normal, face: piece.face, bend: piece.bend });
     }
 
     /* **קנה המידה נגזר מרדיוס הגוף ולא מתיבת ההיטל.**
@@ -221,6 +236,11 @@ export function createViewer(canvas, options = {}) {
     // פאות שחודרות זו את זו.
     flat.sort((a, b) => b.depth - a.depth);
 
+    /* **ההיטל נשמר כדי שאפשר יהיה ללחוץ עליו.** פגיעה שמחשבת
+       הקרנה משלה הייתה יכולה להיפרד ממה שמצויר — ואז המשתמש לוחץ
+       על דופן אחת ונבחרת אחרת. */
+    projection = { flat, scale, ox, oy };
+
     ctx.lineJoin = 'round';
     for (const piece of flat) {
       ctx.beginPath();
@@ -233,12 +253,94 @@ export function createViewer(canvas, options = {}) {
         });
         ctx.closePath();
       }
-      ctx.fillStyle = shade(normalize(piece.normal), base);
+      const lit = piece.face === selected ? HIGHLIGHT : piece.face === hovered ? HOVER : base;
+      ctx.fillStyle = shade(normalize(piece.normal), lit);
       ctx.fill('evenodd');
       ctx.strokeStyle = edge;
       ctx.lineWidth = 0.6;
       ctx.stroke();
     }
+
+    drawHandle(ctx, flat, scale, ox, oy);
+  }
+
+  /* **ידית, ולא "גרירה על הגוף".**
+
+     גרירה על הגוף כבר תפוסה — היא מסובבת. אילו אותה תנועה הייתה
+     גם מכופפת, כל ניסיון להסתכל על החלק מזווית אחרת היה משנה
+     אותו. הידית היא המקום היחיד שבו הגרירה מכופפת, והיא מופיעה
+     רק כשנבחר לוח שיש לו כיפוף. */
+  function drawHandle(ctx, flat, scale, ox, oy) {
+    handle = null;
+    if (selected < 0 || !model) return;
+    const face = model.faces[selected];
+    if (!face || face.bend_index < 0) return;
+    const piece = flat.find((f) => f.face === selected);
+    if (!piece) return;
+
+    const centre = model.size_mm.map((v) => v / 2);
+    const camera = makeCamera(cam.yaw, cam.pitch);
+    const toScreen = (p) => {
+      const q = camera([p[0] - centre[0], p[1] - centre[1], p[2] - centre[2]]);
+      return [ox + q[0] * scale, oy - q[2] * scale];
+    };
+
+    let cx = 0, cy = 0, cz = 0;
+    for (const v of face.outline) { cx += v[0]; cy += v[1]; cz += v[2]; }
+    const n = face.outline.length || 1;
+    const mid = toScreen([cx / n, cy / n, cz / n]);
+
+    /* כיוון הגרירה: **הרדיוס מציר הכיפוף אל מרכז הלוח.** משיכה
+       החוצה משטיחה, משיכה פנימה מקימה — וזו התנועה שהיד עושה
+       ממילא כשמכופפים פח ביד. */
+    const axis = model.fold_axes && model.fold_axes[face.bend_index];
+    let dir = [0, -1];
+    if (axis) {
+      const a = toScreen(axis.slice(0, 3)), b = toScreen(axis.slice(3, 6));
+      const ax = (a[0] + b[0]) / 2, ay = (a[1] + b[1]) / 2;
+      const vx = mid[0] - ax, vy = mid[1] - ay;
+      const len = Math.hypot(vx, vy) || 1;
+      dir = [vx / len, vy / len];
+    }
+    handle = { x: mid[0], y: mid[1], dir, bend: face.bend_index };
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(mid[0], mid[1], 11, 0, Math.PI * 2);
+    ctx.fillStyle = bending ? 'rgba(194,65,12,.95)' : 'rgba(255,255,255,.92)';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgb(194,65,12)';
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(mid[0] - dir[0] * 18, mid[1] - dir[1] * 18);
+    ctx.lineTo(mid[0] + dir[0] * 18, mid[1] + dir[1] * 18);
+    ctx.strokeStyle = 'rgba(194,65,12,.55)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /* פגיעה על **ההיטל שצויר**, מהחתיכה העליונה כלפי מטה. חישוב
+     הקרנה נפרד היה יכול להיפרד ממה שרואים, ואז לחיצה על דופן אחת
+     בוחרת אחרת. */
+  function pickAt(clientX, clientY) {
+    if (!projection) return -1;
+    const rect = canvas.getBoundingClientRect();
+    const x = clientX - rect.left, y = clientY - rect.top;
+    const { flat, scale, ox, oy } = projection;
+    for (let i = flat.length - 1; i >= 0; i--) {
+      let inside = false;
+      for (const loop of flat[i].loops) {
+        for (let a = 0, b = loop.length - 1; a < loop.length; b = a++) {
+          const xa = ox + loop[a][0] * scale, ya = oy - loop[a][2] * scale;
+          const xb = ox + loop[b][0] * scale, yb = oy - loop[b][2] * scale;
+          if ((ya > y) !== (yb > y) && x < ((xb - xa) * (y - ya)) / (yb - ya) + xa) inside = !inside;
+        }
+      }
+      if (inside) return flat[i].face;
+    }
+    return -1;
   }
 
   function schedule() {
@@ -251,7 +353,24 @@ export function createViewer(canvas, options = {}) {
 
   let lastX = 0;
   let lastY = 0;
+  let downAt = null;
   const start = (event) => {
+    downAt = [event.clientX, event.clientY];
+    /* הידית נבדקת **לפני** הסיבוב: היא קטנה, היא מעל הגוף,
+       ובלי הקדימות הזאת כל ניסיון לכופף היה מסובב במקום. */
+    if (handle && !event.shiftKey && event.button === 0) {
+      const rect = canvas.getBoundingClientRect();
+      const dx = event.clientX - rect.left - handle.x;
+      const dy = event.clientY - rect.top - handle.y;
+      if (Math.hypot(dx, dy) <= 16) {
+        bending = { bend: handle.bend, dir: handle.dir, x: event.clientX, y: event.clientY };
+        canvas.setPointerCapture(event.pointerId);
+        canvas.style.cursor = 'ns-resize';
+        event.preventDefault();
+        schedule();
+        return;
+      }
+    }
     dragging = true;
     // הזזה: כפתור אמצעי, ימני, או Shift — שלוש הדרכים שאנשים מנסים.
     panning = event.button === 1 || event.button === 2 || event.shiftKey;
@@ -262,7 +381,22 @@ export function createViewer(canvas, options = {}) {
     event.preventDefault();
   };
   const move = (event) => {
-    if (!dragging) return;
+    if (bending) {
+      const dx = event.clientX - bending.x;
+      const dy = event.clientY - bending.y;
+      bending.x = event.clientX;
+      bending.y = event.clientY;
+      // משיכה החוצה מהציר משטיחה, פנימה מקימה. 0.6° לפיקסל.
+      const along = dx * bending.dir[0] + dy * bending.dir[1];
+      onAngle(bending.bend, -along * 0.6);
+      return;
+    }
+    if (!dragging) {
+      const face = pickAt(event.clientX, event.clientY);
+      if (face !== hovered) { hovered = face; schedule(); }
+      canvas.style.cursor = handleUnder(event) ? 'ns-resize' : face >= 0 ? 'pointer' : 'grab';
+      return;
+    }
     const dx = event.clientX - lastX;
     const dy = event.clientY - lastY;
     lastX = event.clientX;
@@ -292,7 +426,26 @@ export function createViewer(canvas, options = {}) {
     cam.pitch = Math.max(0.05, Math.min(Math.PI / 2 - 0.02, cam.pitch + dy * speed));
     schedule();
   };
+  function handleUnder(event) {
+    if (!handle) return false;
+    const rect = canvas.getBoundingClientRect();
+    return Math.hypot(event.clientX - rect.left - handle.x, event.clientY - rect.top - handle.y) <= 16;
+  }
+
   const end = (event) => {
+    /* **לחיצה היא גרירה שלא זזה.** בלי הסף הזה כל סיבוב קטן היה
+       גם בוחר לוח אחר, ומי שמסתכל על החלק היה משנה את הבחירה
+       בלי לרצות. */
+    if (downAt && !bending) {
+      const moved = Math.hypot(event.clientX - downAt[0], event.clientY - downAt[1]);
+      if (moved < 4) {
+        const face = pickAt(event.clientX, event.clientY);
+        selected = face;
+        onPick(face, face >= 0 && model.faces[face] ? model.faces[face].bend_index : -1);
+      }
+    }
+    downAt = null;
+    bending = null;
     dragging = false;
     panning = false;
     schedule();
@@ -330,8 +483,12 @@ export function createViewer(canvas, options = {}) {
   observer.observe(canvas);
 
   return {
-    show(next) {
-      const fresh = !model || String(model.size_mm) !== String(next && next.size_mm);
+    show(next, opts) {
+      /* **בעריכה המצלמה לא קופצת.** שינוי זווית משנה את מידות
+         הגוף, ואיפוס המצלמה על כל שינוי היה מזיז את החלק מתחת
+         ליד בזמן שגוררים אותו. */
+      const fresh = (!opts || !opts.keepCamera)
+        && (!model || String(model.size_mm) !== String(next && next.size_mm));
       model = next;
       pieces = next && next.faces ? collect(next, true) : [];
       coarse = next && next.faces ? collect(next, false) : [];
@@ -360,6 +517,8 @@ export function createViewer(canvas, options = {}) {
       Object.assign(cam, HOME);
       schedule();
     },
+    select(face) { selected = typeof face === 'number' ? face : -1; schedule(); },
+    selected() { return selected; },
     redraw: schedule,
   };
 }
