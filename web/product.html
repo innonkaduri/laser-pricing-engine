@@ -181,6 +181,7 @@
 <script type="module">
 import { drawPart } from '/part-draw.js';
 import { createViewer } from '/part-3d.js';
+import { refreshCartBadge } from '/shell.js';
 
 const id = decodeURIComponent(location.pathname.replace(/^\/product\//, ''));
 const svg = document.querySelector('svg.part');
@@ -191,10 +192,12 @@ const tocartButton = document.getElementById('tocart');
 
 let product = null;
 const values = {};
-/* **נחשף במפורש** כי כפתור העגלה חי במודול אחר. מודול אינו רואה
-   את המשתנים של מודול אחר, וזה היה חוזר `{}` בשקט — כלומר עגלה
-   שמקבלת את מידות ברירת המחדל במקום את מה שהלקוח הזיז. */
-window.__values = values;
+/* **30.8.2026: `הוסף לעגלה` עבר לתוך המודול הזה.** עד אז הוא חי
+   במודול נפרד (זה שמטעין את הסרגל), ומודול אינו רואה את המשתנים
+   של מודול אחר — ולכן `values` נחשף פעם דרך `window.__values`,
+   וזה בדיוק מה שהסתיר את התקלה: `errorBox`/`clearError`/`fail`
+   באותו מודול נשארו `undefined` ונפלו בלחיצה הראשונה על הכפתור.
+   התיקון האמיתי הוא **מודול אחד**, לא עוד גישור. */
 
 /* הקישור לעורך נושא את המידות הנוכחיות. בלעדיהן העורך היה נפתח על
    ברירות המחדל של המוצר, והלקוח היה מגלה את זה רק אחרי שגרר. */
@@ -388,6 +391,57 @@ function paintThicknesses() {
   };
 }
 
+/* ---- הוספה לעגלה ---- */
+
+/* **הקטלוג הוא קלט, לא מסלול שני.** המוצר נפתח למסמך דרך
+   `/doc` — אותו מסמך שהעורך עורך — ומשם לעגלה. אין כאן ענף
+   "הזמנה מהקטלוג" שיכול להתנהג אחרת מהזמנה מהעורך. */
+function askToSignIn() {
+  /* לא שגיאה — זה השלב הבא. הקטלוג פתוח, העגלה דורשת חשבון.
+     זה בדיוק מה שכפתור "חשב מחיר" אמר לפני שהמחיר עבר לעגלה
+     בלבד — אותה הודעה, טריגר אחר. */
+  errorBox.className = 'note note-info';
+  errorBox.innerHTML =
+    'הוספה לעגלה דורשת חשבון. <a href="/signup" style="font-weight:700">פתיחת חשבון</a> ' +
+    'לוקחת פחות מדקה, או <a href="/login" style="font-weight:700">כניסה</a> אם כבר יש לך.';
+  errorBox.classList.remove('hidden');
+}
+
+document.getElementById('tocart').addEventListener('click', async () => {
+  const button = document.getElementById('tocart');
+  button.disabled = true;
+  const original = button.textContent;
+  clearError();
+  try {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(values)) query.set(key, value);
+    const seed = await fetch(`/api/catalog/${encodeURIComponent(id)}/doc?${query}`);
+    if (seed.status === 401) { askToSignIn(); return; }
+    const doc = await seed.json().catch(() => ({}));
+    if (!seed.ok) { fail(doc.detail || 'לא הצלחנו.'); return; }
+    const response = await fetch('/api/cart', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: doc.name,
+        source: 'catalog',
+        product_id: id,
+        material_key: document.getElementById('material').value,
+        thickness_mm: Number(document.getElementById('thickness').value),
+        quantity: Math.max(1, Number(document.getElementById('qty').value) || 1),
+        doc: { name: doc.name, outline: doc.outline, holes: doc.holes,
+               cutouts: doc.cutouts, bends: doc.bends },
+      }),
+    });
+    if (response.status === 401) { askToSignIn(); return; }
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) { fail(data.detail || 'לא הצלחנו להוסיף לעגלה.'); return; }
+    button.textContent = `נוסף — ${data.count} בעגלה`;
+    await refreshCartBadge();
+  } finally {
+    setTimeout(() => { button.textContent = original; button.disabled = !buildable; }, 2200);
+  }
+});
+
 /* ---- טעינה ---- */
 
 fetch('/api/catalog')
@@ -428,58 +482,8 @@ fetch('/api/catalog')
 <!-- סרגל הצד. **מוזרק מקובץ אחד** ולא מועתק לכל מסך: ניווט
      שמועתק מתפצל, ואז "איפה ההיסטוריה" תלוי באיזה מסך אתה עומד. -->
 <script type="module">
-import { mountSidebar, refreshCartBadge } from '/shell.js';
+import { mountSidebar } from '/shell.js';
 await mountSidebar();
-
-/* **הקטלוג הוא קלט, לא מסלול שני.** המוצר נפתח למסמך דרך
-   `/doc` — אותו מסמך שהעורך עורך — ומשם לעגלה. אין כאן ענף
-   "הזמנה מהקטלוג" שיכול להתנהג אחרת מהזמנה מהעורך. */
-function askToSignIn() {
-  /* לא שגיאה — זה השלב הבא. הקטלוג פתוח, העגלה דורשת חשבון.
-     זה בדיוק מה שכפתור "חשב מחיר" אמר לפני שהמחיר עבר לעגלה
-     בלבד — אותה הודעה, טריגר אחר. */
-  errorBox.className = 'note note-info';
-  errorBox.innerHTML =
-    'הוספה לעגלה דורשת חשבון. <a href="/signup" style="font-weight:700">פתיחת חשבון</a> ' +
-    'לוקחת פחות מדקה, או <a href="/login" style="font-weight:700">כניסה</a> אם כבר יש לך.';
-  errorBox.classList.remove('hidden');
-}
-
-document.getElementById('tocart').addEventListener('click', async () => {
-  const button = document.getElementById('tocart');
-  button.disabled = true;
-  const original = button.textContent;
-  clearError();
-  try {
-    const id = location.pathname.split('/').pop();
-    const query = new URLSearchParams();
-    for (const [key, value] of Object.entries(window.__values || {})) query.set(key, value);
-    const seed = await fetch(`/api/catalog/${encodeURIComponent(id)}/doc?${query}`);
-    if (seed.status === 401) { askToSignIn(); return; }
-    const doc = await seed.json().catch(() => ({}));
-    if (!seed.ok) { fail(doc.detail || 'לא הצלחנו.'); return; }
-    const response = await fetch('/api/cart', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: doc.name,
-        source: 'catalog',
-        product_id: id,
-        material_key: document.getElementById('material').value,
-        thickness_mm: Number(document.getElementById('thickness').value),
-        quantity: Math.max(1, Number(document.getElementById('qty').value) || 1),
-        doc: { name: doc.name, outline: doc.outline, holes: doc.holes,
-               cutouts: doc.cutouts, bends: doc.bends },
-      }),
-    });
-    if (response.status === 401) { askToSignIn(); return; }
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) { fail(data.detail || 'לא הצלחנו להוסיף לעגלה.'); return; }
-    button.textContent = `נוסף — ${data.count} בעגלה`;
-    await refreshCartBadge();
-  } finally {
-    setTimeout(() => { button.textContent = original; button.disabled = !buildable; }, 2200);
-  }
-});
 </script>
 </body>
 </html>

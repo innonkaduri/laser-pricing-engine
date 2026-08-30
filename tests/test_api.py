@@ -2546,6 +2546,31 @@ class TestTheCatalogIsReachable:
         assert "/quote`" not in text
         assert 'id="tocart"' in text
 
+    def test_the_cart_click_handler_lives_where_its_variables_are_declared(self):
+        """**נמצא בדפדפן אמיתי, 30.8.2026: `ReferenceError: clearError
+        is not defined`.** `product.html` מחזיק שני `<script
+        type="module">` נפרדים — כל אחד scope משלו. ה-handler של
+        'הוסף לעגלה' עבר למודול השני (זה שטוען את הסרגל) ונשאר תלוי
+        ב-`errorBox`/`clearError`/`fail`/`buildable` שמוגדרים רק
+        במודול הראשון — ונפל בלחיצה הראשונה, בלי שאף בדיקת פייתון
+        תפסה את זה, כי אף אחת מהן לא מריצה JS בכלל. הבדיקה כאן לא
+        מריצה JS גם היא — היא בודקת שההצהרה וההשתמשות **יושבות
+        באותו בלוק** במקור, מה שהיה מונע בדיוק את התקלה הזאת.
+        """
+        import re
+
+        text = (self.ROOT / "product.html").read_text(encoding="utf-8")
+        blocks = re.findall(r'<script type="module">(.*?)</script>', text, re.S)
+        handler_block = next(
+            (b for b in blocks if "getElementById('tocart').addEventListener" in b), None
+        )
+        assert handler_block is not None, "לא נמצא handler ללחיצה על 'הוסף לעגלה'"
+        for needed in ("function clearError", "const errorBox", "function fail", "let buildable"):
+            assert needed in handler_block, (
+                f"'{needed}' לא נמצא באותו מודול כמו ה-handler — "
+                "בדיוק התקלה שכבר קרתה"
+            )
+
 
 class TestTheConfiguratorStaysLightEnoughToDrag:
     """התצוגה נשלחת בכל תזוזת מחוון. משקל הוא כאן תכונה, לא פרט.
