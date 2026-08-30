@@ -2388,13 +2388,29 @@ def checkout_options(request: Request) -> dict:
     מסך שמציג כפתור "שלם" בזמן שאין ח"פ ואין תקנון מבטיח משהו
     שאסור לקיים. לכן החסמים חוזרים כאן במפורש, והמסך מציג אותם
     במקום את הכפתור.
+
+    **אבל "במפורש" למי?** `business.blockers()` הוא רשימה למי שצריך
+    *לתקן* אותה — "legal_name — השם המשפטי של העסק" מדבר אל ינון,
+    לא אל לקוח שמנסה לשלם. לקוח שרואה שם שדה באנגלית באמצע עגלה
+    בעברית לא לומד כלום שהוא יכול לעשות בו, רק שמשהו נראה שבור.
+    **נמצא 30.8.2026** כשהאב עצמו קרא את המסך כלקוח והצביע על זה.
+    לכן `blockers` המפורט חוזר רק למי שיש לו `quote:use`/`prices:edit`
+    (אותה הבחנה בדיוק כמו פירוק העלויות); לקוח ציבורי מקבל
+    `blocked_reason` אחד, קבוע, בלי שם שדה.
     """
-    _cart_owner(request)
+    user = _require_account(request)
+    internal = user.sees_cost_breakdown
+    ready = business.ready()
     return {
         "business": business.public(),
         "methods": payment.available(),
-        "blockers": business.blockers(),
-        "can_order": business.ready() and bool(payment.available()),
+        "blockers": business.blockers() if internal else [],
+        "blocked_reason": (
+            None
+            if ready and payment.available()
+            else "ההזמנה המקוונת עדיין לא פעילה. העגלה שלך נשמרת — אפשר לחזור אליה כשהיא תיפתח."
+        ),
+        "can_order": ready and bool(payment.available()),
     }
 
 

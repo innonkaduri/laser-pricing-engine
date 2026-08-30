@@ -3626,16 +3626,39 @@ class TestTheOrderFlow:
         assert response.status_code == 503
 
     def test_without_business_details_no_order_is_taken(self, priced_client):
-        """**מסך אינו מציע בחירה שנועדה להיכשל**, וגם השרת לא."""
+        """**מסך אינו מציע בחירה שנועדה להיכשל**, וגם השרת לא.
+
+        `koneh` הוא `quote:total` — לקוח ציבורי. **נמצא 30.8.2026:**
+        עד עכשיו הוא היה מקבל את `blockers` המפורט — "legal_name —
+        השם המשפטי של העסק" — באמצע עגלה בעברית. שם שדה באנגלית
+        שהלקוח לא יכול לתקן אינו הסבר, הוא מראה כמו תקלה. הכרעה:
+        לקוח ציבורי מקבל `blocked_reason` אחד קבוע; `blockers`
+        המפורט חוזר רק למי שמחזיק `quote:use`/`prices:edit`.
+        """
         self._add(priced_client)
         options = priced_client.get("/api/checkout").json()
         assert options["can_order"] is False
-        assert options["blockers"]
+        assert options["blockers"] == []
+        assert options["blocked_reason"]
+        assert "legal_name" not in options["blocked_reason"]
         response = priced_client.post(
             "/api/checkout", json={"phone": "0500000000", "note": "", "payment": "phone"}
         )
         assert response.status_code == 409
         assert "אי אפשר לקבל הזמנות" in response.json()["detail"]
+
+    def test_an_internal_user_sees_exactly_what_to_fix(self, client, monkeypatch):
+        """אבא/ינון צריכים בדיוק את מה שהלקוח לא צריך — שם השדה
+        החסר, כי הם אלה שהולכים למלא אותו."""
+        assert client.put("/api/tariff", json=TEST_TARIFF).status_code == 200
+        identity.create_user("penimi2", "sisma-arukka-9", "פנימי", {identity.CAP_QUOTE_USE})
+        assert client.post(
+            "/api/login", json={"username": "penimi2", "password": "sisma-arukka-9"}
+        ).status_code == 200
+        self._add(client)
+        options = client.get("/api/checkout").json()
+        assert options["can_order"] is False
+        assert any("legal_name" in b for b in options["blockers"])
 
     def test_an_order_empties_the_cart_and_gets_a_reference(
         self, priced_client, tmp_path, monkeypatch

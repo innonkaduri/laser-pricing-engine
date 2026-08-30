@@ -233,12 +233,16 @@ function paintCheckout(checkout) {
   if (!checkout.can_order) {
     $('checkout').classList.add('hidden');
     $('blocked').classList.remove('hidden');
+    /* **מי שרואה מה, ולמה.** `blockers` המפורט ("legal_name — השם
+       המשפטי...") הוא רשימת תיקון למי שמחזיק `quote:use`/
+       `prices:edit` — לקוח ציבורי מקבל רק `blocked_reason`, משפט
+       אחד קבוע בלי שם שדה. נמצא 30.8.2026: לקוח שרואה "company_id"
+       באמצע עגלה לא לומד שום דבר שהוא יכול לעשות בו. */
     $('blocked').innerHTML =
       '<b>אי אפשר לקבל הזמנות עדיין.</b><br>' +
       (checkout.blockers.length
-        ? 'חסר: ' + checkout.blockers.map(escape).join(' · ')
-        : 'לא הוגדר אמצעי תשלום בשרת.') +
-      '<br>אפשר לשמור את העגלה ולחזור אליה.';
+        ? 'חסר: ' + checkout.blockers.map(escape).join(' · ') + '<br>אפשר לשמור את העגלה ולחזור אליה.'
+        : escape(checkout.blocked_reason || 'לא הוגדר אמצעי תשלום בשרת.'));
     return;
   }
   const b = checkout.business || {};
