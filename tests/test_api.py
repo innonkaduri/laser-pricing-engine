@@ -3553,6 +3553,98 @@ class TestTheOrderFlow:
             columns = {row[1] for row in conn.execute("PRAGMA table_info(cart)")}
         assert "price" not in columns and "total" not in columns
 
+    def test_a_public_customer_sees_dimensions_and_material_per_item(self, priced_client):
+        """**30.8.2026, נמצא כי הלקוח אמר "העגלה לא מציגה פרטי מוצר".**
+        `koneh` הוא `quote:total` — ציבורי. `cart.quote` שלו נבנה
+        מ-`public_quote_to_json`, שלא נשא בכלל `lines` — כלומר
+        `line.width_mm`/`line.material_name` היו `undefined` **לכל
+        לקוח ציבורי, תמיד**, וכרטיס הפריט הציג מחרוזת ריקה במקום
+        מידות. המידות עברו לשדה שכל אחד מקבל, כי הן קלט של הלקוח
+        עצמו ולא תפוקה של הטבלה.
+        """
+        assert self._add(priced_client).status_code == 200
+        item = priced_client.get("/api/cart").json()["items"][0]
+        assert item["width_mm"] == 200.0
+        assert item["height_mm"] == 120.0
+        assert item["bend_count"] == 0
+        assert item["material_name"] == "פלדה שחורה"
+
+    def test_dimensions_do_not_require_a_priced_material(self, priced_client):
+        """חומר **קיים בטבלה אך לא מתומחר** (מחיר פלטה 0) עדיין
+        מציג מידות — הן לא באות מהטבלה, אלא מהגיאומטריה שהלקוח בנה.
+        """
+        raw = json.loads(json.dumps(TEST_TARIFF))
+        raw["rates"].append(
+            {"material_key": "alu5083", "material_name": "אלומיניום 5083",
+             "thickness_mm": 3.0, "plate_price": 0.0, "cut_rate_per_m": 0.0}
+        )
+        tariff_store.STATE.replace(raw)
+        response = priced_client.post(
+            "/api/cart",
+            json={
+                "name": "לא מתומחר", "source": "editor", "material_key": "alu5083",
+                "thickness_mm": 3.0, "quantity": 1, "doc": self.PLATE,
+            },
+        )
+        assert response.status_code == 200
+        body = priced_client.get("/api/cart").json()
+        # **30.8.2026: 200, לא 422.** פריט לא-מתומחר לא נועל את
+        # תצוגת העגלה — ראו את ההערה המלאה ב-`_price_cart`. `koneh`
+        # ציבורי, ולכן `price_error` המפורט אינו נשלח אליו.
+        assert body["count"] == 1
+        assert body["quote"] is None
+        assert body.get("price_error") is None
+        item = body["items"][0]
+        assert item["width_mm"] == 200.0
+        assert item["material_name"] == "אלומיניום 5083"
+
+    def test_an_unpriced_item_still_blocks_checkout_itself(self, priced_client, tmp_path, monkeypatch):
+        """**לצפות מותר, לשלם לא.** `_price_cart` הפסיק לזרוק כדי
+        שהעגלה תיראה — אבל `POST /api/checkout` אוכף את החסימה בעצמו
+        עכשיו, ובאותו קוד סטטוס בדיוק כמו קודם."""
+        self._open_for_business(tmp_path, monkeypatch)
+        raw = json.loads(json.dumps(TEST_TARIFF))
+        raw["rates"].append(
+            {"material_key": "alu5083", "material_name": "אלומיניום 5083",
+             "thickness_mm": 3.0, "plate_price": 0.0, "cut_rate_per_m": 0.0}
+        )
+        tariff_store.STATE.replace(raw)
+        priced_client.post(
+            "/api/cart",
+            json={
+                "name": "לא מתומחר", "source": "editor", "material_key": "alu5083",
+                "thickness_mm": 3.0, "quantity": 1, "doc": self.PLATE,
+            },
+        )
+        response = priced_client.post(
+            "/api/checkout", json={"phone": "0500000000", "note": "", "payment": "phone"}
+        )
+        assert response.status_code == 422
+
+    def test_an_internal_user_sees_why_pricing_failed(self, client, monkeypatch):
+        """אבא/ינון צריכים לדעת **איזה** חומר תקוע, לא רק שמשהו נכשל."""
+        assert client.put("/api/tariff", json=TEST_TARIFF).status_code == 200
+        identity.create_user("penimi3", "sisma-arukka-9", "פנימי", {identity.CAP_QUOTE_USE})
+        assert client.post(
+            "/api/login", json={"username": "penimi3", "password": "sisma-arukka-9"}
+        ).status_code == 200
+        raw = json.loads(json.dumps(TEST_TARIFF))
+        raw["rates"].append(
+            {"material_key": "alu5083", "material_name": "אלומיניום 5083",
+             "thickness_mm": 3.0, "plate_price": 0.0, "cut_rate_per_m": 0.0}
+        )
+        tariff_store.STATE.replace(raw)
+        client.post(
+            "/api/cart",
+            json={
+                "name": "לא מתומחר", "source": "editor", "material_key": "alu5083",
+                "thickness_mm": 3.0, "quantity": 1, "doc": self.PLATE,
+            },
+        )
+        body = client.get("/api/cart").json()
+        assert body["quote"] is None
+        assert "אלומיניום 5083" in body["price_error"]
+
     def test_two_parts_together_cost_less_than_two_parts_apart(self, priced_client):
         """**זו הסיבה שהעגלה קיימת**, והיא פיזיקה ולא שיווק.
 

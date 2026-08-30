@@ -148,18 +148,26 @@ async function load() {
 }
 
 function paintItems(cart) {
+  /* **30.8.2026: `lines` היה קיים רק ללקוח פנימי.** `cart.quote` של
+     לקוח ציבורי (`quote:total`) בנוי מ-`public_quote_to_json`, ואין
+     בו בכלל `lines` — כלומר כל כרטיס פריט הציג "" במקום מידות,
+     לכל לקוח שהאתר בכלל פתוח לו. המידות והחומר עברו לשדות שכל אחד
+     מקבל (`item.width_mm` וכו', מהגיאומטריה ולא מהמחיר); מחיר לשורה
+     נשאר פנימי בלבד — אותה הפרדה כמו בכל מקום אחר באתר. */
   const lines = (cart.quote && cart.quote.lines) || [];
   $('items').innerHTML = cart.items
     .map((item, index) => {
       const line = lines[index] || {};
       const price = line.line_total ?? line.total ?? null;
+      const sizeLabel = item.bend_count ? 'מידות הפריסה' : 'מידות';
       return `<article class="item" data-id="${item.id}">
         <div>
           <h3>${escape(item.name || 'חלק')}</h3>
           <div class="meta">
-            <b>${escape(line.material_name || item.material_key)}</b> ·
+            <b>${escape(item.material_name || item.material_key)}</b> ·
             עובי <b>${item.thickness_mm}</b> מ״מ
-            ${line.width_mm ? ` · <b>${Math.round(line.width_mm)}×${Math.round(line.height_mm)}</b> מ״מ` : ''}
+            ${item.width_mm ? ` · ${sizeLabel} <b>${Math.round(item.width_mm)}×${Math.round(item.height_mm)}</b> מ״מ` : ''}
+            ${item.bend_count ? ` · <b>${item.bend_count}</b> כיפופים` : ''}
           </div>
         </div>
         <div class="line-price">${price === null ? '' : money(price)}</div>

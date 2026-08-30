@@ -2263,12 +2263,20 @@ def _price_cart(username: str) -> dict:
     בהזמנה אחת עולים פחות משניים בשתי הזמנות. זו אינה הנחה שיווקית
     אלא הפיזיקה של הפלטה — וזו הסיבה שהעגלה אינה סכימה של שורות
     שכל אחת תומחרה לבד.
+
+    **30.8.2026: כישלון תמחור כאן אינו זורק.** פריט אחד עם חומר
+    שאין לו מחיר היה מפיל את `GET /api/cart` **כולו** ב-422 — כלומר
+    לקוח עם תשעה פריטים תקינים ואחד לא-מתומחר לא ראה שום דבר, ולא
+    היה לו איך להסיר בדיוק את הפריט שתקוע. `price_error` חוזר במקום
+    להיזרק; `checkout()` (שכן צריך לחסום הזמנה) בודק אותו בעצמו
+    ומחזיר את אותה שגיאה בדיוק, בקוד הסטטוס הנכון.
     """
     rows = orders.items(username)
     if not rows:
-        return {"items": [], "quote": None, "warnings": []}
+        return {"rows": [], "dims": [], "result": None, "price_error": None}
     tariff = _require_tariff()
     parts: list[Part] = []
+    dims: list[dict] = []
     for row in rows:
         doc = PartDoc(**row["spec"])
         blank = _doc_blank(doc, row["thickness_mm"])
@@ -2285,41 +2293,75 @@ def _price_cart(username: str) -> dict:
                 bend_length_mm=blank.bend_length_mm,
             )
         )
+        # **מידות, לא מחיר.** רוחב/גובה הם מה שהלקוח עצמו הקליד —
+        # תיבה חוסמת של הגיאומטריה שהוא כבר בנה, לא נגזרת מהטבלה.
+        # מותר לכל אחד לראות את זה, בדיוק כמו ב-`product.html`.
+        box = geometry.bbox
+        rate = tariff.rates.get((row["material_key"], row["thickness_mm"]))
+        dims.append(
+            {
+                "width_mm": round(box.width, 1),
+                "height_mm": round(box.height, 1),
+                "bend_count": blank.bend_count,
+                # שם קריא כשיש שורה בטבלה; אחרת נופל חזרה על המפתח
+                # הגולמי ב-`cart_get` — לא ממציאים שם למה שלא תומחר.
+                "material_name": rate.material_name if rate else None,
+            }
+        )
+        # **תיבת פריסה שטוחה, לא של הגוף המקופל.** מגש עם בסיס
+        # 300×200 ודופן 50 חוזר כאן 400×300 — זו הפריסה שנחתכת, בדיוק
+        # אותה הבחנה כמו ב-`product.html:paintReadout`. תווית שונה
+        # ב-`cart.html` כש-`bend_count > 0` היא מה שמונעת את "מידות
+        # חוץ משקרות" שכבר תועד שם.
     try:
         result = price_order(parts, tariff)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"rows": rows, "dims": dims, "result": None, "price_error": (400, str(exc))}
     except (MissingTariffError, PricingError) as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {"rows": rows, "result": result}
+        return {"rows": rows, "dims": dims, "result": None, "price_error": (422, str(exc))}
+    return {"rows": rows, "dims": dims, "result": result, "price_error": None}
 
 
 @app.get("/api/cart")
 def cart_get(request: Request) -> dict:
     username = _cart_owner(request)
     priced = _price_cart(username)
-    if not priced.get("rows"):
+    if not priced["rows"]:
         return {"items": [], "count": 0, "quote": None}
+    items = [
+        {
+            "id": row["id"],
+            "name": row["name"],
+            "source": row["source"],
+            "product_id": row["product_id"],
+            "material_key": row["material_key"],
+            "thickness_mm": row["thickness_mm"],
+            "quantity": row["quantity"],
+            # **מידות ושם חומר, לא מחיר.** מותרים לכל אחד —
+            # ראו ההערה ב-`_price_cart`.
+            "width_mm": dim["width_mm"],
+            "height_mm": dim["height_mm"],
+            "bend_count": dim["bend_count"],
+            "material_name": dim["material_name"],
+        }
+        for row, dim in zip(priced["rows"], priced["dims"])
+    ]
+    if priced["price_error"] is not None:
+        # **הפריטים נשארים גלויים גם כשהתמחור נכשל.** אחרת פריט אחד
+        # לא-מתומחר נועל את כל העגלה — כולל את כפתור ה"הסר" שהיה
+        # מוציא אותו משם. ראו ההערה המלאה ב-`_price_cart`.
+        _, message = priced["price_error"]
+        return {
+            "count": len(priced["rows"]),
+            "items": items,
+            "quote": None,
+            "price_error": message if _sees_breakdown(request) else None,
+        }
     result = priced["result"]
     lines = (
         quote_to_json(result) if _sees_breakdown(request) else public_quote_to_json(result)
     )
-    return {
-        "count": len(priced["rows"]),
-        "items": [
-            {
-                "id": row["id"],
-                "name": row["name"],
-                "source": row["source"],
-                "product_id": row["product_id"],
-                "material_key": row["material_key"],
-                "thickness_mm": row["thickness_mm"],
-                "quantity": row["quantity"],
-            }
-            for row in priced["rows"]
-        ],
-        "quote": lines,
-    }
+    return {"count": len(priced["rows"]), "items": items, "quote": lines}
 
 
 @app.get("/api/cart/count")
@@ -2429,8 +2471,14 @@ def checkout(body: CheckoutRequest, request: Request) -> dict:
         )
         raise HTTPException(status_code=409, detail=detail)
     priced = _price_cart(user.username)
-    if not priced.get("rows"):
+    if not priced["rows"]:
         raise HTTPException(status_code=422, detail="העגלה ריקה.")
+    if priced["price_error"] is not None:
+        # **כאן, בניגוד ל-`GET /api/cart`, זה כן צריך לחסום.** לצפות
+        # בעגלה עם פריט לא-מתומחר מותר; לשלם עליה — לא. `_price_cart`
+        # כבר לא זורק בעצמו, אז החסימה עברה לכאן במפורש.
+        status_code, message = priced["price_error"]
+        raise HTTPException(status_code=status_code, detail=message)
     result = priced["result"]
     public = public_quote_to_json(result)
     # **0 אינו מחיר.** הזמנה בסכום אפס פירושה שהצירוף אינו בטבלה,
