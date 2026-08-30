@@ -76,6 +76,12 @@ def main() -> None:
     caps.add_argument("username")
     caps.add_argument("--caps", required=True)
 
+    email = sub.add_parser(
+        "email", help="הוספה/החלפה של אימייל — נדרש לשחזור סיסמה עצמי"
+    )
+    email.add_argument("username")
+    email.add_argument("address")
+
     for name, flag in (("disable", True), ("enable", False)):
         p = sub.add_parser(name, help="חסימה/שחרור של משתמש")
         p.add_argument("username")
@@ -98,11 +104,16 @@ def main() -> None:
                 print("אין עדיין משתמשים.")
             for u in users:
                 mark = "חסום" if u["disabled"] else "פעיל"
-                print(f"  {u['username']:<12} {mark:<5} {', '.join(u['capabilities'])}")
+                recovery = "" if u["email"] else "  [בלי אימייל — אין שחזור עצמי]"
+                print(f"  {u['username']:<12} {mark:<5} {', '.join(u['capabilities'])}{recovery}")
 
         elif args.command == "passwd":
             identity.set_password(args.username, _read_password(args.username))
             print(f"הסיסמה של {args.username} הוחלפה.")
+
+        elif args.command == "email":
+            saved = identity.set_email(args.username, args.address)
+            print(f"{args.username}: אימייל נשמר ({saved}). שחזור סיסמה פעיל מעכשיו.")
 
         elif args.command == "caps":
             wanted = {c.strip() for c in args.caps.split(",") if c.strip()}

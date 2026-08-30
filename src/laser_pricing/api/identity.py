@@ -6,10 +6,16 @@
 
 **מה שהמודול הזה במפורש אינו מחזיק:** לקוחות, הצעות כמסמך, ומספור.
 הגבול שסוכם: כל דבר שיש עליו שם של לקוח שייך ל-CRM, והמנוע לא לומד
-מי הלקוח. **הרשמה עצמית נכנסה 23.8.2026** (הכרעת ינון דרך האב), והיא
-נשמרת בתוך הגבול הזה: שם משתמש, שם לתצוגה וסיסמה — ולא אימייל, לא
-טלפון ולא שום דרך ליצור קשר. מי שנרשם כאן הוא מבקר שמתמחר לעצמו,
-ולא לקוח שהמנוע מנהל.
+מי הלקוח. **הרשמה עצמית נכנסה 23.8.2026** (הכרעת ינון דרך האב), ועד
+30.8.2026 נשמרה בתוך הגבול הזה: שם משתמש, שם לתצוגה וסיסמה — בלי
+אימייל ובלי שום דרך ליצור קשר, ובלי שחזור סיסמה כתוצאה ישירה מכך.
+
+**30.8.2026: קו הגבול זז, במפורש ולא בשקט.** "אין שחזור סיסמה" היה
+פוסל את המערכת כפרודקשן — משתמש ששכח סיסמה היה אבוד. ההכרעה: אימייל
+נאסף בהרשמה, יחיד לכל חשבון, ומשמש **אך ורק** לשחזור סיסמה — הוא
+אינו הופך את הנרשם ללקוח שהמנוע "מנהל" במובן שה-CRM מתכוון אליו
+(שם, הצעה כמסמך, מספור). מי שנרשם לפני התאריך הזה נשאר בלי אימייל
+עד שיוסיף אחד דרך `/account` או ש-`laser-user.py email` יוסיף לו.
 
 **יכולות ולא תפקידים.** ארבעת התפקידים של ה-CRM (מזכיר, בונה הצעות,
 מאשר, בעלים) ימופו אליהן כשהזהות תעבור לשם — ולא ישוכפלו לכאן, כי
@@ -23,6 +29,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import sqlite3
 import time
@@ -64,6 +71,10 @@ PASSWORD_MIN = 8
 
 SESSION_COOKIE = "laser_session"
 SESSION_TTL_SECONDS = 12 * 3600
+
+RESET_TTL_SECONDS = 30 * 60
+"""חצי שעה. קישור שחי שבוע במייל של מישהו הוא סיכון פתוח; קישור
+שחי חמש דקות מכריח אנשים לרוץ. חצי שעה מספיקה לפתוח מייל ולחזור."""
 
 _ENV_SECRET = os.environ.get("SESSION_SECRET", "").strip()
 SESSION_SECRET_IS_EPHEMERAL = not _ENV_SECRET
@@ -174,7 +185,21 @@ def _connect() -> sqlite3.Connection:
     for column in ("google_sub", "email"):
         if column not in have:
             conn.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
+    if "session_epoch" not in have:
+        # **מונה, לא דגל.** כל שינוי סיסמה שלא הוכח ביד (איפוס
+        # במייל, איפוס ב-CLI) מקדם אותו, וסשן שנפתח עם מספר ישן
+        # מתבטל בטעינה הבאה — בלי טבלת סשנים נפרדת ובלי לגעת
+        # בעוגייה שכבר יושבת אצל כל מי שמחובר.
+        conn.execute("ALTER TABLE users ADD COLUMN session_epoch INTEGER NOT NULL DEFAULT 0")
     conn.execute("CREATE INDEX IF NOT EXISTS users_by_google ON users(google_sub)")
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS password_resets (
+               token_hash TEXT PRIMARY KEY,
+               username   TEXT NOT NULL,
+               expires_at INTEGER NOT NULL,
+               used       INTEGER NOT NULL DEFAULT 0
+           )"""
+    )
     return conn
 
 
@@ -209,6 +234,23 @@ def normalize_username(username: str) -> str:
     return username
 
 
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def normalize_email(email: str) -> str:
+    """אימייל מנורמל (חתוך, אותיות קטנות), או `UserError` אם הוא לא
+    ריק ולא תקין. **ריק עובר בשקט** — השדה עדיין אופציונלי בשכבה
+    הזאת (חשבון פנימי שנוצר ב-CLI לא חייב אחד); מי שדורש שהוא לא
+    יהיה ריק בודק זאת בעצמו, בדיוק כמו עם שם המשתמש.
+    """
+    email = (email or "").strip().lower()
+    if not email:
+        return ""
+    if len(email) > 200 or not EMAIL_RE.match(email):
+        raise UserError("כתובת מייל לא תקינה.")
+    return email
+
+
 RESERVED_USERNAMES = frozenset(
     {"admin", "root", "crm", "editor-link", "system", "laser", "api", "support"}
 )
@@ -236,6 +278,7 @@ def create_user(
     email: str = "",
 ) -> User:
     username = normalize_username(username)
+    email = normalize_email(email)
     # חשבון גוגל נפתח בלי סיסמה בכוונה; כל השאר חייב אחת.
     if not google_sub and len(password) < PASSWORD_MIN:
         raise UserError(f"סיסמה קצרה מ-{PASSWORD_MIN} תווים. זו כתובת פומבית.")
@@ -250,6 +293,14 @@ def create_user(
     with _connect() as conn:
         if conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
             raise UserError(f"המשתמש {username} כבר קיים.")
+        # אימייל ריק לא מתנגש עם עצמו — כל חשבון פנימי בלי אימייל
+        # נשאר בלי אימייל, וזה מותר. אימייל שאינו ריק חייב להיות
+        # ייחודי, כי הוא הופך למפתח החיפוש היחיד בשחזור סיסמה —
+        # שני חשבונות על אותה כתובת אומרים "איזה מהם משחזרים?".
+        if email and conn.execute(
+            "SELECT 1 FROM users WHERE email = ?", (email,)
+        ).fetchone():
+            raise UserError("כתובת המייל הזאת כבר משויכת לחשבון אחר.")
         # **עמודות בשם ולא במיקום.** `INSERT INTO users VALUES (...)`
         # נשבר בשקט ברגע שנוספת עמודה — וזה בדיוק מה שקרה כאן
         # בהוספת `google_sub`. אותה מלכודת הפילה גם 23 בדיקות
@@ -273,16 +324,113 @@ def create_user(
     return User(username, display, frozenset(caps), source="created")
 
 
-def set_password(username: str, password: str) -> None:
+def set_password(username: str, password: str, *, revoke_sessions: bool = True) -> None:
+    """מחליף סיסמה. **`revoke_sessions=True` כברירת מחדל.**
+
+    זה איפוס שמישהו אחר יזם בשבילי — CLI של אבא/ינון, או קישור
+    שהגיע למייל — ולא שינוי שאני עצמי עשיתי מתוך המסך המחובר. אם
+    הסיבה לאיפוס היא חשבון שנחטף, סשן ישן שנשאר פעיל היה מרוקן את
+    כל התועלת שבו. **המקום היחיד שמעביר `False`** הוא `/api/account/
+    password`, ששם המשתמש כבר הוכיח את הסיסמה הנוכחית מהמסך שבו הוא
+    יושב עכשיו — ואין סיבה לנתק אותו מעצמו.
+    """
     if len(password) < PASSWORD_MIN:
         raise UserError(f"סיסמה קצרה מ-{PASSWORD_MIN} תווים. זו כתובת פומבית.")
+    username = username.strip().lower()
     with _connect() as conn:
+        if revoke_sessions:
+            changed = conn.execute(
+                "UPDATE users SET password_hash = ?, session_epoch = session_epoch + 1 "
+                "WHERE username = ?",
+                (hash_password(password), username),
+            ).rowcount
+        else:
+            changed = conn.execute(
+                "UPDATE users SET password_hash = ? WHERE username = ?",
+                (hash_password(password), username),
+            ).rowcount
+    if not changed:
+        raise UserError(f"אין משתמש בשם {username}.")
+
+
+def set_email(username: str, email: str) -> str:
+    """מחליף/מוסיף אימייל, ומחזיר את מה שנשמר בפועל.
+
+    זה המקום היחיד שבו חשבון שנוצר לפני 30.8.2026 (או ב-CLI, בלי
+    אימייל) מקבל שחזור סיסמה: מוסיפים כתובת, ומאותו רגע הכתובת
+    הזאת מזהה אותו ב-`/api/password-reset/request`.
+    """
+    email = normalize_email(email)
+    if not email:
+        raise UserError("כתובת מייל ריקה.")
+    username = username.strip().lower()
+    with _connect() as conn:
+        taken = conn.execute(
+            "SELECT 1 FROM users WHERE email = ? AND username != ?", (email, username)
+        ).fetchone()
+        if taken:
+            raise UserError("כתובת המייל הזאת כבר משויכת לחשבון אחר.")
         changed = conn.execute(
-            "UPDATE users SET password_hash = ? WHERE username = ?",
-            (hash_password(password), username.strip().lower()),
+            "UPDATE users SET email = ? WHERE username = ?", (email, username)
         ).rowcount
     if not changed:
         raise UserError(f"אין משתמש בשם {username}.")
+    return email
+
+
+def find_by_email(email: str) -> User | None:
+    """חשבון פעיל לפי אימייל, או `None` — **גם אם הקלט אינו כתובת
+    תקינה בכלל.** זה נקרא מ-`/api/password-reset/request` על קלט של
+    זר; פורמט שגוי צריך להיראות כמו "לא נמצא" ולא כמו שגיאת שרת."""
+    try:
+        email = normalize_email(email)
+    except UserError:
+        return None
+    if not email:
+        return None
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE email = ? AND disabled = 0", (email,)
+        ).fetchone()
+    return _row_to_user(row, "session") if row else None
+
+
+def create_password_reset(username: str) -> str:
+    """טוקן חד-פעמי לאיפוס, לחצי שעה. **מבטל כל טוקן קודם לאותו
+    משתמש** — שני קישורים חיים בו-זמנית פותחים מרוץ שאין לו צורך
+    להתקיים, ומנקה תוך כדי טוקנים שפג תוקפם משל אחרים."""
+    token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    now = int(time.time())
+    with _connect() as conn:
+        conn.execute("DELETE FROM password_resets WHERE expires_at < ?", (now,))
+        conn.execute("DELETE FROM password_resets WHERE username = ?", (username,))
+        conn.execute(
+            "INSERT INTO password_resets (token_hash, username, expires_at, used) "
+            "VALUES (?, ?, ?, 0)",
+            (token_hash, username, now + RESET_TTL_SECONDS),
+        )
+    return token
+
+
+def consume_password_reset(token: str) -> str | None:
+    """שם המשתמש אם הטוקן תקף וטרם נוצל — **ומסמן אותו כמנוצל
+    באותה נשימה**, כדי שקישור שנפתח פעמיים (הצצה מוקדמת של סורק
+    מייל, לחיצה כפולה) לא יאפס פעמיים. אחרת `None`."""
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    now = int(time.time())
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT username FROM password_resets WHERE token_hash = ? "
+            "AND used = 0 AND expires_at > ?",
+            (token_hash, now),
+        ).fetchone()
+        if row is None:
+            return None
+        conn.execute(
+            "UPDATE password_resets SET used = 1 WHERE token_hash = ?", (token_hash,)
+        )
+    return row["username"]
 
 
 def set_display_name(username: str, display_name: str) -> str:
@@ -338,6 +486,7 @@ def list_users() -> list[dict]:
             "capabilities": sorted(json.loads(r["capabilities"])),
             "disabled": bool(r["disabled"]),
             "created_at": r["created_at"],
+            "email": r["email"],
         }
         for r in rows
     ]
@@ -348,13 +497,23 @@ def user_count() -> int:
         return int(conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"])
 
 
-def load_user(username: str, source: str) -> User | None:
-    """טוען מהטבלה בכל בקשה, ולכן ביטול משתמש נכנס לתוקף מיד."""
+def load_user(username: str, source: str, session_epoch: int | None = None) -> User | None:
+    """טוען מהטבלה בכל בקשה, ולכן ביטול משתמש נכנס לתוקף מיד.
+
+    `session_epoch`, כשמסופק, חייב להתאים לערך שבשורה — אחרת מוחזר
+    `None` בדיוק כמו על משתמש חסום. זו הדרך שבה עוגייה שהונפקה לפני
+    איפוס סיסמה מפסיקה לעבוד בלי טבלת סשנים נפרדת: העוגייה נושאת את
+    המספר שהיה נכון בזמן ההנפקה, וכל איפוס מקדם את המספר בטבלה.
+    """
     with _connect() as conn:
         row = conn.execute(
             "SELECT * FROM users WHERE username = ? AND disabled = 0", (username.strip().lower(),)
         ).fetchone()
-    return _row_to_user(row, source) if row else None
+    if row is None:
+        return None
+    if session_epoch is not None and int(row["session_epoch"]) != session_epoch:
+        return None
+    return _row_to_user(row, source)
 
 
 def authenticate(username: str, password: str) -> User | None:
@@ -375,8 +534,17 @@ def authenticate(username: str, password: str) -> User | None:
 
 
 def issue_session(username: str, ttl_seconds: int = SESSION_TTL_SECONDS) -> str:
+    """מנפיק עוגייה, ומטביע בה את `session_epoch` **הנוכחי** של
+    המשתמש — שאילתה קטנה נוספת, אבל בלעדיה אין דרך לבטל עוגייה
+    שכבר יצאה כשמישהו מאפס לו את הסיסמה."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT session_epoch FROM users WHERE username = ?", (username,)
+        ).fetchone()
+    epoch = int(row["session_epoch"]) if row else 0
     payload = json.dumps(
-        {"u": username, "exp": int(time.time()) + ttl_seconds}, separators=(",", ":")
+        {"u": username, "se": epoch, "exp": int(time.time()) + ttl_seconds},
+        separators=(",", ":"),
     ).encode("utf-8")
     body = base64.urlsafe_b64encode(payload).rstrip(b"=")
     signature = base64.urlsafe_b64encode(
@@ -385,8 +553,9 @@ def issue_session(username: str, ttl_seconds: int = SESSION_TTL_SECONDS) -> str:
     return f"{body.decode()}.{signature.decode()}"
 
 
-def read_session(token: str) -> str | None:
-    """מחזיר את שם המשתמש מהעוגייה, או None אם היא פגומה, מזויפת או פגה."""
+def read_session(token: str) -> tuple[str, int] | None:
+    """מחזיר (שם משתמש, session_epoch) מהעוגייה, או None אם היא
+    פגומה, מזויפת או פגה."""
     try:
         body, signature = token.split(".", 1)
     except ValueError:
@@ -404,7 +573,9 @@ def read_session(token: str) -> str | None:
     if int(data.get("exp", 0)) < time.time():
         return None
     username = data.get("u")
-    return username if isinstance(username, str) else None
+    if not isinstance(username, str):
+        return None
+    return username, int(data.get("se", 0))
 
 
 # ---- התפר עצמו ----
@@ -419,9 +590,10 @@ def current_user(request) -> User | None:
     """
     token = request.cookies.get(SESSION_COOKIE, "")
     if token:
-        username = read_session(token)
-        if username:
-            user = load_user(username, source="session")
+        decoded = read_session(token)
+        if decoded:
+            username, session_epoch = decoded
+            user = load_user(username, source="session", session_epoch=session_epoch)
             if user is not None:
                 return user
 

@@ -61,6 +61,13 @@ TRANZILA_NOTIFY_SECRET=
 # כניסה עם גוגל — חסר אחד מהם והכפתור אינו מופיע כלל.
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
+# שחזור סיסמה באימייל (מ-30.8.2026) — חסר אחד מהם והבקשה עדיין
+# עונה בהצלחה למראית עין, אבל שום מייל לא יוצא. ראה mailer.py.
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASSWORD=
+SMTP_FROM=
 USAGE_LOG=/var/lib/laser/usage.jsonl
 ENV
 chmod 600 /etc/laser-pricing.env

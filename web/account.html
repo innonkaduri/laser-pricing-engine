@@ -74,8 +74,21 @@ main{max-width:660px}
     </section>
 
     <section class="card">
-      <h2>סיסמה</h2>
+      <h2>אימייל</h2>
       <p class="lead" id="recovery"></p>
+      <form class="pair" id="email-form">
+        <div class="field">
+          <label class="lbl" for="email">אימייל</label>
+          <input id="email" type="email" autocomplete="email" placeholder="you@example.com" required>
+        </div>
+        <button class="btn btn-secondary" type="submit" id="email-go">שמור</button>
+      </form>
+      <div class="note note-ok hidden ok-flash" id="email-ok"></div>
+      <div class="note note-bad hidden ok-flash" id="email-bad"></div>
+    </section>
+
+    <section class="card">
+      <h2>סיסמה</h2>
       <form id="pw-form">
         <div class="field" style="margin-bottom:var(--s4)">
           <label class="lbl" for="pw-old">הסיסמה הנוכחית</label>
@@ -150,9 +163,24 @@ function paint(me) {
   /* **נאמר כאן ולא רק במסך ההרשמה.** מי שנרשם לפני חודש לא זוכר,
      והמקום שבו הוא מחפש את זה הוא בדיוק המסך הזה. */
   $('recovery').textContent = me.password_recovery
-    ? 'אפשר לשחזר סיסמה.'
-    : 'לא ביקשנו אימייל ולא טלפון, ולכן אין שחזור סיסמה אוטומטי. אם תאבד אותה — פנה לינון.';
+    ? `שחזור סיסמה פעיל, לכתובת ${me.email}. אפשר להחליף אותה למטה.`
+    : 'אין עדיין אימייל בחשבון — בלעדיו, שכחת סיסמה אומר לפנות לינון. הוסיפו כתובת כדי לאפשר שחזור עצמי.';
+  $('email').value = me.email || '';
+  $('email-go').textContent = me.password_recovery ? 'עדכן' : 'הוסף';
 }
+
+$('email-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const response = await fetch('/api/account/email', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: $('email').value.trim().toLowerCase() }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) return flash('email-bad', data.detail || 'לא הצלחנו לשמור.', 'email-ok');
+  flash('email-ok', 'האימייל נשמר. שחזור סיסמה פעיל מעכשיו.', 'email-bad');
+  load();
+});
 
 $('name-form').addEventListener('submit', async (event) => {
   event.preventDefault();

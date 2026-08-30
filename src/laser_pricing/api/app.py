@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import quote_plus
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -50,7 +50,7 @@ from .serialize import (
     quote_to_json,
     thin_for_preview,
 )
-from . import business, google_auth, orders, payment
+from . import business, google_auth, mailer, orders, payment
 from .simple_tariff import MONEY_FIELDS, apply_form, to_form
 from .store import STORE, GeometryExpired, StoredGeometry
 from .tariff_store import STATE
@@ -163,6 +163,12 @@ OPEN_PATHS = frozenset(
         "/api/login",
         "/signup",
         "/api/signup",
+        # **שחזור סיסמה חייב לעבוד בלי זהות — זו כל הנקודה שלו.**
+        # מי שמגיע לכאן הוא בדיוק מי שאיבד את הדרך הרגילה להיכנס.
+        "/forgot-password",
+        "/api/password-reset/request",
+        "/reset-password",
+        "/api/password-reset/confirm",
         "/",
         "/api/offering",
         # **תקנון ונגישות פתוחים, וזו אינה נוחות.** מסמך משפטי
@@ -882,16 +888,20 @@ class SignupRequest(BaseModel):
     username: str
     password: str
     display_name: str = ""
+    email: str = ""
 
 
 @app.post("/api/signup")
 def signup(body: SignupRequest, request: Request) -> JSONResponse:
     """הרשמה עצמית ציבורית.
 
-    **מה שנשמר:** שם משתמש, שם לתצוגה וסיסמה. **מה שלא נשמר:** אימייל,
-    טלפון וכל דרך אחרת ליצור קשר — לפי קו הגבול מול ה-CRM ("כל דבר
-    שיש עליו שם של לקוח שייך ל-CRM"). המשמעות המעשית שצריך לומר בקול:
-    **אין שחזור סיסמה.** מי ששוכח, אבא או ינון מאפסים לו ב-CLI.
+    **מה שנשמר:** שם משתמש, שם לתצוגה, סיסמה — **ומ-30.8.2026,
+    אימייל.** קו הגבול מול ה-CRM ("כל דבר שיש עליו שם של לקוח שייך
+    ל-CRM") היה אומר עד אז שאין אימייל, ולכן אין שחזור סיסמה. זה
+    פסל את המערכת כפרודקשן: משתמש ששכח היה אבוד. **ההכרעה:** אימייל
+    יחיד לכל חשבון, שמשמש אך ורק לשחזור — לא שם לקוח, לא הצעה
+    כמסמך, לא מספור. **חובה, כי "לרוב יש שחזור" הוא כמו "לרוב יש
+    מחיר".**
 
     היכולת שמונפקת היא `quote:total` בלבד — מספר אחד, בלי פירוק.
     """
@@ -903,6 +913,9 @@ def signup(body: SignupRequest, request: Request) -> JSONResponse:
             status_code=429, detail="נפתחו יותר מדי חשבונות מהכתובת הזאת. נסה שוב בעוד שעה."
         )
 
+    if not body.email.strip():
+        raise HTTPException(status_code=400, detail="כתובת מייל נדרשת — לשחזור סיסמה בלבד.")
+
     try:
         user = identity.create_user(
             body.username,
@@ -910,6 +923,7 @@ def signup(body: SignupRequest, request: Request) -> JSONResponse:
             body.display_name,
             set(identity.PUBLIC_SIGNUP_CAPABILITIES),
             disabled=SIGNUP_MODE == "approval",
+            email=body.email,
         )
     except identity.UserError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -937,6 +951,107 @@ def signup(body: SignupRequest, request: Request) -> JSONResponse:
     )
     # נכנס ישר פנימה. מסך הרשמה שמסתיים ב"עכשיו תתחבר" הוא טופס שנשלח
     # פעמיים על אותו מידע.
+    response.set_cookie(
+        identity.SESSION_COOKIE,
+        identity.issue_session(user.username),
+        max_age=identity.SESSION_TTL_SECONDS,
+        httponly=True,
+        samesite="lax",
+        secure=request.url.scheme == "https",
+        path="/",
+    )
+    return response
+
+
+# ---- שחזור סיסמה ----
+
+RESET_REQUESTS_PER_IP = 10
+RESET_REQUESTS_PER_EMAIL = 3
+RESET_WINDOW_SECONDS = 3600
+_PASSWORD_RESETS: dict[str, list[float]] = {}
+"""שני דליים על אותו מילון, בכוונה. `ip:` מגן על המנוע מהצפה; `email:`
+מגן על **בן אדם** מהצפה — מישהו ששולח לו איפוס כל דקה מתשע כתובות
+שונות. `email:` נספר **גם כשהכתובת לא קיימת בכלל**: אם הספירה הייתה
+מדלגת על כתובות לא קיימות, מספר הבקשות שעברו היה בעצמו מסגיר אם
+הכתובת קיימת — אותו סוג דליפה שהתשובה הגנרית אמורה לסגור."""
+
+
+class PasswordResetRequestBody(BaseModel):
+    email: str
+
+
+def _send_reset_email(email: str, url: str) -> None:
+    try:
+        mailer.send_password_reset(email, url)
+    except mailer.MailError as exc:
+        # **נכשל בלוג, לא ללקוח** — התשובה כבר נשלחה לפני שהריצה הזאת
+        # החלה. ראה את ההערה ב-`password_reset_request` על למה.
+        print(f"[password-reset] {exc}")
+
+
+@app.post("/api/password-reset/request")
+def password_reset_request(
+    body: PasswordResetRequestBody, request: Request, background_tasks: BackgroundTasks
+) -> JSONResponse:
+    """מבקש קישור איפוס. **מחזיר את אותה תשובה תמיד**, קיימת הכתובת
+    או לא — אחרת הטופס הופך לכלי לבדוק אילו כתובות רשומות אצלנו.
+
+    **והשליחה עצמה קורית ב-`BackgroundTasks`, אחרי שהתשובה כבר
+    נשלחה — לא לפניה.** בלי זה יש דליפת תזמון: שליחת מייל אמיתית
+    מחזיקה חיבור SMTP במשך מאות מילישניות; תשובה לכתובת לא קיימת
+    חוזרת מיד. שני זמני תגובה שונים מסגירים בדיוק את מה שהתשובה
+    הזהה נועדה להסתיר.
+    """
+    ip = _client_ip(request)
+    if not _rate_ok(_PASSWORD_RESETS, f"ip:{ip}", RESET_REQUESTS_PER_IP, RESET_WINDOW_SECONDS):
+        raise HTTPException(status_code=429, detail="יותר מדי בקשות. נסה שוב בעוד שעה.")
+
+    email = body.email.strip().lower()
+    generic = JSONResponse(
+        {"ok": True, "message": "אם הכתובת קיימת אצלנו, נשלח אליה קישור לאיפוס תוך דקות."}
+    )
+
+    # נספר תמיד — ראה את ההערה על `_PASSWORD_RESETS` למעלה.
+    if not _rate_ok(_PASSWORD_RESETS, f"email:{email}", RESET_REQUESTS_PER_EMAIL, RESET_WINDOW_SECONDS):
+        return generic
+
+    user = identity.find_by_email(email)
+    if user is None or not mailer.configured():
+        return generic
+
+    base = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/") or str(request.base_url).rstrip("/")
+    token = identity.create_password_reset(user.username)
+    background_tasks.add_task(_send_reset_email, email, f"{base}/reset-password?token={token}")
+    return generic
+
+
+class PasswordResetConfirmBody(BaseModel):
+    token: str
+    password: str
+
+
+@app.post("/api/password-reset/confirm")
+def password_reset_confirm(body: PasswordResetConfirmBody, request: Request) -> JSONResponse:
+    """קובע סיסמה חדשה מטוקן חד-פעמי, ומכניס ישר פנימה.
+
+    **מנתק סשנים קודמים** (`identity.set_password` עם ברירת המחדל
+    `revoke_sessions=True`) — מי שביקש איפוס יכול להיות מי שהחשבון
+    שלו נחטף, ואיפוס שלא מוציא את התוקף מהסשן הקיים לא הגן על כלום.
+    """
+    username = identity.consume_password_reset(body.token)
+    if username is None:
+        raise HTTPException(status_code=400, detail="הקישור אינו תקין או שפג תוקפו. בקש קישור חדש.")
+    try:
+        identity.set_password(username, body.password)
+    except identity.UserError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    user = identity.load_user(username, source="session")
+    if user is None:
+        # הסיסמה כבר הוחלפה; החשבון נחסם בין הבקשות. נדיר, אבל
+        # "עודכן" ואז "אין למי להיכנס" הוא שקר קטן שקל למנוע.
+        raise HTTPException(status_code=403, detail="הסיסמה עודכנה, אבל החשבון חסום כרגע.")
+    response = JSONResponse({"ok": True, "next": "/"})
     response.set_cookie(
         identity.SESSION_COOKIE,
         identity.issue_session(user.username),
@@ -2795,9 +2910,11 @@ def account(request: Request) -> dict:
         "quote_count": summary["count"],
         "quote_total": summary["total_amount"],
         "history_keeps": history.KEEP_PER_USER,
-        # **אין שחזור סיסמה, וזה נאמר במסך ולא רק בהרשמה.** לא ביקשנו
-        # אימייל ולא טלפון, ולכן אין לאן לשלוח קישור איפוס.
-        "password_recovery": False,
+        "email": record["email"] if record else "",
+        # **נאמר כאן ולא רק בהרשמה, ומחושב ולא קבוע.** עד 30.8.2026
+        # זה היה תמיד `False`; מאז הוא תלוי אם יש אימייל בשורה —
+        # חשבון ישן בלי אחד עדיין רואה כאן `False` עד שיוסיף.
+        "password_recovery": bool(record and record["email"]),
     }
 
 
@@ -2818,6 +2935,23 @@ def account_name(body: DisplayNameRequest, request: Request) -> dict:
     return {"display_name": saved}
 
 
+class EmailChangeRequest(BaseModel):
+    email: str
+
+
+@app.put("/api/account/email")
+def account_email(body: EmailChangeRequest, request: Request) -> dict:
+    """מוסיף/מחליף אימייל. **זה המקום שסוגר את הפער** למי שנרשם לפני
+    30.8.2026 או נוצר ב-CLI בלי אחד — בלעדי זה `password_recovery`
+    נשאר `False` לו לצמיתות."""
+    user = _require_account(request)
+    try:
+        saved = identity.set_email(user.username, body.email)
+    except identity.UserError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"email": saved}
+
+
 @app.put("/api/account/password")
 def account_password(body: PasswordChangeRequest, request: Request) -> JSONResponse:
     """החלפת סיסמה. **הסיסמה הנוכחית נדרשת, ונבדקת.**
@@ -2833,7 +2967,7 @@ def account_password(body: PasswordChangeRequest, request: Request) -> JSONRespo
     if identity.authenticate(user.username, body.current_password) is None:
         raise HTTPException(status_code=403, detail="הסיסמה הנוכחית שגויה.")
     try:
-        identity.set_password(user.username, body.new_password)
+        identity.set_password(user.username, body.new_password, revoke_sessions=False)
     except identity.UserError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -3246,6 +3380,16 @@ if WEB_DIR.exists():
     def signup_page() -> FileResponse:
         """מסך ההרשמה. עצמאי מאותה סיבה בדיוק כמו מסך הכניסה."""
         return FileResponse(WEB_DIR / "signup.html")
+
+    @app.get("/forgot-password")
+    def forgot_password_page() -> FileResponse:
+        return FileResponse(WEB_DIR / "forgot-password.html")
+
+    @app.get("/reset-password")
+    def reset_password_page() -> FileResponse:
+        """הכתובת שבתוך המייל. הטוקן עצמו נשלף בצד הלקוח מה-query,
+        ולעולם אינו נכתב ללוג של השרת."""
+        return FileResponse(WEB_DIR / "reset-password.html")
 
     @app.get("/prices")
     def prices_form() -> FileResponse:

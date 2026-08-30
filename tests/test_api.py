@@ -7,7 +7,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import sqlite3
 import sys
 import time
 from datetime import datetime, timedelta
@@ -21,6 +24,7 @@ from laser_pricing.api import (
     google_auth,
     history,
     identity,
+    mailer,
     orders,
     payment,
     tariff_store,
@@ -35,6 +39,7 @@ from laser_pricing.api.app import (
     _EDITOR_ATTEMPTS,
     _ENGINE_CALLS,
     _LOGIN_FAILURES,
+    _PASSWORD_RESETS,
     _SIGNUPS,
     app,
 )
@@ -119,6 +124,7 @@ def isolated_users(tmp_path, monkeypatch):
     usage.WRITE_FAILURES.clear()
     _LOGIN_FAILURES.clear()
     _SIGNUPS.clear()
+    _PASSWORD_RESETS.clear()
     _ENGINE_CALLS.clear()
     _EDITOR_ATTEMPTS.clear()
     _CATALOG_PREVIEWS.clear()
@@ -1030,7 +1036,13 @@ class TestPublicSignup:
 
     def _signup(self, client, username="orach", password="sisma-arukah"):
         return client.post(
-            "/api/signup", json={"username": username, "password": password, "display_name": "אורח"}
+            "/api/signup",
+            json={
+                "username": username,
+                "password": password,
+                "display_name": "אורח",
+                "email": f"{username}@test.invalid",
+            },
         )
 
     def _public_client(self, gated):
@@ -1440,7 +1452,8 @@ class TestTheOperationalScreen:
 
     def test_a_public_user_cannot(self, gated):
         assert gated.post(
-            "/api/signup", json={"username": "orach", "password": "sisma-arukah"}
+            "/api/signup",
+            json={"username": "orach", "password": "sisma-arukah", "email": "orach@test.invalid"},
         ).status_code == 201
         assert gated.get("/api/dashboard").status_code == 403
         assert gated.get("/dashboard").status_code == 403
@@ -1489,7 +1502,7 @@ class TestTheOperationalScreen:
 
     def test_signups_are_listed_apart_from_internal_users(self, gated):
         gated.post("/api/signup", json={"username": "orach", "password": "sisma-arukah",
-                                        "display_name": "אורח"})
+                                        "display_name": "אורח", "email": "orach@test.invalid"})
         self._login(gated, "itai", "sod-arok-2")
         users = gated.get("/api/dashboard").json()["users"]
         assert [u["username"] for u in users["public"]] == ["orach"]
@@ -1533,7 +1546,8 @@ class TestInternalOwnersHoldMoreGeometries:
     def test_a_public_visitor_is_still_capped_at_forty(self, gated):
         tariff_store.STATE.replace(TEST_TARIFF)
         assert gated.post(
-            "/api/signup", json={"username": "orach", "password": "sisma-arukah"}
+            "/api/signup",
+            json={"username": "orach", "password": "sisma-arukah", "email": "orach@test.invalid"},
         ).status_code == 201
         # תקרת הקצב הציבורית עוצרת הרבה לפני תקרת האחסון, וזה בסדר —
         # שתיהן קיימות, ומה שנבדק כאן הוא שהמספרים לא התחלפו.
@@ -1710,7 +1724,8 @@ class TestUsageIsRecordedWithoutTheCustomer:
     def test_the_public_shape_is_recorded_too(self, gated):
         """מי שרואה מספר אחד עדיין מייצר תמחור, והוא נספר."""
         assert gated.post(
-            "/api/signup", json={"username": "orach", "password": "sisma-arukah"}
+            "/api/signup",
+            json={"username": "orach", "password": "sisma-arukah", "email": "orach@test.invalid"},
         ).status_code == 201
         assert self._quote(gated).status_code == 200
         row = json.loads(usage.LOG_PATH.read_text(encoding="utf-8").strip())
@@ -2029,7 +2044,8 @@ class TestThePublicScreenNeverOffersAFailure:
         monkeypatch.delenv("APP_PASSWORD", raising=False)
         gated = TestClient(app)
         assert gated.post(
-            "/api/signup", json={"username": "orach", "password": "sisma-arukah"}
+            "/api/signup",
+            json={"username": "orach", "password": "sisma-arukah", "email": "orach@test.invalid"},
         ).status_code == 201
         materials = gated.get("/api/config").json()["materials"]
         assert [m["name"] for m in materials] == ["פלדה שחורה"]
@@ -2052,7 +2068,7 @@ class TestThePublicScreenNeverOffersAFailure:
         שהמסך אינו יודע לספק."""
         monkeypatch.delenv("APP_PASSWORD", raising=False)
         gated = TestClient(app)
-        gated.post("/api/signup", json={"username": "orach", "password": "sisma-arukah"})
+        gated.post("/api/signup", json={"username": "orach", "password": "sisma-arukah", "email": "orach@test.invalid"})
         offering = [m["name"] for m in gated.get("/api/offering").json()["materials"]]
         config = [m["name"] for m in gated.get("/api/config").json()["materials"]]
         assert offering == config
@@ -2398,7 +2414,10 @@ class TestTheCatalogPriceComesFromTheTable:
 
     def test_a_public_user_gets_one_number_and_not_the_breakdown(self, client):
         assert client.put("/api/tariff", json=TEST_TARIFF).status_code == 200
-        assert client.post("/api/signup", json={"username": "roni", "password": "sh8-tov-meod"}).status_code == 201
+        assert client.post(
+            "/api/signup",
+            json={"username": "roni", "password": "sh8-tov-meod", "email": "roni@test.invalid"},
+        ).status_code == 201
         data = client.post(
             "/api/catalog/base-plate/quote",
             json={"values": {}, "material_key": "st37", "thickness_mm": 3},
@@ -2602,7 +2621,14 @@ class TestTheAccountBelongsToItsOwner:
         monkeypatch.setenv("APP_USER", "ynon")
         for name in ("dana", "yossi"):
             assert (
-                client.post("/api/signup", json={"username": name, "password": "sisma-arukka-1"}).status_code
+                client.post(
+                    "/api/signup",
+                    json={
+                        "username": name,
+                        "password": "sisma-arukka-1",
+                        "email": f"{name}@test.invalid",
+                    },
+                ).status_code
                 == 201
             )
         return client
@@ -2703,7 +2729,11 @@ class TestTheAccountBelongsToItsOwner:
         me = two_users.get("/api/account").json()
         assert me["capabilities"] == ["quote:total"]
         assert me["sees_breakdown"] is False
-        assert me["password_recovery"] is False
+        # מ-30.8.2026 ההרשמה דורשת אימייל, ולכן דנה — שנרשמה עם אחד —
+        # כן יכולה לשחזר. `password_recovery` עוקב אחרי הימצאות
+        # אימייל בפועל ולא אחרי יכולת.
+        assert me["password_recovery"] is True
+        assert me["email"] == "dana@test.invalid"
         assert two_users.get("/api/history").status_code == 200
 
     def test_the_editor_link_has_no_account(self, priced_client, monkeypatch):
@@ -2915,7 +2945,8 @@ class TestTheProductionFile:
         """מי שנרשם כדי לראות מחיר אחד לא ביקש את קובץ הייצור."""
         monkeypatch.setenv("APP_PASSWORD", "x")
         assert client.post(
-            "/api/signup", json={"username": "kobi", "password": "sixteen-chars-ok"}
+            "/api/signup",
+            json={"username": "kobi", "password": "sixteen-chars-ok", "email": "kobi@test.invalid"},
         ).status_code in (200, 201)
         response = client.get("/api/catalog/tray-4-sides/dxf?thickness_mm=1")
         assert response.status_code == 403
@@ -3129,7 +3160,8 @@ class TestRecalculatingIsNotQuoting:
         הבדיקה נכנסת עם משתמש אמיתי ולא נשענת על ברירת מחדל."""
         monkeypatch.setenv("APP_PASSWORD", "x")
         assert priced_client.post(
-            "/api/signup", json={"username": "orit", "password": "sixteen-chars-ok"}
+            "/api/signup",
+            json={"username": "orit", "password": "sixteen-chars-ok", "email": "orit@test.invalid"},
         ).status_code in (200, 201)
 
         before = history.for_user("orit", limit=1)["count"]
@@ -3435,7 +3467,8 @@ class TestTheOrderFlow:
         monkeypatch.setenv("APP_PASSWORD", "sod")
         monkeypatch.setenv("APP_USER", "ynon")
         assert client.post(
-            "/api/signup", json={"username": "koneh", "password": "sisma-arukka-1"}
+            "/api/signup",
+            json={"username": "koneh", "password": "sisma-arukka-1", "email": "koneh@test.invalid"},
         ).status_code == 201
         assert client.post(
             "/api/login", json={"username": "koneh", "password": "sisma-arukka-1"}
@@ -3640,7 +3673,8 @@ class TestTheWorkshopSeesItsOrders:
         monkeypatch.setenv("APP_PASSWORD", "sod")
         monkeypatch.setenv("APP_USER", "ynon")
         assert client.post(
-            "/api/signup", json={"username": "koneh", "password": "sisma-arukka-1"}
+            "/api/signup",
+            json={"username": "koneh", "password": "sisma-arukka-1", "email": "koneh@test.invalid"},
         ).status_code == 201
         assert client.post(
             "/api/login", json={"username": "koneh", "password": "sisma-arukka-1"}
@@ -3723,7 +3757,10 @@ class TestTranzilaCannotBeFaked:
         assert client.put("/api/tariff", json=TEST_TARIFF).status_code == 200
         monkeypatch.setenv("APP_PASSWORD", "sod")
         monkeypatch.setenv("APP_USER", "ynon")
-        client.post("/api/signup", json={"username": "koneh", "password": "sisma-arukka-1"})
+        client.post(
+            "/api/signup",
+            json={"username": "koneh", "password": "sisma-arukka-1", "email": "koneh@test.invalid"},
+        )
         client.post("/api/login", json={"username": "koneh", "password": "sisma-arukka-1"})
         client.post("/api/cart", json={
             "name": "לוחית", "source": "editor", "material_key": "st37",
@@ -3833,7 +3870,10 @@ class TestTranzilaCannotBeFaked:
         client, body = paid_ready
         ref = body["order"]["ref"]
         client.post("/api/logout")
-        client.post("/api/signup", json={"username": "aher", "password": "sisma-arukka-2"})
+        client.post(
+            "/api/signup",
+            json={"username": "aher", "password": "sisma-arukka-2", "email": "aher@test.invalid"},
+        )
         client.post("/api/login", json={"username": "aher", "password": "sisma-arukka-2"})
         assert client.get(f"/api/payment/status/{ref}").status_code == 404
 
@@ -4180,3 +4220,279 @@ class TestTheSidebarKnowsWhoYouAre:
         assert me["capability_labels"], "הסרגל יציג 'משתמש' במקום היכולות"
         assert len(me["capability_labels"]) == len(me["capabilities"])
         assert all(label.strip() for label in me["capability_labels"])
+
+
+class TestMailer:
+    """שכבת השליחה עצמה — בלי חיבור רשת אמיתי. `smtplib.SMTP` מוחלף
+    בזיוף שרק רושם מה קרה, בדיוק כמו `_post_form`/`_get_json` בגוגל.
+    """
+
+    def test_unconfigured_refuses_before_touching_the_network(self, monkeypatch):
+        for name in mailer.REQUIRED_VARS:
+            monkeypatch.delenv(name, raising=False)
+        assert mailer.configured() is False
+        with pytest.raises(mailer.MailError, match="אינה מוגדרת"):
+            mailer.send("a@b.com", "נושא", "גוף")
+
+    def test_configured_sends_through_starttls_and_login(self, monkeypatch):
+        monkeypatch.setenv("SMTP_HOST", "smtp.example.invalid")
+        monkeypatch.setenv("SMTP_USER", "bot")
+        monkeypatch.setenv("SMTP_PASSWORD", "sod")
+        monkeypatch.setenv("SMTP_FROM", "ימיש כדורי <bot@example.invalid>")
+        assert mailer.configured() is True
+
+        calls = {"started": False, "logged_in": None, "sent": None}
+
+        class FakeSMTP:
+            def __init__(self, host, port, timeout):
+                calls["host_port_timeout"] = (host, port, timeout)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def starttls(self, context=None):
+                calls["started"] = True
+
+            def login(self, user, password):
+                calls["logged_in"] = (user, password)
+
+            def send_message(self, message):
+                calls["sent"] = message
+
+        monkeypatch.setattr(mailer.smtplib, "SMTP", FakeSMTP)
+        mailer.send("to@example.invalid", "נושא הבדיקה", "גוף הבדיקה")
+
+        assert calls["started"] is True
+        assert calls["logged_in"] == ("bot", "sod")
+        assert calls["sent"]["To"] == "to@example.invalid"
+        assert calls["sent"]["Subject"] == "נושא הבדיקה"
+        assert calls["host_port_timeout"] == ("smtp.example.invalid", 587, mailer.TIMEOUT_SECONDS)
+
+    def test_a_connection_failure_is_a_clear_mailerror_not_a_crash(self, monkeypatch):
+        monkeypatch.setenv("SMTP_HOST", "smtp.example.invalid")
+        monkeypatch.setenv("SMTP_USER", "bot")
+        monkeypatch.setenv("SMTP_PASSWORD", "sod")
+        monkeypatch.setenv("SMTP_FROM", "bot@example.invalid")
+
+        class ExplodingSMTP:
+            def __init__(self, *a, **k):
+                raise OSError("connection refused")
+
+        monkeypatch.setattr(mailer.smtplib, "SMTP", ExplodingSMTP)
+        with pytest.raises(mailer.MailError, match="נכשלה"):
+            mailer.send("to@example.invalid", "נושא", "גוף")
+
+
+class TestPasswordReset:
+    """שחזור סיסמה באימייל. **הכרעה מ-30.8.2026**: קו הגבול מול ה-CRM
+    זז כדי לאפשר את זה — ראו `identity.py` ו-`docs/DECISIONS.md`.
+    """
+
+    @pytest.fixture
+    def mail_on(self, monkeypatch):
+        monkeypatch.setenv("SMTP_HOST", "smtp.example.invalid")
+        monkeypatch.setenv("SMTP_USER", "bot")
+        monkeypatch.setenv("SMTP_PASSWORD", "sod")
+        monkeypatch.setenv("SMTP_FROM", "bot@example.invalid")
+        sent = []
+        monkeypatch.setattr(
+            mailer, "send_password_reset", lambda to_addr, url: sent.append((to_addr, url))
+        )
+        return sent
+
+    def _signup(self, client, username="mira", password="sisma-tova-1", email="mira@test.invalid"):
+        return client.post(
+            "/api/signup",
+            json={"username": username, "password": password, "email": email},
+        )
+
+    def test_signup_without_an_email_is_refused(self, client):
+        response = client.post(
+            "/api/signup", json={"username": "beli-mail", "password": "sisma-tova-1"}
+        )
+        assert response.status_code == 400
+        assert "מייל" in response.json()["detail"]
+
+    def test_signup_with_a_malformed_email_is_refused(self, client):
+        response = client.post(
+            "/api/signup",
+            json={"username": "mail-lo-tov", "password": "sisma-tova-1", "email": "not-an-email"},
+        )
+        assert response.status_code == 400
+
+    def test_two_accounts_cannot_share_one_email(self, client):
+        assert self._signup(client, "rishon", email="shared@test.invalid").status_code == 201
+        client.post("/api/logout")
+        second = self._signup(client, "sheni", email="shared@test.invalid")
+        assert second.status_code == 400
+        assert "כבר משויכת" in second.json()["detail"]
+
+    def test_an_unknown_email_gets_the_same_generic_answer_as_a_known_one(self, client, mail_on):
+        self._signup(client, "mira", email="mira@test.invalid")
+        client.post("/api/logout")
+        known = client.post("/api/password-reset/request", json={"email": "mira@test.invalid"})
+        unknown = client.post("/api/password-reset/request", json={"email": "zar@test.invalid"})
+        assert known.status_code == unknown.status_code == 200
+        assert known.json() == unknown.json()
+        # אבל רק לכתובת שקיימת נשלח בפועל מייל — ה"תשובה" זהה, ההשפעה לא.
+        assert [addr for addr, _ in mail_on] == ["mira@test.invalid"]
+
+    def test_without_smtp_configured_the_request_still_answers_generically(self, client):
+        self._signup(client, "mira", email="mira@test.invalid")
+        client.post("/api/logout")
+        for name in mailer.REQUIRED_VARS:
+            os.environ.pop(name, None)
+        response = client.post("/api/password-reset/request", json={"email": "mira@test.invalid"})
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
+
+    def test_a_valid_token_sets_a_new_password_and_logs_in(self, client, mail_on):
+        self._signup(client, "mira", email="mira@test.invalid")
+        client.post("/api/logout")
+        client.post("/api/password-reset/request", json={"email": "mira@test.invalid"})
+        _, url = mail_on[0]
+        token = url.split("token=")[1]
+
+        confirm = client.post(
+            "/api/password-reset/confirm", json={"token": token, "password": "sisma-chadasha-1"}
+        )
+        assert confirm.status_code == 200
+        assert identity.SESSION_COOKIE in confirm.cookies
+
+        client.post("/api/logout")
+        login = client.post(
+            "/api/login", json={"username": "mira", "password": "sisma-chadasha-1"}
+        )
+        assert login.status_code == 200
+        old_login = client.post(
+            "/api/login", json={"username": "mira", "password": "sisma-tova-1"}
+        )
+        assert old_login.status_code == 401
+
+    def test_a_token_works_exactly_once(self, client, mail_on):
+        self._signup(client, "mira", email="mira@test.invalid")
+        client.post("/api/logout")
+        client.post("/api/password-reset/request", json={"email": "mira@test.invalid"})
+        _, url = mail_on[0]
+        token = url.split("token=")[1]
+
+        first = client.post(
+            "/api/password-reset/confirm", json={"token": token, "password": "sisma-chadasha-1"}
+        )
+        assert first.status_code == 200
+        second = client.post(
+            "/api/password-reset/confirm", json={"token": token, "password": "sisma-acheret-2"}
+        )
+        assert second.status_code == 400
+        assert "אינו תקין" in second.json()["detail"]
+
+    def test_an_expired_token_is_refused(self, client, mail_on):
+        self._signup(client, "mira", email="mira@test.invalid")
+        client.post("/api/logout")
+        client.post("/api/password-reset/request", json={"email": "mira@test.invalid"})
+        _, url = mail_on[0]
+        token = url.split("token=")[1]
+
+        # מדמים חלוף זמן על השורה עצמה, בלי לגעת בשעון של התהליך.
+        with sqlite3.connect(identity.DB_PATH) as conn:
+            conn.execute(
+                "UPDATE password_resets SET expires_at = 0 WHERE token_hash = ?",
+                (hashlib.sha256(token.encode()).hexdigest(),),
+            )
+
+        response = client.post(
+            "/api/password-reset/confirm", json={"token": token, "password": "sisma-chadasha-1"}
+        )
+        assert response.status_code == 400
+
+    def test_a_garbage_token_is_refused_and_does_not_crash(self, client):
+        response = client.post(
+            "/api/password-reset/confirm",
+            json={"token": "zayefti-legamrei", "password": "sisma-chadasha-1"},
+        )
+        assert response.status_code == 400
+
+    def test_resetting_the_password_logs_out_an_existing_browser_session(self, client, mail_on):
+        """**הנקודה של כל הפיצ'ר.** מי שביקש איפוס יכול להיות מי
+        שהחשבון שלו נחטף — סשן ישן שנשאר בתוקף אחרי האיפוס היה מבטל
+        את כל התועלת."""
+        self._signup(client, "mira", email="mira@test.invalid")
+        old_cookie = client.cookies.get(identity.SESSION_COOKIE)
+        assert client.get("/api/me").json()["authenticated"] is True
+
+        client.post("/api/password-reset/request", json={"email": "mira@test.invalid"})
+        _, url = mail_on[0]
+        token = url.split("token=")[1]
+        client.post(
+            "/api/password-reset/confirm", json={"token": token, "password": "sisma-chadasha-1"}
+        )
+
+        # השער עצמו דוחה את העוגייה הישנה לפני שהיא מגיעה ל-handler —
+        # 401 בגוף גולמי, לא JSON עם `authenticated: false`.
+        stale_client = TestClient(app)
+        stale_client.cookies.set(identity.SESSION_COOKIE, old_cookie)
+        assert stale_client.get("/api/me").status_code == 401
+
+    def test_logged_in_password_change_does_not_log_out_the_current_tab(self, client):
+        """**ההפך המכוון.** מי שהוכיח את הסיסמה הנוכחית מהמסך שבו
+        הוא יושב אינו צריך להתנתק מעצמו — זו הבחנה מ-`set_password`,
+        לא רגרסיה."""
+        self._signup(client, "mira", email="mira@test.invalid")
+        client.put(
+            "/api/account/password",
+            json={"current_password": "sisma-tova-1", "new_password": "sisma-chadasha-1"},
+        )
+        assert client.get("/api/me").json()["authenticated"] is True
+
+    def test_ip_throttling_on_the_request_endpoint(self, client, mail_on):
+        for _ in range(app_module.RESET_REQUESTS_PER_IP):
+            client.post("/api/password-reset/request", json={"email": "mishehu@test.invalid"})
+        blocked = client.post(
+            "/api/password-reset/request", json={"email": "acher@test.invalid"}
+        )
+        assert blocked.status_code == 429
+
+    def test_account_can_add_an_email_that_did_not_exist_at_signup(self, client):
+        client.post(
+            "/api/signup",
+            json={"username": "yashan", "password": "sisma-tova-1", "email": "yashan@test.invalid"},
+        )
+        # מדמה חשבון שנוצר לפני 30.8.2026: מוחקים את האימייל ישירות.
+        with sqlite3.connect(identity.DB_PATH) as conn:
+            conn.execute("UPDATE users SET email = '' WHERE username = 'yashan'")
+        assert client.get("/api/account").json()["password_recovery"] is False
+
+        added = client.put("/api/account/email", json={"email": "chadash@test.invalid"})
+        assert added.status_code == 200
+        assert client.get("/api/account").json()["password_recovery"] is True
+
+    def test_account_email_cannot_collide_with_another_user(self, client):
+        self._signup(client, "rishon", email="taken@test.invalid")
+        client.post("/api/logout")
+        self._signup(client, "sheni", email="sheni@test.invalid")
+        collide = client.put("/api/account/email", json={"email": "taken@test.invalid"})
+        assert collide.status_code == 400
+
+    def test_a_send_failure_is_swallowed_not_a_500(self, client, monkeypatch):
+        """`_send_reset_email` רץ אחרי שהתשובה כבר יצאה — אם הוא
+        מפיל חריגה שם, זה עומס על לוג התהליך, לא על הלקוח."""
+        monkeypatch.setenv("SMTP_HOST", "smtp.example.invalid")
+        monkeypatch.setenv("SMTP_USER", "bot")
+        monkeypatch.setenv("SMTP_PASSWORD", "sod")
+        monkeypatch.setenv("SMTP_FROM", "bot@example.invalid")
+        monkeypatch.setattr(
+            mailer, "send_password_reset",
+            lambda *a, **k: (_ for _ in ()).throw(mailer.MailError("ספק סירב")),
+        )
+        self._signup(client, "mira", email="mira@test.invalid")
+        client.post("/api/logout")
+        response = client.post(
+            "/api/password-reset/request", json={"email": "mira@test.invalid"}
+        )
+        assert response.status_code == 200
+
+    def test_account_email_requires_login(self, client):
+        assert client.put("/api/account/email", json={"email": "x@y.com"}).status_code in (401, 403)

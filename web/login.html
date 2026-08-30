@@ -113,7 +113,10 @@ input{margin-bottom:var(--s4)}
       <input id="u" name="username" autocomplete="username" autocapitalize="off"
              autocorrect="off" spellcheck="false" required>
 
-      <label for="p">סיסמה</label>
+      <div class="row" style="justify-content:space-between; align-items:baseline">
+        <label for="p" style="margin:0">סיסמה</label>
+        <a href="/forgot-password" style="font-size:var(--fs-xs); font-weight:650; color:var(--flame-600)">שכחת סיסמה?</a>
+      </div>
       <input id="p" name="password" type="password" autocomplete="current-password" required>
 
       <button class="btn btn-primary submit" id="go" type="submit">כניסה</button>

@@ -75,6 +75,10 @@ button{width:100%}
       <input id="u" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" required>
       <p class="help" id="u-help">אותיות באנגלית, ספרות, נקודה או מקף. 3–32 תווים.</p>
 
+      <label for="email">אימייל</label>
+      <input id="email" type="email" autocomplete="email" required>
+      <p class="help" id="email-help">לשחזור סיסמה בלבד. לא נשלח אליך שום דבר אחר.</p>
+
       <label for="p">סיסמה</label>
       <input id="p" type="password" autocomplete="new-password" required>
       <p class="help" id="p-help">לפחות 8 תווים.</p>
@@ -82,8 +86,7 @@ button{width:100%}
       <button id="go" type="submit">פתח חשבון</button>
 
       <p class="small-print">
-        אנחנו לא מבקשים אימייל ולא טלפון, ולכן <b>אין שחזור סיסמה אוטומטי</b> —
-        שמור אותה. הצעות המחיר כאן הן הערכה ואינן מסמך מחייב.
+        הצעות המחיר כאן הן הערכה ואינן מסמך מחייב.
       </p>
     </div>
 
@@ -108,9 +111,10 @@ function fail(message) {
 /* אותם כללים בדיוק כמו בשרת. הבדיקה כאן היא נימוס ולא אבטחה: השרת
    דוחה בכל מקרה, וכפילות שנופלת מהסנכרון מסוכנת רק אם מאמינים לצד
    הזה. לכן ההודעה מהשרת היא זו שמוצגת כשהיא מגיעה. */
-function localComplaint(username, password) {
+function localComplaint(username, email, password) {
   if (username.length < 3 || username.length > 32) return 'שם המשתמש חייב להיות באורך 3–32 תווים.';
   if (!/^[a-z0-9][a-z0-9._-]*$/.test(username)) return 'שם משתמש: אותיות באנגלית קטנות, ספרות, נקודה, מקף וקו תחתון.';
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return 'כתובת מייל לא תקינה.';
   if (password.length < 8) return 'הסיסמה חייבת להיות באורך 8 תווים לפחות.';
   return '';
 }
@@ -123,11 +127,12 @@ document.getElementById('form').addEventListener('submit', async (event) => {
   event.preventDefault();
   const button = document.getElementById('go');
   const username = document.getElementById('u').value.trim().toLowerCase();
+  const email = document.getElementById('email').value.trim().toLowerCase();
   const password = document.getElementById('p').value;
   const displayName = document.getElementById('name').value.trim();
 
   errorBox.classList.add('hidden');
-  const complaint = localComplaint(username, password);
+  const complaint = localComplaint(username, email, password);
   if (complaint) { fail(complaint); return; }
 
   button.disabled = true;
@@ -136,7 +141,7 @@ document.getElementById('form').addEventListener('submit', async (event) => {
     const response = await fetch('/api/signup', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({username, password, display_name: displayName}),
+      body: JSON.stringify({username, email, password, display_name: displayName}),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.detail || 'ההרשמה נכשלה.');
