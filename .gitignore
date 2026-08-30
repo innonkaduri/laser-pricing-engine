@@ -37,6 +37,15 @@ config/quotes.db
 config/quotes.db-journal
 config/quotes.db-wal
 
+# מסד ההזמנות. נשמט מכאן כשהוא נולד, והתגלה בטקס תיעוד ב-30.8.2026
+# ככניסה לא-מנוטרת בעץ. **הריפו ציבורי, ולטבלת `orders` יש שדה
+# `phone`** — מסד כזה שנכנס לקומיט מפרסם טלפונים של לקוחות לתמיד.
+# נוצר מקומית בכל הרצה בלי `ORDERS_DB`, בדיוק כמו `quotes.db`.
+config/orders.db
+config/orders.db-journal
+config/orders.db-shm
+config/orders.db-wal
+
 # דיווח הגיבוי לדשבורד — נכתב על השרת בכל ריצה של הטיימר.
 # בלי השורה הזאת הוא קובץ לא-מנוטר בעץ, והוא יעצור את ה-`git pull` הבא
 # בדיוק כמו ש-scripts/backup-tariff.sh עצר את הקודם.
