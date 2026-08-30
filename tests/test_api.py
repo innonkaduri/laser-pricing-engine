@@ -2538,6 +2538,14 @@ class TestTheCatalogIsReachable:
             text = (self.ROOT / name).read_text(encoding="utf-8")
             assert "from '/part-draw.js'" in text, name
 
+    def test_the_product_screen_no_longer_prices_before_the_cart(self):
+        """**30.8.2026:** המחיר עבר לעגלה בלבד. מסך המוצר לא קורא
+        ל-`/quote` בכלל — ההוכחה שהכפתור לא רק הוסתר בעיצוב, אלא
+        שהקריאה עצמה נעלמה. אם מישהו יחזיר אותה בטעות, זה נתפס כאן."""
+        text = (self.ROOT / "product.html").read_text(encoding="utf-8")
+        assert "/quote`" not in text
+        assert 'id="tocart"' in text
+
 
 class TestTheConfiguratorStaysLightEnoughToDrag:
     """התצוגה נשלחת בכל תזוזת מחוון. משקל הוא כאן תכונה, לא פרט.
@@ -3553,6 +3561,44 @@ class TestTheOrderFlow:
         self._add(priced_client)
         body = priced_client.get("/api/cart/count").json()
         assert body == {"count": 1}
+
+    def test_adding_to_cart_is_rate_limited_for_public_users(self, priced_client):
+        """**30.8.2026: המחיר עבר לעגלה, ו'הוסף לעגלה' ירש את התקרה
+        שהייתה על 'חשב מחיר'.** בלי זה, עגלה שמותר להוסיף אליה בלי
+        גבול הופכת למד-מחיר בלי גבול: מוסיפים, קוראים GET, מסירים,
+        חוזר חלילה. `koneh` הוא `quote:total` — פומבי בדיוק."""
+        codes = [
+            self._add(priced_client, name=f"פריט{i}").status_code
+            for i in range(app_module.PUBLIC_ENGINE_CALLS + 3)
+        ]
+        assert 429 in codes
+
+    def test_cart_adds_are_not_rate_limited_for_internal_users(self, client, monkeypatch):
+        """מי שיש לו `quote:use` רואה את הפירוק גם ככה — אין ממה
+        להגן עליו, ואין סיבה לעצור אותו אחרי 12 פריטים אמיתיים."""
+        assert client.put("/api/tariff", json=TEST_TARIFF).status_code == 200
+        identity.create_user("penimi", "sisma-arukka-9", "פנימי", {identity.CAP_QUOTE_USE})
+        assert client.post(
+            "/api/login", json={"username": "penimi", "password": "sisma-arukka-9"}
+        ).status_code == 200
+        codes = [self._add(client, name=f"פריט{i}").status_code for i in range(app_module.PUBLIC_ENGINE_CALLS + 3)]
+        assert 429 not in codes
+
+    def test_cart_add_is_blocked_while_the_tariff_is_not_ready(self, client, monkeypatch):
+        """**טבלה ריקה = אין הצעה**, גם כשההעלאה היא רק הוספה לעגלה —
+        אותו כלל בדיוק שכבר חל על `/api/upload` ו-`/api/manual`."""
+        monkeypatch.setenv("APP_PASSWORD", "sod")
+        monkeypatch.setenv("APP_USER", "ynon")
+        assert client.post(
+            "/api/signup",
+            json={"username": "mechake", "password": "sisma-arukka-1", "email": "mechake@test.invalid"},
+        ).status_code == 201
+        assert client.post(
+            "/api/login", json={"username": "mechake", "password": "sisma-arukka-1"}
+        ).status_code == 200
+        # אין טבלה בכלל — לא נזרעה בפיקסצ'ר הזה.
+        response = self._add(client)
+        assert response.status_code == 503
 
     def test_without_business_details_no_order_is_taken(self, priced_client):
         """**מסך אינו מציע בחירה שנועדה להיכשל**, וגם השרת לא."""

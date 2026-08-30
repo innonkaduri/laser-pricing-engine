@@ -100,15 +100,6 @@
 }
 .ctrl .why{font-size:11.5px; color:var(--ink-500); margin:4px 0 0; line-height:1.5}
 
-.pricebox{
-  margin-top:var(--s5); padding:var(--s5); border-radius:var(--r-md);
-  background:var(--ink-900); color:#fff;
-}
-.pricebox .amount{
-  font-size:32px; font-weight:750; letter-spacing:-.03em; line-height:1.1;
-  font-variant-numeric:tabular-nums; direction:ltr; text-align:right;
-}
-.pricebox .sub{font-size:var(--fs-xs); color:var(--ink-300); margin-top:6px; line-height:1.6}
 .crumb{display:flex; gap:6px; align-items:center; font-size:var(--fs-xs); color:var(--ink-500); margin-bottom:var(--s3)}
 .crumb a{color:var(--ink-600); font-weight:600}
 </style>
@@ -154,21 +145,17 @@
         </div>
 
         <div class="note note-bad hidden" id="error" style="margin-bottom:var(--s4)"></div>
-        <button class="btn btn-primary btn-block" id="go">חשב מחיר</button>
-        <button class="btn btn-secondary btn-block" id="tocart" style="margin-top:var(--s2)">הוסף לעגלה</button>
+        <button class="btn btn-primary btn-block" id="tocart">הוסף לעגלה</button>
         <!-- **הגשר לעורך.** הקטלוג הוא נקודת פתיחה ולא מסלול שני:
              מכאן והלאה זה אותו מסמך, אותו מנוע ואותה טבלה. -->
         <a class="btn btn-secondary btn-block" id="to-editor" href="/editor"
            style="margin-top:var(--s3)">פתח בעורך — חורים וכיפופים חופשיים</a>
 
-        <div class="pricebox hidden" id="pricebox">
-          <div class="amount" id="amount">—</div>
-          <div class="sub" id="pricesub"></div>
-        </div>
-
         <p class="tiny" style="margin-top:var(--s4)">
-          התצוגה מתעדכנת בכל תזוזה. המחיר מחושב רק בלחיצה — הוא נשען
-          על טבלת המחירים, ולא על הערכה.
+          <!-- 30.8.2026: המחיר עבר לעגלה בלבד — ראו הערה ב-product.html
+               ובתיעוד app.py._guard_public_engine. -->
+          המחיר מוצג בעגלה, לפני התשלום — הוא נשען תמיד על טבלת
+          המחירים, ולא על הערכה.
         </p>
       </div>
     </section>
@@ -200,8 +187,7 @@ const svg = document.querySelector('svg.part');
 const viewer = createViewer(document.getElementById('solid'));
 let view = 'solid';
 const errorBox = document.getElementById('error');
-const priceBox = document.getElementById('pricebox');
-const goButton = document.getElementById('go');
+const tocartButton = document.getElementById('tocart');
 
 let product = null;
 const values = {};
@@ -220,9 +206,6 @@ function syncEditorLink() {
   link.href = '/editor?' + query;
 }
 
-const escapeHtml = (text) =>
-  String(text).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-
 let buildable = true;
 
 function setBuildable(ok) {
@@ -230,7 +213,7 @@ function setBuildable(ok) {
      הלחיצה מחזירה **את אותה שגיאה בדיוק** מהשרת, והמשתמש לומד רק
      שהמערכת חוזרת על עצמה. */
   buildable = ok;
-  goButton.disabled = !ok;
+  tocartButton.disabled = !ok;
   document.querySelector('.stage').classList.toggle('stale', !ok);
 }
 
@@ -250,13 +233,6 @@ function clearError() {
 }
 
 const NUM = new Intl.NumberFormat('he-IL', { maximumFractionDigits: 1 });
-
-/* ₪ מוצמד ידנית ולא דרך `style:'currency'`.
-   הפורמט של Intl מחזיר סימני כיוון (RLM) בתוך המחרוזת, והם נלחמים
-   ב-`direction:ltr` שהמספר חייב — התוצאה היא שקל שקופץ לצד הלא נכון.
-   וזו גם אותה צורה בדיוק שמסך התמחור מציג כבר היום. */
-const money = (n) =>
-  '₪' + Number(n).toLocaleString('he-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /* ---- ציור ומדידה ---- */
 
@@ -360,10 +336,6 @@ function control(param) {
     if (!Number.isFinite(n)) return;
     values[param.key] = Math.min(param.max, Math.max(param.min, n));
     mirror.value = values[param.key];
-    /* המחיר שייך למידות שממנו חושב. ברגע שמידה זזה הוא מתייחס
-       לחלק אחר, ומספר ישן שנשאר על המסך ליד מחוונים חדשים הוא
-       בדיוק סוג הטעות ששולחים ללקוח. */
-    priceBox.classList.add('hidden');
     syncEditorLink();
     schedule();
   };
@@ -412,64 +384,8 @@ function paintThicknesses() {
     .map((t) => `<option value="${t}">${t} מ״מ</option>`)
     .join('');
   select.onchange = () => {
-    priceBox.classList.add('hidden');  // מחיר שייך לעובי שממנו חושב
     if (view === 'solid') schedule();
   };
-}
-
-/* ---- מחיר ---- */
-
-goButton.addEventListener('click', async () => {
-  goButton.disabled = true;
-  goButton.textContent = 'מחשב…';
-  clearError();
-  try {
-    const response = await fetch(`/api/catalog/${encodeURIComponent(id)}/quote`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        values,
-        material_key: document.getElementById('material').value,
-        thickness_mm: Number(document.getElementById('thickness').value),
-        quantity: Math.max(1, Number(document.getElementById('qty').value) || 1),
-      }),
-    });
-
-    if (response.status === 401) {
-      /* לא שגיאה — זה השלב הבא. הקטלוג פתוח, המחיר דורש חשבון. */
-      priceBox.classList.add('hidden');
-      errorBox.className = 'note note-info';
-      errorBox.innerHTML =
-        'המחיר דורש חשבון. <a href="/signup" style="font-weight:700">פתיחת חשבון</a> ' +
-        'לוקחת פחות מדקה, או <a href="/login" style="font-weight:700">כניסה</a> אם כבר יש לך.';
-      errorBox.classList.remove('hidden');
-      return;
-    }
-
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      fail(data.detail || 'לא הצלחנו לתמחר את החלק הזה.');
-      priceBox.classList.add('hidden');
-      return;
-    }
-    paintPrice(data.quote, Number(document.getElementById('qty').value) || 1);
-  } catch (err) {
-    fail('אין קשר לשרת. נסה שוב.');
-  } finally {
-    goButton.disabled = !buildable;
-    goButton.textContent = 'חשב מחיר';
-  }
-});
-
-function paintPrice(quote, quantity) {
-  /* ההצעה נשמרה בשרת ברגע שהתקבלה. אומרים את זה כאן ולא במסך אחר:
-     מי שלא יודע שהיא נשמרה יצלם את המסך. */
-  priceBox.classList.remove('hidden');
-  document.getElementById('amount').textContent = money(quote.total);
-  const each = quantity > 1 ? ` · ${money(quote.total / quantity)} ליחידה` : '';
-  document.getElementById('pricesub').innerHTML =
-    `כולל מע״מ${each}. ${escapeHtml(quote.price_origin || '')}` +
-    ' <a href="/history" style="color:#fff; text-decoration:underline">נשמר בהצעות שלי</a>';
 }
 
 /* ---- טעינה ---- */
@@ -490,7 +406,7 @@ fetch('/api/catalog')
           : 'המוצר הזה אינו מופיע בקטלוג כרגע.',
         'warn'
       );
-      goButton.disabled = true;
+      tocartButton.disabled = true;
       return;
     }
 
@@ -518,17 +434,30 @@ await mountSidebar();
 /* **הקטלוג הוא קלט, לא מסלול שני.** המוצר נפתח למסמך דרך
    `/doc` — אותו מסמך שהעורך עורך — ומשם לעגלה. אין כאן ענף
    "הזמנה מהקטלוג" שיכול להתנהג אחרת מהזמנה מהעורך. */
+function askToSignIn() {
+  /* לא שגיאה — זה השלב הבא. הקטלוג פתוח, העגלה דורשת חשבון.
+     זה בדיוק מה שכפתור "חשב מחיר" אמר לפני שהמחיר עבר לעגלה
+     בלבד — אותה הודעה, טריגר אחר. */
+  errorBox.className = 'note note-info';
+  errorBox.innerHTML =
+    'הוספה לעגלה דורשת חשבון. <a href="/signup" style="font-weight:700">פתיחת חשבון</a> ' +
+    'לוקחת פחות מדקה, או <a href="/login" style="font-weight:700">כניסה</a> אם כבר יש לך.';
+  errorBox.classList.remove('hidden');
+}
+
 document.getElementById('tocart').addEventListener('click', async () => {
   const button = document.getElementById('tocart');
   button.disabled = true;
   const original = button.textContent;
+  clearError();
   try {
     const id = location.pathname.split('/').pop();
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(window.__values || {})) query.set(key, value);
     const seed = await fetch(`/api/catalog/${encodeURIComponent(id)}/doc?${query}`);
+    if (seed.status === 401) { askToSignIn(); return; }
     const doc = await seed.json().catch(() => ({}));
-    if (!seed.ok) { button.textContent = doc.detail || 'לא הצלחנו'; return; }
+    if (!seed.ok) { fail(doc.detail || 'לא הצלחנו.'); return; }
     const response = await fetch('/api/cart', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -542,11 +471,13 @@ document.getElementById('tocart').addEventListener('click', async () => {
                cutouts: doc.cutouts, bends: doc.bends },
       }),
     });
+    if (response.status === 401) { askToSignIn(); return; }
     const data = await response.json().catch(() => ({}));
-    button.textContent = response.ok ? `נוסף — ${data.count} בעגלה` : (data.detail || 'לא הצלחנו');
-    if (response.ok) await refreshCartBadge();
+    if (!response.ok) { fail(data.detail || 'לא הצלחנו להוסיף לעגלה.'); return; }
+    button.textContent = `נוסף — ${data.count} בעגלה`;
+    await refreshCartBadge();
   } finally {
-    setTimeout(() => { button.textContent = original; button.disabled = false; }, 2200);
+    setTimeout(() => { button.textContent = original; button.disabled = !buildable; }, 2200);
   }
 });
 </script>
