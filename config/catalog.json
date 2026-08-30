@@ -260,22 +260,6 @@
       ]
     },
     {
-      "id": "disc-flange",
-      "category": "plates",
-      "name": "אוגן עגול",
-      "summary": "דיסקית עם קדח מרכזי וחורי ברגים על מעגל.",
-      "description": "אוגן לחיבור צנרת או ציר: קדח מרכזי, ומסביבו חורי ברגים במרווחים שווים על מעגל. מספר הברגים וקוטר מעגל הברגים נבחרים בנפרד.",
-      "builder": "disc_flange",
-      "bends": false,
-      "params": [
-        { "key": "outer_dia_mm", "name": "קוטר חיצוני", "unit": "מ\"מ", "min": 60, "max": 1400, "step": 5, "default": 200 },
-        { "key": "bore_dia_mm", "name": "קדח מרכזי", "unit": "מ\"מ", "min": 10, "max": 900, "step": 1, "default": 60 },
-        { "key": "bolt_count", "name": "מספר ברגים", "unit": "", "min": 3, "max": 16, "step": 1, "default": 6 },
-        { "key": "bolt_dia_mm", "name": "קוטר חור בורג", "unit": "מ\"מ", "min": 4, "max": 40, "step": 0.5, "default": 11 },
-        { "key": "bolt_circle_dia_mm", "name": "קוטר מעגל הברגים", "unit": "מ\"מ", "min": 30, "max": 1300, "step": 5, "default": 140 }
-      ]
-    },
-    {
       "id": "square-flange",
       "category": "plates",
       "name": "אוגן מרובע",

@@ -2513,6 +2513,25 @@ class TestTheCatalogIsReachable:
 
     ROOT = Path(__file__).resolve().parents[1] / "web"
 
+    def test_every_catalog_product_can_actually_be_added_to_the_cart(self, priced_client):
+        """**30.8.2026: "אוגן עגול" הוצא מהקטלוג בגלל זה.** `/api/catalog/{id}/doc`
+        (הגשר בין הקטלוג לעגלה) סירב למתאר עגול — מוצר שהצגת
+        ה"עצב ותמחר" שלו הבטיחה משהו שהכפתור היחיד בעמוד לא יכול
+        לקיים. הבדיקה הזאת רצה על **כל** מוצר בקטלוג, כדי שהפעם
+        הבאה שמישהו יוסיף צורה שהעורך החופשי לא תומך בה עדיין —
+        זה ייתפס כאן, לפני שזה מגיע ללקוח.
+        """
+        from laser_pricing.api import catalog as catalog_mod
+
+        loaded = catalog_mod.load()
+        assert loaded.products, "הקטלוג ריק"
+        offenders = []
+        for product in loaded.products:
+            response = priced_client.get(f"/api/catalog/{product.id}/doc")
+            if response.status_code != 200:
+                offenders.append(f"{product.id} ({response.status_code})")
+        assert not offenders, f"מוצרים בקטלוג שאי אפשר להוסיף לעגלה: {offenders}"
+
     def test_the_landing_page_links_to_it(self):
         text = (self.ROOT / "landing.html").read_text(encoding="utf-8")
         assert 'href="/catalog"' in text
