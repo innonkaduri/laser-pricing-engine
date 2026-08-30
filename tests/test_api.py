@@ -3646,6 +3646,10 @@ class TestTheOrderFlow:
         )
         assert response.status_code == 409
         assert "אי אפשר לקבל הזמנות" in response.json()["detail"]
+        # **אותה בדיקה בדיוק על השגיאה הקשה.** דף שנשאר פתוח מהעבר
+        # (מרוץ, טאב ישן) עדיין יכול להגיע לכאן למרות שהטופס מוסתר —
+        # וזה מה שהלקוח יראה בפועל אם זה קרה.
+        assert "legal_name" not in response.json()["detail"]
 
     def test_an_internal_user_sees_exactly_what_to_fix(self, client, monkeypatch):
         """אבא/ינון צריכים בדיוק את מה שהלקוח לא צריך — שם השדה
@@ -3659,6 +3663,10 @@ class TestTheOrderFlow:
         options = client.get("/api/checkout").json()
         assert options["can_order"] is False
         assert any("legal_name" in b for b in options["blockers"])
+        response = client.post(
+            "/api/checkout", json={"phone": "0500000000", "note": "", "payment": "phone"}
+        )
+        assert "legal_name" in response.json()["detail"]
 
     def test_an_order_empties_the_cart_and_gets_a_reference(
         self, priced_client, tmp_path, monkeypatch

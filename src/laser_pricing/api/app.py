@@ -2418,10 +2418,16 @@ def checkout_options(request: Request) -> dict:
 def checkout(body: CheckoutRequest, request: Request) -> dict:
     user = _require_account(request)
     if not business.ready():
-        raise HTTPException(
-            status_code=409,
-            detail="אי אפשר לקבל הזמנות עדיין: " + " · ".join(business.blockers()),
+        # **אותה הבחנה כמו ב-`GET /api/checkout`.** המסך מסתיר את
+        # הטופס הזה כש-`can_order` הוא `false`, אבל דף שנשאר פתוח
+        # מהעבר (טאב ישן, מרוץ עם שינוי תצורה) עדיין יכול להגיע
+        # לכאן — ואז ההודעה הזאת היא מה שהלקוח רואה בפועל.
+        detail = (
+            "אי אפשר לקבל הזמנות עדיין: " + " · ".join(business.blockers())
+            if user.sees_cost_breakdown
+            else "אי אפשר לקבל הזמנות עדיין. העגלה שלך נשמרת — אפשר לחזור אליה כשהיא תיפתח."
         )
+        raise HTTPException(status_code=409, detail=detail)
     priced = _price_cart(user.username)
     if not priced.get("rows"):
         raise HTTPException(status_code=422, detail="העגלה ריקה.")
