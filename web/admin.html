@@ -200,6 +200,20 @@ function render(d) {
       <p class="quiet" id="token-status">${esc(stSourceLine)}</p>
     </div>`);
 
+  /* ---- 4ג. webhook יוצא — הודעה אוטומטית ל-CRM על הזמנה חדשה ---- */
+  const wh = d.crm_webhook;
+  parts.push(`
+    <div class="card ${wh.configured && wh.failures_since_start ? 'act' : ''}">
+      <h2>הודעה אוטומטית ל-CRM על הזמנה חדשה</h2>
+      <p class="sub">כשמוגדר — כל הזמנה שנפתחת נשלחת מיד ל-CRM עם הפירוק המלא וקובץ החיתוך של כל פריט.</p>
+      <div class="grid">
+        <div class="stat ${wh.configured ? 'ok' : ''}"><div class="k">webhook</div>
+          <div class="v small">${wh.configured ? 'מוגדר' : 'לא מוגדר — CRM_WEBHOOK_URL/CRM_WEBHOOK_SECRET'}</div></div>
+        <div class="stat ${wh.failures_since_start ? 'warn' : ''}"><div class="k">כשלים מאז ההפעלה</div>
+          <div class="v small">${wh.failures_since_start ? num(wh.failures_since_start) : 'אין'}</div></div>
+      </div>
+    </div>`);
+
   /* ---- 5. פרטי העסק — טופס, לא רק תצוגה ---- */
   const b = d.business;
   parts.push(`

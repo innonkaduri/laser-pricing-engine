@@ -7,12 +7,14 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
 import sqlite3
 import sys
 import time
+import urllib.error
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -21,6 +23,7 @@ from fastapi.testclient import TestClient
 
 from laser_pricing.api import (
     business,
+    crm_webhook,
     google_auth,
     history,
     identity,
@@ -124,12 +127,18 @@ def isolated_users(tmp_path, monkeypatch):
     orders.WRITE_FAILURES.clear()
     history.WRITE_FAILURES.clear()
     usage.WRITE_FAILURES.clear()
+    crm_webhook.WEBHOOK_FAILURES.clear()
     _LOGIN_FAILURES.clear()
     _SIGNUPS.clear()
     _PASSWORD_RESETS.clear()
     _ENGINE_CALLS.clear()
     _EDITOR_ATTEMPTS.clear()
     _CATALOG_PREVIEWS.clear()
+    # ה-webhook כבוי כברירת מחדל בכל בדיקה, בדיוק כמו טרנזילה/גוגל/מייל —
+    # אחרת סביבת ה-CI/המפתח שמזדמן להחזיק את שני המשתנים האלה מוציאה
+    # קריאות רשת אמיתיות מתוך בדיקה.
+    monkeypatch.delenv("CRM_WEBHOOK_URL", raising=False)
+    monkeypatch.delenv("CRM_WEBHOOK_SECRET", raising=False)
     # מחסן הגיאומטריות הוא מצב גלובלי בדיוק כמו השאר, והוא **לא** אופס
     # עד 25.8.2026. התוצאה הייתה בדיקה מהבהבת: היא נשענת על כך שגיאומטריה
     # של משתמש אחד עדיין בזיכרון כשאחר מנסה לגנוב אותה, וזה תלוי בכמה
@@ -4160,6 +4169,120 @@ class TestTheWorkshopSeesItsOrders:
         assert client.put(
             "/api/shop/orders/99-ZZZZZ/status", json={"status": "done"}, auth=self.SHOP
         ).status_code == 404
+
+
+class TestTheCrmWebhookFiresOnNewOrders:
+    """הזמנה חדשה → webhook ל-CRM, עם קובץ החיתוך מצורף.
+
+    כבוי ושקט בלי `CRM_WEBHOOK_URL`/`CRM_WEBHOOK_SECRET`, בדיוק כמו
+    טרנזילה/גוגל/מייל, וכישלון שלו לא נופל על ההזמנה עצמה.
+    """
+
+    SHOP = ("ynon", "sod")
+
+    @pytest.fixture
+    def business_ready(self, tmp_path, monkeypatch):
+        path = tmp_path / "business.json"
+        path.write_text(
+            json.dumps({"legal_name": "ב", "company_id": "1", "phone": "2",
+                        "email": "a@b.invalid", "address": "ג"}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(business, "PATH", path)
+        monkeypatch.setenv("APP_PASSWORD", "sod")
+        monkeypatch.setenv("APP_USER", "ynon")
+
+    def _place_order(self, client):
+        assert client.post(
+            "/api/signup",
+            json={"username": "koneh", "password": "sisma-arukka-1", "email": "koneh@test.invalid"},
+        ).status_code == 201
+        assert client.post(
+            "/api/login", json={"username": "koneh", "password": "sisma-arukka-1"}
+        ).status_code == 200
+        client.post("/api/cart", json={
+            "name": "לוחית", "source": "editor", "material_key": "st37",
+            "thickness_mm": 3.0, "quantity": 2,
+            "doc": {"name": "לוחית", "outline": [[0, 0], [200, 0], [200, 120], [0, 120]]}})
+        placed = client.post(
+            "/api/checkout", json={"phone": "050-1234567", "note": "דחוף", "payment": "phone"})
+        assert placed.status_code == 200, placed.text
+        return placed.json()["order"]
+
+    def test_without_the_keys_nothing_is_sent(self, priced_client, business_ready, monkeypatch):
+        calls = []
+        monkeypatch.setattr(crm_webhook.urllib.request, "urlopen", lambda *a, **k: calls.append(1))
+        self._place_order(priced_client)
+        assert calls == []
+
+    def test_with_the_keys_the_crm_receives_order_pricing_and_files(
+        self, priced_client, business_ready, monkeypatch
+    ):
+        monkeypatch.setenv("CRM_WEBHOOK_URL", "https://crm.example.invalid/hooks/laser")
+        monkeypatch.setenv("CRM_WEBHOOK_SECRET", "sod-shel-hacrm")
+        captured = {}
+
+        class _FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self):
+                return b"{}"
+
+        def fake_urlopen(request, timeout=None):
+            captured["url"] = request.full_url
+            captured["secret"] = request.get_header("X-laser-webhook-secret")
+            captured["body"] = json.loads(request.data.decode("utf-8"))
+            return _FakeResponse()
+
+        monkeypatch.setattr(crm_webhook.urllib.request, "urlopen", fake_urlopen)
+        order = self._place_order(priced_client)
+
+        assert captured["url"] == "https://crm.example.invalid/hooks/laser"
+        assert captured["secret"] == "sod-shel-hacrm"
+        body = captured["body"]
+        assert body["event"] == "order.created"
+        assert body["order"]["ref"] == order["ref"]
+        # **פירוק פנימי מלא, לא ה-total שהלקוח רואה** — "רווחים" זה
+        # margin_amount, וזה קיים רק בתשובה הפנימית (כאן 0 כי
+        # TEST_TARIFF לא מגדיר אחוז מרווח — השדה קיים, זה מה שנבדק).
+        assert body["pricing"]["detailed"] is True
+        assert "margin_amount" in body["pricing"]
+        assert "lines" in body["pricing"] and body["pricing"]["lines"]
+        assert len(body["files"]) == 1
+        assert body["files"][0]["filename"].endswith(".dxf")
+        raw_dxf = base64.b64decode(body["files"][0]["content_base64"])
+        assert b"ENTITIES" in raw_dxf  # קובץ DXF תקין, לא מטען ריק
+
+    def test_a_failed_delivery_does_not_fail_the_order(self, priced_client, business_ready, monkeypatch):
+        monkeypatch.setenv("CRM_WEBHOOK_URL", "https://crm.example.invalid/hooks/laser")
+        monkeypatch.setenv("CRM_WEBHOOK_SECRET", "sod-shel-hacrm")
+
+        def boom(request, timeout=None):
+            raise urllib.error.URLError("connection refused")
+
+        monkeypatch.setattr(crm_webhook.urllib.request, "urlopen", boom)
+        order = self._place_order(priced_client)
+        assert order["ref"]
+        assert len(crm_webhook.WEBHOOK_FAILURES) == 1
+        assert order["ref"] in crm_webhook.WEBHOOK_FAILURES[0][1]
+
+    def test_admin_overview_surfaces_webhook_failures(self, priced_client, business_ready, monkeypatch):
+        monkeypatch.setenv("CRM_WEBHOOK_URL", "https://crm.example.invalid/hooks/laser")
+        monkeypatch.setenv("CRM_WEBHOOK_SECRET", "sod-shel-hacrm")
+
+        def boom(request, timeout=None):
+            raise urllib.error.URLError("nope")
+
+        monkeypatch.setattr(crm_webhook.urllib.request, "urlopen", boom)
+        self._place_order(priced_client)
+        priced_client.post("/api/logout")
+        body = priced_client.get("/api/admin/overview", auth=self.SHOP).json()
+        assert body["crm_webhook"] == {"configured": True, "failures_since_start": 1}
+        assert any(item["kind"] == "orders" and "CRM" in item["text"] for item in body["todo"])
 
 
 class TestTranzilaCannotBeFaked:

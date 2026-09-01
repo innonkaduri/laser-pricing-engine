@@ -50,7 +50,7 @@ from .serialize import (
     quote_to_json,
     thin_for_preview,
 )
-from . import business, google_auth, mailer, orders, payment, service_token
+from . import business, crm_webhook, google_auth, mailer, orders, payment, service_token
 from .simple_tariff import MONEY_FIELDS, apply_form, to_form
 from .store import STORE, GeometryExpired, StoredGeometry
 from .tariff_store import STATE
@@ -1377,6 +1377,12 @@ def admin_overview() -> dict:
             "kind": "orders",
             "text": f'{by_status["new"]} הזמנות חדשות ממתינות לטיפול ב-/shop.',
         })
+    webhook_failures = len(crm_webhook.WEBHOOK_FAILURES)
+    if crm_webhook.configured() and webhook_failures:
+        todo.append({
+            "kind": "orders",
+            "text": f'{webhook_failures} הודעות ל-CRM על הזמנות נכשלו מאז ההפעלה — ראה crm_webhook.WEBHOOK_FAILURES.',
+        })
 
     return {
         "todo": todo,
@@ -1404,6 +1410,10 @@ def admin_overview() -> dict:
         "payment": payment.available(),
         "mail_configured": mailer.configured(),
         "service_token": service_token.status(),
+        "crm_webhook": {
+            "configured": crm_webhook.configured(),
+            "failures_since_start": len(crm_webhook.WEBHOOK_FAILURES),
+        },
         "tariff": base["tariff"],
         "users": base["users"],
     }
@@ -2571,7 +2581,7 @@ def checkout_options(request: Request) -> dict:
 
 
 @app.post("/api/checkout")
-def checkout(body: CheckoutRequest, request: Request) -> dict:
+def checkout(body: CheckoutRequest, request: Request, background_tasks: BackgroundTasks) -> dict:
     user = _require_account(request)
     if not business.ready():
         # **אותה הבחנה כמו ב-`GET /api/checkout`.** המסך מסתיר את
@@ -2650,7 +2660,26 @@ def checkout(body: CheckoutRequest, request: Request) -> dict:
         orders.set_status(order["ref"], "cancelled")
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    # **אחרי שההזמנה כבר קיימת ואושרה, לא לפני.** הזמנה שבוטלה
+    # ברגע ההגדרה (בלוק למעלה) לא אמורה להגיע ל-CRM בכלל. שקט
+    # וזול כש-`CRM_WEBHOOK_URL` לא מוגדר — ראה `crm_webhook.py`.
+    if crm_webhook.configured():
+        background_tasks.add_task(_notify_crm_of_new_order, order, result, priced["rows"])
+
     return {"order": order, "payment": instruction}
+
+
+def _notify_crm_of_new_order(order: dict, result, rows: list[dict]) -> None:
+    """בונה את קובצי החיתוך ושולח webhook. רץ **אחרי** שהתשובה כבר
+    יצאה ללקוח (`BackgroundTasks`) — כישלון כאן לא מעכב ולא מפיל
+    שום דבר שהלקוח רואה, רק נרשם ב-`crm_webhook.WEBHOOK_FAILURES`.
+    """
+    files = []
+    for row in rows:
+        doc = PartDoc(**row["spec"])
+        blank = _doc_blank(doc, row["thickness_mm"])
+        files.append(crm_webhook.dxf_file(row["name"] or doc.name, row["thickness_mm"], blank.spec))
+    crm_webhook.send_order_created(order, quote_to_json(result), files)
 
 
 @app.get("/api/auth/google")
