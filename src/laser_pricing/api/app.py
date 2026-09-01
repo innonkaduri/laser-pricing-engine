@@ -290,7 +290,7 @@ PRICE_TABLE_PATHS = ("/prices", "/api/prices", "/api/tariff")
 עליו מחליף את הטבלה **כולה** — כולל הכיול שאף אחד לא רואה בטופס.
 """
 
-INTERNAL_PATHS = ("/api/dashboard", "/dashboard", "/api/shop", "/shop")
+INTERNAL_PATHS = ("/api/dashboard", "/dashboard", "/api/shop", "/shop", "/api/admin", "/admin")
 """פנימי: `quote:use` **או** `prices:edit`. לא הציבור.
 
 הדשבורד מדווח אילו שדות בטבלה ריקים, מה מצב השער, מתי גובה לאחרונה
@@ -1303,6 +1303,109 @@ def dashboard() -> dict:
                 if not _catalog_materials(product)
             ],
         },
+    }
+
+
+class BusinessUpdate(BaseModel):
+    """טופס פרטי העסק. הבדיקה עצמה יושבת ב-`business.save`, לא כאן —
+    כדי שה-CLI ומקור אחר שיכתוב עתידית לאותו קובץ יעברו אותה בדיקה."""
+
+    legal_name: str = ""
+    company_id: str = ""
+    phone: str = ""
+    email: str = ""
+    address: str = ""
+    trade_name: str = ""
+    vat_pct: float = 0
+    accessibility_contact: str = ""
+
+
+@app.put("/api/admin/business")
+def admin_update_business(body: BusinessUpdate) -> dict:
+    """עריכת פרטי העסק מהדשבורד, במקום עריכת קובץ ב-SSH.
+
+    נעול מאחורי `/api/admin` (`quote:use` או `prices:edit`) על ידי
+    ה-middleware — לא נבדק שוב כאן, מאותה סיבה שהנתיב יושב תחת
+    `/api/admin` ולא תחת `/api/business` הפתוח (שם יושב רק ה-GET
+    הציבורי, `business.public()`, שחייב להישאר נגיש בלי זהות).
+    """
+    try:
+        return business.save(body.model_dump())
+    except business.BusinessError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/admin/overview")
+def admin_overview() -> dict:
+    """מרכז ניהול אחד: מה לעשות עכשיו, כמה הכנסה, אילו הזמנות.
+
+    **זה כן מסך מכירות, בניגוד ל-`/api/dashboard`.** ההבדל אינו
+    בגישה הטכנית (אותה יכולת פותחת את שניהם) אלא בכוונה: הדשבורד
+    התפעולי נבנה כדי שאבא יסתכל בו מהטלפון ליד המכונה, וזה נבנה
+    כדי שינון יראה תמונת מצב אחת של העסק ולא יעבור בין חמישה מסכים.
+
+    **הגבול מול ה-CRM נשמר בכל זאת:** מה שמוצג כאן על הזמנות הוא
+    בדיוק מה שכבר גלוי ב-`/shop` — טלפון והערה שהלקוח הקליד בעצמו,
+    לא שם לקוח שהמערכת ניחשה. אין כאן שדה חדש שלא היה קיים כבר.
+    """
+    base = dashboard()
+    recent = orders.all_orders(200)
+    non_cancelled = [o for o in recent if o["status"] != "cancelled"]
+    by_status: dict[str, int] = {}
+    for o in recent:
+        by_status[o["status"]] = by_status.get(o["status"], 0) + 1
+    users_all = identity.list_users()
+    users_without_email = sum(1 for u in users_all if not u["email"])
+
+    todo: list[dict] = []
+    for material in base["tariff"]["unpriced_materials"]:
+        todo.append({
+            "kind": "tariff",
+            "text": f'אין אף מחיר ל{material["name"]} — {material["rows"]} שורות ריקות בטבלה.',
+        })
+    for warning in base["tariff"]["price_low_confidence"]:
+        todo.append({"kind": "tariff", "text": warning})
+    for blocker in business.blockers():
+        todo.append({"kind": "business", "text": blocker})
+    if users_without_email:
+        todo.append({
+            "kind": "users",
+            "text": f"{users_without_email} משתמשים בלי אימייל — שחזור סיסמה לא יעבוד להם.",
+        })
+    if by_status.get("new"):
+        todo.append({
+            "kind": "orders",
+            "text": f'{by_status["new"]} הזמנות חדשות ממתינות לטיפול ב-/shop.',
+        })
+
+    return {
+        "todo": todo,
+        "revenue": {
+            "total": round(sum(o["total"] for o in non_cancelled), 2),
+            "currency": recent[0]["currency"] if recent else "ILS",
+            "order_count": len(recent),
+            "by_status": by_status,
+        },
+        "recent_orders": [
+            {
+                "ref": o["ref"],
+                "at": o["at"],
+                "status": o["status"],
+                "total": o["total"],
+                "currency": o["currency"],
+                "phone": o["phone"],
+                "payment": o["payment"],
+                "paid": o["paid"],
+                "item_count": len(o["items"]),
+            }
+            for o in recent[:10]
+        ],
+        "business": business.public(),
+        "payment": payment.available(),
+        "mail_configured": mailer.configured(),
+        "service_token_configured": bool(os.environ.get("SERVICE_TOKEN", "").strip()),
+        "tariff": base["tariff"],
+        "users": base["users"],
     }
 
 
@@ -3458,6 +3561,14 @@ if WEB_DIR.exists():
     def dashboard_page() -> FileResponse:
         """המסך התפעולי לאבא ולינון. עצמאי, כמו שאר המסכים."""
         return FileResponse(WEB_DIR / "dashboard.html")
+
+    @app.get("/admin")
+    def admin_page() -> FileResponse:
+        """מרכז הניהול: לעשות עכשיו, הכנסות, הזמנות, פרטי העסק.
+
+        נפרד מ-`/dashboard` בכוונה — ראה את הדוקסטרינג של
+        `/api/admin/overview`."""
+        return FileResponse(WEB_DIR / "admin.html")
 
     @app.get("/signup")
     def signup_page() -> FileResponse:

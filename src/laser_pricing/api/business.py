@@ -68,3 +68,43 @@ def public() -> dict:
     out["ready"] = ready()
     out["missing"] = blockers()
     return out
+
+
+class BusinessError(ValueError):
+    """קלט לא תקין לטופס פרטי העסק. תמיד מפורש — לא ברירת מחדל שקטה."""
+
+
+def save(data: dict) -> dict:
+    """שומר פרטי עסק חדשים, אחרי בדיקה. מחזיר את `public()` העדכני.
+
+    **אותו כלל כמו מחיר שממציאים.** שדה חובה ריק נדחה כאן במפורש
+    ולא הופך בשקט למחרוזת ריקה בקובץ — אחרת ההזמנה הייתה נפתחת על
+    בסיס נתון שאיש לא הזין.
+
+    כתיבה אטומית (קובץ זמני + `replace`): קריאה שמתרחשת באותו רגע
+    (checkout, /dashboard) לעולם לא רואה קובץ חצי-כתוב.
+    """
+    cleaned: dict = {}
+    for key, why in REQUIRED.items():
+        value = str(data.get(key) or "").strip()
+        if not value:
+            raise BusinessError(f"{key} הוא שדה חובה ({why}) — אי אפשר לשמור אותו ריק.")
+        cleaned[key] = value
+
+    vat_raw = data.get("vat_pct", 0)
+    try:
+        vat = float(vat_raw) if vat_raw not in ("", None) else 0.0
+    except (TypeError, ValueError):
+        raise BusinessError("vat_pct חייב להיות מספר.") from None
+    if not 0 <= vat <= 100:
+        raise BusinessError("vat_pct חייב להיות בין 0 ל-100.")
+    cleaned["vat_pct"] = int(vat) if vat == int(vat) else vat
+
+    for key in ("trade_name", "accessibility_contact"):
+        cleaned[key] = str(data.get(key) or "").strip()
+
+    tmp = PATH.parent / f"{PATH.name}.tmp"
+    PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp.write_text(json.dumps(cleaned, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(PATH)
+    return public()

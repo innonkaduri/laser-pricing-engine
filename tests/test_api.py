@@ -770,6 +770,152 @@ class TestOperationalDashboard:
         assert gated.get("/api/dashboard").status_code == 200
 
 
+class TestTheAdminDashboard:
+    """מרכז ניהול אחד: לעשות עכשיו, הכנסות, הזמנות, פרטי העסק.
+
+    בכוונה נגזר ממה שכבר קיים (`/api/dashboard`, `orders.all_orders`,
+    `business.blockers`) ולא בונה מקור שני לאותם מספרים.
+    """
+
+    def test_is_behind_the_same_gate_as_the_dashboard(self, monkeypatch):
+        identity.create_user("itai", "sod-arok-1", "איתי", {identity.CAP_QUOTE_USE})
+        monkeypatch.delenv("APP_PASSWORD", raising=False)
+        gated = TestClient(app)
+        assert gated.get("/api/admin/overview").status_code == 401
+        assert gated.post("/api/login", json={"username": "itai", "password": "sod-arok-1"}).status_code == 200
+        assert gated.get("/api/admin/overview").status_code == 200
+
+    def test_a_public_customer_may_not_see_it(self, client, monkeypatch):
+        monkeypatch.setenv("APP_PASSWORD", "sod")
+        monkeypatch.setenv("APP_USER", "ynon")
+        assert client.post(
+            "/api/signup",
+            json={"username": "koneh", "password": "sisma-arukka-1", "email": "koneh@test.invalid"},
+        ).status_code == 201
+        assert client.post(
+            "/api/login", json={"username": "koneh", "password": "sisma-arukka-1"}
+        ).status_code == 200
+        assert client.get("/api/admin/overview").status_code == 403
+
+    def test_todo_lists_unpriced_materials_and_missing_business_details(self, client):
+        body = client.get("/api/admin/overview").json()
+        kinds = {item["kind"] for item in body["todo"]}
+        assert "tariff" in kinds  # הטבלה ריקה כברירת מחדל בבדיקות
+        assert "business" in kinds  # business.json ריק כברירת מחדל בבדיקות
+
+    def test_a_ready_business_drops_off_the_todo_list(self, priced_client, tmp_path):
+        business.save({
+            "legal_name": "ב", "company_id": "1", "phone": "2",
+            "email": "a@b.invalid", "address": "ג",
+        })
+        body = priced_client.get("/api/admin/overview").json()
+        assert not any(item["kind"] == "business" for item in body["todo"])
+        assert body["business"]["ready"] is True
+
+    def test_users_without_email_are_flagged(self, client):
+        # יצירת משתמש כלשהו מדליקה את השער (`_gate_is_on`), ולכן
+        # הבדיקה נכנסת דרכו במפורש ולא מסתמכת על שהוא כבוי.
+        identity.create_user("bdika", "sod-arok-1", "בדיקה", {identity.CAP_QUOTE_USE})
+        assert client.post(
+            "/api/login", json={"username": "bdika", "password": "sod-arok-1"}
+        ).status_code == 200
+        body = client.get("/api/admin/overview").json()
+        assert any(item["kind"] == "users" for item in body["todo"])
+
+    def test_zero_orders_is_reported_as_zero_not_missing(self, priced_client):
+        body = priced_client.get("/api/admin/overview").json()
+        assert body["revenue"]["order_count"] == 0
+        assert body["revenue"]["total"] == 0
+        assert body["recent_orders"] == []
+
+    def test_revenue_rolls_up_from_real_orders_not_a_second_source(self, priced_client, monkeypatch):
+        business.save({
+            "legal_name": "ב", "company_id": "1", "phone": "2",
+            "email": "a@b.invalid", "address": "ג",
+        })
+        monkeypatch.setenv("APP_PASSWORD", "sod")
+        monkeypatch.setenv("APP_USER", "ynon")
+        assert priced_client.post(
+            "/api/signup",
+            json={"username": "koneh", "password": "sisma-arukka-1", "email": "koneh@test.invalid"},
+        ).status_code == 201
+        assert priced_client.post(
+            "/api/login", json={"username": "koneh", "password": "sisma-arukka-1"}
+        ).status_code == 200
+        priced_client.post("/api/cart", json={
+            "name": "לוחית", "source": "editor", "material_key": "st37",
+            "thickness_mm": 3.0, "quantity": 1,
+            "doc": {"name": "לוחית", "outline": [[0, 0], [200, 0], [200, 120], [0, 120]]}})
+        placed = priced_client.post(
+            "/api/checkout", json={"phone": "050-1234567", "note": "דחוף", "payment": "phone"})
+        assert placed.status_code == 200, placed.text
+        ref = placed.json()["order"]["ref"]
+        priced_client.post("/api/logout")
+
+        # זהות בית המלאכה/הניהול עוברת ב-Basic, לא בסשן של הלקוח.
+        body = priced_client.get("/api/admin/overview", auth=("ynon", "sod")).json()
+        assert body["revenue"]["order_count"] == 1
+        assert body["revenue"]["total"] == placed.json()["order"]["total"]
+        assert body["revenue"]["by_status"] == {"new": 1}
+        assert any(o["ref"] == ref for o in body["recent_orders"])
+        assert any(item["kind"] == "orders" for item in body["todo"])
+
+    def test_service_token_and_mail_status_reflect_the_environment(self, client, monkeypatch):
+        monkeypatch.delenv("SERVICE_TOKEN", raising=False)
+        assert client.get("/api/admin/overview").json()["service_token_configured"] is False
+        monkeypatch.setenv("SERVICE_TOKEN", "token-shel-yamish")
+        assert client.get("/api/admin/overview").json()["service_token_configured"] is True
+
+
+class TestSavingBusinessDetailsFromTheAdminScreen:
+    """`business.json` נערך מהדשבורד — לא רק ביד ב-SSH."""
+
+    def test_requires_the_same_gate_as_the_admin_screen(self, monkeypatch):
+        identity.create_user("itai", "sod-arok-1", "איתי", {identity.CAP_QUOTE_USE})
+        monkeypatch.delenv("APP_PASSWORD", raising=False)
+        gated = TestClient(app)
+        body = {"legal_name": "ב", "company_id": "1", "phone": "2",
+                "email": "a@b.invalid", "address": "ג"}
+        assert gated.put("/api/admin/business", json=body).status_code == 401
+        assert gated.post("/api/login", json={"username": "itai", "password": "sod-arok-1"}).status_code == 200
+        assert gated.put("/api/admin/business", json=body).status_code == 200
+
+    def test_a_public_customer_may_not_write_it(self, client, monkeypatch):
+        monkeypatch.setenv("APP_PASSWORD", "sod")
+        monkeypatch.setenv("APP_USER", "ynon")
+        assert client.post(
+            "/api/signup",
+            json={"username": "koneh", "password": "sisma-arukka-1", "email": "koneh@test.invalid"},
+        ).status_code == 201
+        assert client.post(
+            "/api/login", json={"username": "koneh", "password": "sisma-arukka-1"}
+        ).status_code == 200
+        body = {"legal_name": "ב", "company_id": "1", "phone": "2",
+                "email": "a@b.invalid", "address": "ג"}
+        assert client.put("/api/admin/business", json=body).status_code == 403
+
+    def test_an_empty_required_field_is_refused_not_saved_blank(self, client):
+        body = {"legal_name": "", "company_id": "1", "phone": "2",
+                "email": "a@b.invalid", "address": "ג"}
+        response = client.put("/api/admin/business", json=body)
+        assert response.status_code == 422
+        assert not business.ready()
+
+    def test_a_bad_vat_pct_is_refused(self, client):
+        body = {"legal_name": "ב", "company_id": "1", "phone": "2",
+                "email": "a@b.invalid", "address": "ג", "vat_pct": 250}
+        assert client.put("/api/admin/business", json=body).status_code == 422
+
+    def test_a_saved_business_is_immediately_visible_on_the_public_endpoint(self, client):
+        body = {"legal_name": "ימיש כדורי", "company_id": "512315045", "phone": "0523598486",
+                "email": "yamish@kaduri.co.il", "address": "קריית ענבים", "vat_pct": 18}
+        assert client.put("/api/admin/business", json=body).status_code == 200
+        public = client.get("/api/business").json()
+        assert public["ready"] is True
+        assert public["legal_name"] == "ימיש כדורי"
+        assert public["vat_pct"] == 18
+
+
 class TestLoginLandsWhereTheUserCanWork:
     def test_a_prices_only_user_is_sent_to_the_form(self, monkeypatch):
         """אבא ממלא מחירים. דף ראשי שנפתח על 403 נראה כמו תקלה."""

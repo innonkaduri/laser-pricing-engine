@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ניהול — ימיש כדורי</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preload" as="font" type="font/woff2" href="/fonts/assistant-hebrew.woff2" crossorigin>
+<link rel="stylesheet" href="/brand.css">
+<style>
+/* מרכז ניהול — טלפון קודם, עמודה אחת. אותה תבנית בדיוק כמו /dashboard,
+   כי זה אותו קהל (ינון, מהטלפון או מהמחשב) שעובר בין שני המסכים. */
+body{padding-bottom:var(--s12)}
+main{max-width:920px; margin-inline:auto; padding:var(--s5) var(--s4) 0}
+@media (min-width:760px){ main{padding:var(--s6) var(--s5) 0} }
+.card{margin-bottom:var(--s4); padding:var(--s5)}
+.card>h2{
+  margin:0 0 var(--s4); font-size:var(--fs-xs); font-weight:700; color:var(--ink-400);
+  letter-spacing:.09em;
+}
+.card.act{border-color:var(--warn-200); background:var(--warn-50)}
+.card.act>h2{color:var(--warn-700)}
+.card.good{border-color:var(--ok-200); background:var(--ok-50)}
+.card.good>h2{color:var(--ok-700)}
+.sub{color:var(--ink-500); font-size:var(--fs-sm); margin:0}
+
+ul.todo{margin:var(--s4) 0 0; padding:0; list-style:none; display:grid; gap:var(--s3)}
+ul.todo li{
+  background:var(--paper); border:1px solid var(--warn-200); border-radius:var(--r-md);
+  padding:var(--s4); font-size:var(--fs-sm); line-height:1.55;
+}
+ul.todo li em{
+  display:inline-block; margin-inline-end:8px; font-style:normal; font-size:var(--fs-xs);
+  color:var(--ink-500); border:1px solid var(--ink-150); border-radius:var(--r-full);
+  padding:1px 8px;
+}
+.grid{display:grid; gap:var(--s3); grid-template-columns:1fr}
+@media (min-width:620px){ .grid{grid-template-columns:1fr 1fr} }
+.quicklinks{display:flex; flex-wrap:wrap; gap:var(--s2)}
+th,td{text-align:right}
+
+form.biz{display:grid; gap:var(--s3); grid-template-columns:1fr}
+@media (min-width:620px){ form.biz{grid-template-columns:1fr 1fr} }
+form.biz label{display:grid; gap:4px; font-size:var(--fs-sm)}
+form.biz input{
+  border:1px solid var(--ink-200); border-radius:var(--r-md); padding:8px 10px;
+  font:inherit; background:var(--paper);
+}
+form.biz .full{grid-column:1 / -1}
+.form-msg{margin-top:var(--s3); font-size:var(--fs-sm)}
+.form-msg.bad{color:var(--bad-600)}
+.form-msg.ok{color:var(--ok-700)}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M5 8.5A3.5 3.5 0 0 1 8.5 5h9.9L27 13.6v9.9A3.5 3.5 0 0 1 23.5 27h-15A3.5 3.5 0 0 1 5 23.5v-15Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M18.4 5v5.1a3.5 3.5 0 0 0 3.5 3.5H27" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><circle cx="12.4" cy="19.6" r="3" fill="currentColor"/></svg>
+      <span class="name"><b>ימיש כדורי</b><span>ניהול</span></span>
+    </a>
+    <span class="spacer"></span>
+    <span class="muted" style="font-size:var(--fs-sm)" id="who"></span>
+  </div>
+</header>
+
+<main id="root">
+  <p class="quiet" id="boot">טוען…</p>
+</main>
+
+<script>
+'use strict';
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
+const num = (n) => Number(n).toLocaleString('he-IL');
+const money = (n, cur) => (cur === 'ILS' || !cur ? '₪' : cur) + Number(n).toLocaleString('he-IL',
+  {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+function count(n, one, many) {
+  if (n === 0) return `אין ${many}`;
+  if (n === 1) return `${one} אחת`;
+  if (n === 2) return `שתי ${many}`;
+  return `${num(n)} ${many}`;
+}
+function ago(seconds) {
+  const minutes = Math.max(0, Math.round((Date.now() / 1000 - seconds) / 60));
+  if (minutes < 1) return 'ממש עכשיו';
+  if (minutes < 60) return `לפני ${num(minutes)} דקות`;
+  const h = Math.floor(minutes / 60);
+  if (h < 24) return `לפני ${num(h)} שעות`;
+  const d = Math.floor(h / 24);
+  return d < 2 ? 'אתמול' : `לפני ${num(d)} ימים`;
+}
+
+const STATUS_LABEL = {
+  new: 'חדשה', confirmed: 'אושרה', in_production: 'בייצור', done: 'הושלמה', cancelled: 'בוטלה',
+};
+
+async function load() {
+  let me = null, data;
+  try { me = await (await fetch('/api/me')).json(); } catch { /* לא קריטי */ }
+  const res = await fetch('/api/admin/overview', {headers: {'accept': 'application/json'}});
+  if (!res.ok) {
+    $('#root').innerHTML = `<div class="err">לא ניתן לטעון את המסך (${res.status}). ` +
+      (res.status === 401 ? 'צריך להתחבר מחדש.' : res.status === 403 ? 'אין לך הרשאה למסך הזה.' : 'נסה שוב.') + '</div>';
+    return;
+  }
+  data = await res.json();
+  if (me && me.authenticated) {
+    $('#who').innerHTML = `${esc(me.display_name)} · <a href="/api/logout" id="out">יציאה</a>`;
+    $('#out').addEventListener('click', async (e) => {
+      e.preventDefault();
+      await fetch('/api/logout', {method: 'POST'});
+      location.href = '/login';
+    });
+  }
+  render(data);
+}
+
+function render(d) {
+  const parts = [];
+
+  /* ---- 1. לעשות עכשיו ---- */
+  parts.push(`
+    <div class="card ${d.todo.length ? 'act' : 'good'}">
+      <h2>לעשות עכשיו</h2>
+      ${d.todo.length
+        ? `<ul class="todo">${d.todo.map((t) =>
+            `<li><em>${esc(kindLabel(t.kind))}</em>${esc(t.text)}</li>`).join('')}</ul>`
+        : '<p class="headline">אין פריטים פתוחים כרגע.</p>'}
+    </div>`);
+
+  /* ---- 2. הכנסות ---- */
+  const r = d.revenue;
+  const cur = r.currency;
+  const statusLine = Object.entries(r.by_status)
+    .map(([k, v]) => `${esc(STATUS_LABEL[k] || k)}: ${num(v)}`).join(' · ');
+  parts.push(`
+    <div class="card">
+      <h2>הכנסות</h2>
+      ${r.order_count
+        ? `<p class="headline">${money(r.total, cur)} מ-${count(r.order_count, 'הזמנה', 'הזמנות')}</p>
+           <p class="sub">${statusLine || '—'}</p>`
+        : '<p class="headline">עוד לא נפתחה אף הזמנה.</p>'}
+    </div>`);
+
+  /* ---- 3. הזמנות אחרונות ---- */
+  const recent = d.recent_orders;
+  parts.push(`
+    <div class="card">
+      <h2>הזמנות אחרונות</h2>
+      ${recent.length ? `<div class="scroll"><table>
+        <thead><tr><th>מזהה</th><th class="num">מתי</th><th>מצב</th><th>תשלום</th>
+          <th class="num">פריטים</th><th class="num">סכום</th></tr></thead>
+        <tbody>${recent.map((o) => `<tr>
+          <td>${esc(o.ref)}</td>
+          <td class="num">${esc(ago(o.at))}</td>
+          <td>${esc(STATUS_LABEL[o.status] || o.status)}</td>
+          <td>${o.payment === 'tranzila' ? 'כרטיס' : 'טלפון'}${o.paid ? ' <span class="tag ok">שולם</span>' : ''}</td>
+          <td class="num">${num(o.item_count)}</td>
+          <td class="num">${money(o.total, o.currency)}</td>
+        </tr>`).join('')}</tbody></table></div>
+        <p class="quiet">לטיפול מלא — כולל מה שהלקוח הקליד וטלפון ליצירת קשר — ב<a href="/shop">הזמנות שהתקבלו</a>.</p>`
+        : '<p class="quiet">עוד לא נפתחה אף הזמנה.</p>'}
+    </div>`);
+
+  /* ---- 4. תשלום, מייל, CRM — מצב, לא פעולה ---- */
+  const payKeys = new Set((d.payment || []).map((p) => p.key));
+  parts.push(`
+    <div class="card">
+      <h2>חיבורים</h2>
+      <div class="grid">
+        <div class="stat ${payKeys.has('tranzila') ? 'ok' : ''}"><div class="k">כרטיס אשראי</div>
+          <div class="v small">${payKeys.has('tranzila') ? 'פעיל' : 'כבוי'}</div></div>
+        <div class="stat ${d.mail_configured ? 'ok' : ''}"><div class="k">שליחת מייל</div>
+          <div class="v small">${d.mail_configured ? 'מוגדר' : 'לא מוגדר — שחזור סיסמה לא שולח'}</div></div>
+        <div class="stat ${d.service_token_configured ? 'ok' : ''}"><div class="k">CRM ימיש</div>
+          <div class="v small">${d.service_token_configured ? 'מחווט' : 'טרם חווט'}</div></div>
+      </div>
+    </div>`);
+
+  /* ---- 5. פרטי העסק — טופס, לא רק תצוגה ---- */
+  const b = d.business;
+  parts.push(`
+    <div class="card ${b.ready ? '' : 'act'}">
+      <h2>פרטי העסק</h2>
+      <p class="sub">מה שמודפס על כל חשבונית, ומה שחוסם קבלת הזמנות אם חסר.</p>
+      <form class="biz" id="biz-form">
+        ${bizField('legal_name', 'שם משפטי', b.legal_name)}
+        ${bizField('trade_name', 'שם מסחרי', b.trade_name, false)}
+        ${bizField('company_id', 'ח"פ / עוסק מורשה', b.company_id)}
+        ${bizField('phone', 'טלפון', b.phone)}
+        ${bizField('email', 'אימייל', b.email, true, 'email')}
+        ${bizField('address', 'כתובת', b.address, true)}
+        ${bizField('vat_pct', 'אחוז מע"מ', b.vat_pct, false, 'number')}
+        ${bizField('accessibility_contact', 'איש קשר לנגישות', b.accessibility_contact, false)}
+        <div class="full" style="display:flex; align-items:center; gap:12px">
+          <button class="btn btn-primary" type="submit">שמור</button>
+          <span class="form-msg" id="biz-msg"></span>
+        </div>
+      </form>
+    </div>`);
+
+  /* ---- 6. ניהול מהיר ---- */
+  parts.push(`
+    <div class="card">
+      <h2>ניהול מהיר</h2>
+      <div class="quicklinks">
+        <a class="btn btn-secondary" href="/prices">טבלת מחירים</a>
+        <a class="btn btn-secondary" href="/shop">הזמנות שהתקבלו</a>
+        <a class="btn btn-secondary" href="/dashboard">מצב המערכת</a>
+      </div>
+    </div>`);
+
+  $('#root').innerHTML = parts.join('');
+  $('#biz-form').addEventListener('submit', saveBusiness);
+}
+
+function kindLabel(kind) {
+  return {tariff: 'טבלה', business: 'עסק', users: 'משתמשים', orders: 'הזמנות'}[kind] || kind;
+}
+
+function bizField(name, label, value, required = true, type = 'text') {
+  return `<label>${esc(label)}${required ? '' : ' (לא חובה)'}
+    <input name="${name}" type="${type}" value="${esc(value)}" ${required && type !== 'number' ? 'required' : ''}>
+  </label>`;
+}
+
+async function saveBusiness(event) {
+  event.preventDefault();
+  const msg = $('#biz-msg');
+  msg.textContent = '';
+  msg.className = 'form-msg';
+  const form = event.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  if ('vat_pct' in body) body.vat_pct = body.vat_pct === '' ? 0 : Number(body.vat_pct);
+  try {
+    const res = await fetch('/api/admin/business', {
+      method: 'PUT',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const out = await res.json();
+    if (!res.ok) {
+      msg.textContent = out.detail || 'השמירה נכשלה.';
+      msg.className = 'form-msg bad';
+      return;
+    }
+    msg.textContent = 'נשמר.';
+    msg.className = 'form-msg ok';
+  } catch {
+    msg.textContent = 'השמירה נכשלה — בדוק חיבור.';
+    msg.className = 'form-msg bad';
+  }
+}
+
+load().catch((err) => {
+  $('#root').innerHTML = `<div class="err">${esc(err.message)}</div>`;
+});
+</script>
+
+<!-- סרגל הצד. **מוזרק מקובץ אחד** ולא מועתק לכל מסך, ובבלוק נפרד
+     ומצומצם משלו — ראה את ההערה על שני scope-ים ב-product.html
+     לפני שמוסיפים כאן קוד שתלוי במשתנים מהבלוק הראשון. -->
+<script type="module">import { mountSidebar } from '/shell.js'; mountSidebar();</script>
+</body>
+</html>

@@ -18,6 +18,7 @@ const LINKS = [
   { href: '/history', label: 'ההצעות שלי', cap: null, icon: 'M12 8v5l3 2m6-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z' },
   { href: '/orders', label: 'ההזמנות שלי', cap: null, icon: 'M6 3h9l4 4v14H6V3Zm9 0v4h4M9 12h7M9 16h5' },
   { href: '/shop', label: 'הזמנות שהתקבלו', cap: 'quote:use', shop: true, icon: 'M4 7h16l-1.2 11.2a2 2 0 0 1-2 1.8H7.2a2 2 0 0 1-2-1.8L4 7Zm4 0V5a4 4 0 0 1 8 0v2' },
+  { href: '/admin', label: 'ניהול', cap: 'quote:use', icon: 'M12 2 3 6v6c0 5 4 8.5 9 10 5-1.5 9-5 9-10V6l-9-4Z' },
   { href: '/dashboard', label: 'דשבורד', cap: 'quote:use', icon: 'M5 19V9m7 10V5m7 14v-6' },
   { href: '/tariff', label: 'טבלת מחירים', cap: 'prices:edit', icon: 'M4 7h16M4 12h16M4 17h7M17 15l3 3-3 3' },
   { href: '/account', label: 'החשבון שלי', cap: null, icon: 'M5 20a7 7 0 0 1 14 0M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z' },
