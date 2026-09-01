@@ -50,7 +50,7 @@ from .serialize import (
     quote_to_json,
     thin_for_preview,
 )
-from . import business, google_auth, mailer, orders, payment
+from . import business, google_auth, mailer, orders, payment, service_token
 from .simple_tariff import MONEY_FIELDS, apply_form, to_form
 from .store import STORE, GeometryExpired, StoredGeometry
 from .tariff_store import STATE
@@ -1403,10 +1403,21 @@ def admin_overview() -> dict:
         "business": business.public(),
         "payment": payment.available(),
         "mail_configured": mailer.configured(),
-        "service_token_configured": bool(os.environ.get("SERVICE_TOKEN", "").strip()),
+        "service_token": service_token.status(),
         "tariff": base["tariff"],
         "users": base["users"],
     }
+
+
+@app.post("/api/admin/service-token/rotate")
+def admin_rotate_service_token() -> dict:
+    """מפתח חדש ל-CRM, בלי SSH ובלי פריסה.
+
+    נעול מאחורי `/api/admin` כמו כל השאר. **הישן מפסיק לעבוד מיד** —
+    מי שמסובב כאן חייב לעדכן את "CRM ימיש חדש" באותה נשימה, אחרת
+    החיבור פשוט מפסיק.
+    """
+    return service_token.rotate()
 
 
 def _priced_materials(tariff) -> list[dict]:

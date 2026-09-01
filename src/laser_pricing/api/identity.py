@@ -36,6 +36,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import service_token
+
 CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
 DB_PATH = Path(os.environ.get("USERS_DB", CONFIG_DIR / "users.db"))
 
@@ -640,8 +642,12 @@ def _from_service_token(request) -> User | None:
     """ה-CRM קורא למנוע כשירות, לא כאדם.
 
     הוא מקבל `quote:use` בלבד: הוא מתמחר, ולעולם לא עורך את הטבלה.
+
+    **הערך עצמו מגיע מ-`service_token.current()` ולא ישירות
+    מהסביבה (1.9.2026)** — כך שסבב מפתח דרך `/admin` נכנס לתוקף מיד,
+    בלי הפעלה מחדש. משתנה הסביבה נשאר תקף כברירת מחדל למי שלא סובב.
     """
-    expected = os.environ.get("SERVICE_TOKEN", "").strip()
+    expected = service_token.current()
     supplied = request.headers.get("x-service-token", "")
     if not expected or not supplied:
         return None

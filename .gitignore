@@ -46,6 +46,11 @@ config/orders.db-journal
 config/orders.db-shm
 config/orders.db-wal
 
+# מפתח ה-CRM כשמסובבים אותו מהמסך (1.9.2026) — לא ברירת המחדל
+# מהסביבה, אלא הכתיבה ש-/admin עושה. סוד, לא פרט עסק כמו business.json:
+# אסור שיגיע לריפו הציבורי.
+config/service_token.json
+
 # דיווח הגיבוי לדשבורד — נכתב על השרת בכל ריצה של הטיימר.
 # בלי השורה הזאת הוא קובץ לא-מנוטר בעץ, והוא יעצור את ה-`git pull` הבא
 # בדיוק כמו ש-scripts/backup-tariff.sh עצר את הקודם.

@@ -27,6 +27,7 @@ from laser_pricing.api import (
     mailer,
     orders,
     payment,
+    service_token,
     tariff_store,
     usage,
 )
@@ -119,6 +120,7 @@ def isolated_users(tmp_path, monkeypatch):
     # וההזמנות הן המסד הרביעי. אותה תאונה בדיוק, פעם רביעית.
     monkeypatch.setattr(orders, "DB_PATH", tmp_path / "orders.db")
     monkeypatch.setattr(business, "PATH", tmp_path / "business.json")
+    monkeypatch.setattr(service_token, "PATH", tmp_path / "service_token.json")
     orders.WRITE_FAILURES.clear()
     history.WRITE_FAILURES.clear()
     usage.WRITE_FAILURES.clear()
@@ -860,11 +862,79 @@ class TestTheAdminDashboard:
         assert any(o["ref"] == ref for o in body["recent_orders"])
         assert any(item["kind"] == "orders" for item in body["todo"])
 
-    def test_service_token_and_mail_status_reflect_the_environment(self, client, monkeypatch):
+    def test_service_token_status_reflects_the_environment_by_default(self, client, monkeypatch):
         monkeypatch.delenv("SERVICE_TOKEN", raising=False)
-        assert client.get("/api/admin/overview").json()["service_token_configured"] is False
+        body = client.get("/api/admin/overview").json()["service_token"]
+        assert body == {"configured": False, "token": "", "source": "none", "rotated_at": None}
         monkeypatch.setenv("SERVICE_TOKEN", "token-shel-yamish")
-        assert client.get("/api/admin/overview").json()["service_token_configured"] is True
+        body = client.get("/api/admin/overview").json()["service_token"]
+        assert body["configured"] is True
+        assert body["token"] == "token-shel-yamish"
+        assert body["source"] == "env"
+
+    def test_mail_status_reflects_the_environment(self, client, monkeypatch):
+        monkeypatch.delenv("SMTP_HOST", raising=False)
+        assert client.get("/api/admin/overview").json()["mail_configured"] is False
+
+
+class TestRotatingTheServiceTokenFromTheScreen:
+    """מפתח ה-CRM, בלי SSH ובלי פריסה — ראה `service_token.py`."""
+
+    def test_requires_the_same_gate_as_admin(self, monkeypatch):
+        identity.create_user("itai", "sod-arok-1", "איתי", {identity.CAP_QUOTE_USE})
+        monkeypatch.delenv("APP_PASSWORD", raising=False)
+        gated = TestClient(app)
+        assert gated.post("/api/admin/service-token/rotate").status_code == 401
+        assert gated.post("/api/login", json={"username": "itai", "password": "sod-arok-1"}).status_code == 200
+        assert gated.post("/api/admin/service-token/rotate").status_code == 200
+
+    def test_a_public_customer_may_not_rotate_it(self, client, monkeypatch):
+        monkeypatch.setenv("APP_PASSWORD", "sod")
+        monkeypatch.setenv("APP_USER", "ynon")
+        assert client.post(
+            "/api/signup",
+            json={"username": "koneh", "password": "sisma-arukka-1", "email": "koneh@test.invalid"},
+        ).status_code == 201
+        assert client.post(
+            "/api/login", json={"username": "koneh", "password": "sisma-arukka-1"}
+        ).status_code == 200
+        assert client.post("/api/admin/service-token/rotate").status_code == 403
+
+    def test_rotating_replaces_the_env_value_immediately(self, monkeypatch):
+        """הקובץ גובר על הסביבה — בלי הפעלה מחדש. **השער חייב להיות
+        דלוק** כדי שמסלול הטוקן ייבדק בכלל (כשהוא כבוי הכול עובר)."""
+        identity.create_user("itai", "sod-arok-1", "איתי", {identity.CAP_QUOTE_USE})
+        monkeypatch.delenv("APP_PASSWORD", raising=False)
+        monkeypatch.setenv("SERVICE_TOKEN", "token-yashan-mehasviva")
+        admin = TestClient(app)
+        assert admin.post(
+            "/api/login", json={"username": "itai", "password": "sod-arok-1"}
+        ).status_code == 200
+        rotated = admin.post("/api/admin/service-token/rotate").json()
+        assert rotated["configured"] is True
+        assert rotated["source"] == "file"
+        new_token = rotated["token"]
+        assert new_token != "token-yashan-mehasviva"
+        assert new_token.startswith("laser_live_")
+
+        # לקוח בלי עוגיית סשן — כדי שהבדיקה הזאת תהיה על הטוקן בלבד.
+        crm = TestClient(app)
+        assert crm.get("/api/config", headers={"X-Service-Token": "token-yashan-mehasviva"}).status_code == 401
+        assert crm.get("/api/config", headers={"X-Service-Token": new_token}).status_code == 200
+
+    def test_rotating_twice_invalidates_the_first_new_key_too(self, monkeypatch):
+        identity.create_user("itai", "sod-arok-1", "איתי", {identity.CAP_QUOTE_USE})
+        monkeypatch.delenv("APP_PASSWORD", raising=False)
+        admin = TestClient(app)
+        assert admin.post(
+            "/api/login", json={"username": "itai", "password": "sod-arok-1"}
+        ).status_code == 200
+        first = admin.post("/api/admin/service-token/rotate").json()["token"]
+        second = admin.post("/api/admin/service-token/rotate").json()["token"]
+        assert first != second
+        crm = TestClient(app)
+        assert crm.get("/api/config", headers={"X-Service-Token": first}).status_code == 401
+        assert crm.get("/api/config", headers={"X-Service-Token": second}).status_code == 200
 
 
 class TestSavingBusinessDetailsFromTheAdminScreen:

@@ -166,7 +166,7 @@ function render(d) {
         : '<p class="quiet">עוד לא נפתחה אף הזמנה.</p>'}
     </div>`);
 
-  /* ---- 4. תשלום, מייל, CRM — מצב, לא פעולה ---- */
+  /* ---- 4. תשלום ומייל — מצב, לא פעולה ---- */
   const payKeys = new Set((d.payment || []).map((p) => p.key));
   parts.push(`
     <div class="card">
@@ -176,9 +176,28 @@ function render(d) {
           <div class="v small">${payKeys.has('tranzila') ? 'פעיל' : 'כבוי'}</div></div>
         <div class="stat ${d.mail_configured ? 'ok' : ''}"><div class="k">שליחת מייל</div>
           <div class="v small">${d.mail_configured ? 'מוגדר' : 'לא מוגדר — שחזור סיסמה לא שולח'}</div></div>
-        <div class="stat ${d.service_token_configured ? 'ok' : ''}"><div class="k">CRM ימיש</div>
-          <div class="v small">${d.service_token_configured ? 'מחווט' : 'טרם חווט'}</div></div>
       </div>
+    </div>`);
+
+  /* ---- 4ב. מפתח ה-CRM — נראה, ומתחלף מכאן ולא ב-SSH ---- */
+  const st = d.service_token;
+  const stSourceLine = st.source === 'file'
+    ? `סובב מהמסך${st.rotated_at ? ` · ${esc(st.rotated_at.replace('T', ' '))}` : ''}`
+    : st.source === 'env'
+      ? 'הערך המקורי מהסביבה — עדיין לא סובב מכאן'
+      : 'אין מפתח מוגדר';
+  parts.push(`
+    <div class="card ${st.configured ? '' : 'act'}">
+      <h2>מפתח ה-API ל-CRM ימיש</h2>
+      <p class="sub">מה ש"CRM ימיש חדש" שולח בכותרת <code>X-Service-Token</code>. מקבל תמחור בלבד — לעולם לא עריכת מחירים.</p>
+      <div style="display:flex; gap:8px; margin-top:var(--s3); flex-wrap:wrap">
+        <input id="token-field" type="text" readonly value="${esc(st.token)}"
+          placeholder="אין מפתח עדיין"
+          style="flex:1; min-width:220px; font-family:monospace; border:1px solid var(--ink-200); border-radius:var(--r-md); padding:8px 10px; background:var(--paper)">
+        <button class="btn btn-secondary" type="button" id="token-copy" ${st.configured ? '' : 'disabled'}>העתק</button>
+        <button class="btn btn-secondary" type="button" id="token-rotate">${st.configured ? 'צור מפתח חדש' : 'צור מפתח'}</button>
+      </div>
+      <p class="quiet" id="token-status">${esc(stSourceLine)}</p>
     </div>`);
 
   /* ---- 5. פרטי העסק — טופס, לא רק תצוגה ---- */
@@ -216,6 +235,39 @@ function render(d) {
 
   $('#root').innerHTML = parts.join('');
   $('#biz-form').addEventListener('submit', saveBusiness);
+  $('#token-copy').addEventListener('click', copyToken);
+  $('#token-rotate').addEventListener('click', () => rotateToken(d));
+}
+
+async function copyToken() {
+  const field = $('#token-field');
+  if (!field.value) return;
+  try {
+    await navigator.clipboard.writeText(field.value);
+  } catch {
+    field.select();  // דפדפן בלי הרשאת clipboard — לפחות מסמנים לבחירה ידנית
+  }
+}
+
+async function rotateToken(d) {
+  const known = d.service_token.configured;
+  if (known && !confirm(
+    'המפתח הישן יפסיק לעבוד מיד. מי שמזין מספר ב-"CRM ימיש" עם הערך הישן יקבל שגיאה עד שיעדכן שם את הערך החדש. להמשיך?'
+  )) return;
+  const status = $('#token-status');
+  try {
+    const res = await fetch('/api/admin/service-token/rotate', {method: 'POST'});
+    if (!res.ok) {
+      status.textContent = 'הסבב נכשל — נסה שוב.';
+      return;
+    }
+    const fresh = await res.json();
+    $('#token-field').value = fresh.token;
+    $('#token-copy').disabled = false;
+    status.textContent = `סובב עכשיו · ${esc(fresh.rotated_at.replace('T', ' '))} — עדכן את "CRM ימיש" בערך הזה.`;
+  } catch {
+    status.textContent = 'הסבב נכשל — בדוק חיבור ונסה שוב.';
+  }
 }
 
 function kindLabel(kind) {
